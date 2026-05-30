@@ -1025,6 +1025,8 @@ const PatchReviewPanel = ({
   const canRevert = Boolean(
     (patchProposal?.status === "applied" || applyResult?.applied) &&
     projectHasLocalRoot &&
+    patchProposal?.status !== "dismissed" &&
+    patchProposal?.status !== "reverted" &&
     !revertResult?.reverted
   );
   const canDismiss = patchProposal?.status === "proposed" || patchProposal?.status === "failed";
