@@ -571,6 +571,48 @@ select:focus,
   gap: 10px;
 }
 
+.related-file-picker {
+  display: grid;
+  gap: 10px;
+}
+
+.related-file-picker > div:first-child {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.related-file-list,
+.related-file-omissions,
+.related-snippet-review,
+.message-body-viewer {
+  display: grid;
+  gap: 10px;
+}
+
+.related-file-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid #e1e7ef;
+  border-radius: 8px;
+  padding: 10px;
+  background: #fbfcfe;
+}
+
+.related-file-item span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.related-file-item strong {
+  color: #667085;
+  font-size: 0.78rem;
+}
+
 .ai-thread-assist {
   display: grid;
   gap: 12px;

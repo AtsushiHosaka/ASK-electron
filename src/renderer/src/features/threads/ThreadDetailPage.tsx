@@ -1433,7 +1433,7 @@ const MessageBubble = ({
       {isCodeLike ? (
         <CodeContextViewer content={message.body} kind={viewerKind} />
       ) : (
-        <p>{message.body}</p>
+        <MessageBodyViewer body={message.body} />
       )}
 
       {message.message_type === "patch" ? (
@@ -1452,6 +1452,61 @@ const MessageBubble = ({
         />
       ) : null}
     </article>
+  );
+};
+
+const fencedCodeBlockPattern = /```([A-Za-z0-9_+-]*)\n([\s\S]*?)```/g;
+
+const MessageBodyViewer = ({ body }: { body: string }): ReactElement => {
+  const blocks: Array<
+    | { kind: "text"; content: string; key: string }
+    | { kind: "code"; content: string; language: string | null; key: string }
+  > = [];
+  let cursor = 0;
+
+  for (const match of body.matchAll(fencedCodeBlockPattern)) {
+    const index = match.index ?? 0;
+    const text = body.slice(cursor, index).trim();
+
+    if (text) {
+      blocks.push({ kind: "text", content: text, key: `text-${cursor}` });
+    }
+
+    blocks.push({
+      kind: "code",
+      language: match[1] || null,
+      content: match[2] ?? "",
+      key: `code-${index}`
+    });
+    cursor = index + match[0].length;
+  }
+
+  const rest = body.slice(cursor).trim();
+
+  if (rest) {
+    blocks.push({ kind: "text", content: rest, key: `text-${cursor}` });
+  }
+
+  if (blocks.length === 0) {
+    return <p>{body}</p>;
+  }
+
+  return (
+    <div className="message-body-viewer">
+      {blocks.map((block) =>
+        block.kind === "code" ? (
+          <CodeContextViewer
+            content={block.content}
+            key={block.key}
+            kind="code"
+            language={block.language}
+            maxVisibleLines={120}
+          />
+        ) : (
+          <p key={block.key}>{block.content}</p>
+        )
+      )}
+    </div>
   );
 };
 

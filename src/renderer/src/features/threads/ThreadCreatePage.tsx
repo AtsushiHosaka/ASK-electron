@@ -8,7 +8,9 @@ import type {
   GitDiffCollectionRequest,
   GitDiffCollectionResponse,
   ProjectGitInspectionResponse,
-  ProjectRootSelectionResponse
+  ProjectRootSelectionResponse,
+  RelatedFileOmission,
+  RelatedFileSnippet
 } from "../../../../shared/ipc";
 import {
   scanSecrets,
@@ -17,6 +19,7 @@ import {
 } from "../../../../shared/secretScanner";
 import { useAuth } from "../auth/AuthProvider";
 import { getSupabaseClient } from "../../lib/supabase";
+import { CodeContextViewer } from "../../components/CodeContextViewer";
 
 type ProjectRow = Database["public"]["Tables"]["projects"]["Row"];
 
@@ -58,6 +61,14 @@ interface SendReviewState {
   excludedRelatedFiles: string[];
 }
 
+interface RelatedFilesUiState {
+  loading: boolean;
+  snippets: RelatedFileSnippet[];
+  omitted: RelatedFileOmission[];
+  error: string | null;
+  message: string | null;
+}
+
 interface AiAssistUiState {
   loadingTask: ThreadCreateAiTask | null;
 }
@@ -80,6 +91,14 @@ const initialEnvironmentSnapshotState: EnvironmentSnapshotUiState = {
   loading: false,
   response: null,
   error: null
+};
+
+const initialRelatedFilesState: RelatedFilesUiState = {
+  loading: false,
+  snippets: [],
+  omitted: [],
+  error: null,
+  message: null
 };
 
 const initialSendReviewState: SendReviewState = {
@@ -118,12 +137,29 @@ const getAiTaskLabel = (task: ThreadCreateAiTask): string => {
   return labels[task];
 };
 
+const buildRelatedFileSnippetsMessage = (snippets: RelatedFileSnippet[]): string => {
+  if (snippets.length === 0) {
+    return "## 関連コード snippet\n未選択";
+  }
+
+  return [
+    "## 関連コード snippet",
+    ...snippets.map((snippet) => {
+      const fenceLanguage = snippet.language ?? "";
+      const truncatedNote = snippet.truncated ? "\n<!-- truncated -->" : "";
+
+      return `### ${snippet.path}\n\`\`\`${fenceLanguage}\n${snippet.content.trimEnd()}\n\`\`\`${truncatedNote}`;
+    })
+  ].join("\n\n");
+};
+
 const buildAiAssistContext = ({
   title,
   situation,
   errorText,
   commandText,
   relatedFiles,
+  relatedFileSnippets,
   gitDiff,
   environmentSnapshot
 }: {
@@ -132,6 +168,7 @@ const buildAiAssistContext = ({
   errorText: string;
   commandText: string;
   relatedFiles: string[];
+  relatedFileSnippets: RelatedFileSnippet[];
   gitDiff: GitDiffCollectionResponse | null;
   environmentSnapshot: EnvironmentSnapshotResponse | null;
 }): AiContextEntry[] => {
@@ -141,6 +178,12 @@ const buildAiAssistContext = ({
     { label: "エラー文", kind: "error", value: errorText },
     { label: "実行コマンド", kind: "command", value: commandText },
     { label: "関連ファイル", kind: "file_path", value: relatedFiles.join("\n") },
+    {
+      label: "関連コード snippet",
+      kind: "user_text",
+      value:
+        relatedFileSnippets.length > 0 ? buildRelatedFileSnippetsMessage(relatedFileSnippets) : ""
+    },
     { label: "Git差分", kind: "diff", value: gitDiff ? buildGitDiffMessage(gitDiff) : "" },
     {
       label: "環境情報",
@@ -172,6 +215,7 @@ const buildInitialMessage = ({
   errorText,
   commandText,
   relatedFiles,
+  relatedFileSnippets,
   secretScan,
   gitDiff,
   environmentSnapshot,
@@ -185,6 +229,7 @@ const buildInitialMessage = ({
   errorText: string;
   commandText: string;
   relatedFiles: string[];
+  relatedFileSnippets: RelatedFileSnippet[];
   secretScan: SecretScanResult;
   gitDiff: GitDiffCollectionResponse | null;
   environmentSnapshot: EnvironmentSnapshotResponse | null;
@@ -201,6 +246,7 @@ const buildInitialMessage = ({
     `## エラー文\n${errorText.trim() || "未入力"}`,
     `## 実行コマンド\n${commandText.trim() || "未入力"}`,
     `## 関連ファイル\n${relatedFiles.length > 0 ? relatedFiles.join("\n") : "未選択"}`,
+    buildRelatedFileSnippetsMessage(relatedFileSnippets),
     buildGitDiffMessage(gitDiff),
     buildEnvironmentSnapshotMessage(environmentSnapshot),
     `## 除外した項目\n${excludedItems.length > 0 ? excludedItems.join("\n") : "なし"}`,
@@ -369,11 +415,12 @@ export const ThreadCreatePage = (): ReactElement => {
   const [situation, setSituation] = useState("");
   const [errorText, setErrorText] = useState("");
   const [commandText, setCommandText] = useState("");
-  const [relatedFilesText, setRelatedFilesText] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [messageStatus, setMessageStatus] = useState<MessageStatus>("warning");
   const [gitDiffState, setGitDiffState] = useState<GitDiffUiState>(initialGitDiffState);
+  const [relatedFilesState, setRelatedFilesState] =
+    useState<RelatedFilesUiState>(initialRelatedFilesState);
   const [environmentSnapshotState, setEnvironmentSnapshotState] =
     useState<EnvironmentSnapshotUiState>(initialEnvironmentSnapshotState);
   const [sendReview, setSendReview] = useState<SendReviewState>(initialSendReviewState);
@@ -434,7 +481,7 @@ export const ThreadCreatePage = (): ReactElement => {
   }, [profile, supabase]);
 
   const selectedProject = state.projects.find((project) => project.id === selectedProjectId);
-  const relatedFiles = splitRelatedFiles(relatedFilesText);
+  const relatedFiles = relatedFilesState.snippets.map((snippet) => snippet.path);
   const gitDiffResponse = gitDiffState.response;
   const environmentSnapshot = environmentSnapshotState.response;
   const blockedRelatedFiles = findBlockedRelatedFiles(relatedFiles);
@@ -443,6 +490,9 @@ export const ThreadCreatePage = (): ReactElement => {
     ...sendReview.excludedRelatedFiles
   ]);
   const includedRelatedFiles = relatedFiles.filter((file) => !excludedRelatedFileSet.has(file));
+  const includedRelatedFileSnippets = relatedFilesState.snippets.filter(
+    (snippet) => !excludedRelatedFileSet.has(snippet.path)
+  );
   const editableSecretScan = scanSecrets({
     textEntries: [
       { label: "タイトル", value: title },
@@ -475,7 +525,11 @@ export const ThreadCreatePage = (): ReactElement => {
           sendReview.includeEnvironmentSnapshot && environmentSnapshot
             ? buildEnvironmentSnapshotMessage(environmentSnapshot)
             : ""
-      }
+      },
+      ...includedRelatedFileSnippets.map((snippet) => ({
+        label: `関連ファイル: ${snippet.path}`,
+        value: snippet.content
+      }))
     ],
     filePaths: [
       ...includedRelatedFiles,
@@ -846,6 +900,87 @@ export const ThreadCreatePage = (): ReactElement => {
     }
   };
 
+  const selectRelatedFiles = async (): Promise<void> => {
+    if (!selectedProject?.local_path_hash) {
+      setMessageStatus("warning");
+      setMessage("ローカルフォルダを再接続してから関連ファイルを選択してください。");
+      return;
+    }
+
+    setRelatedFilesState((current) => ({
+      ...current,
+      loading: true,
+      error: null,
+      message: null
+    }));
+
+    try {
+      const result = await window.ask.relatedFiles.select({
+        localPathHash: selectedProject.local_path_hash,
+        alreadySelectedPaths: relatedFiles
+      });
+
+      if (!result.ok) {
+        setRelatedFilesState((current) => ({
+          ...current,
+          loading: false,
+          error: result.error.message,
+          message: null
+        }));
+        setMessageStatus("warning");
+        setMessage(result.error.message);
+        return;
+      }
+
+      setRelatedFilesState((current) => ({
+        loading: false,
+        snippets: [...current.snippets, ...result.data.snippets],
+        omitted: result.data.omitted,
+        error: null,
+        message: result.data.message
+      }));
+      setSendReview((current) => ({
+        ...current,
+        excludedRelatedFiles: current.excludedRelatedFiles.filter((file) =>
+          [...relatedFiles, ...result.data.snippets.map((snippet) => snippet.path)].includes(file)
+        )
+      }));
+      setMessageStatus(result.data.status === "ready" ? "success" : "warning");
+      setMessage(result.data.message);
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "関連ファイルを選択できませんでした。";
+      setRelatedFilesState((current) => ({
+        ...current,
+        loading: false,
+        error: errorMessage,
+        message: null
+      }));
+      setMessageStatus("warning");
+      setMessage(errorMessage);
+    }
+  };
+
+  const updateRelatedFileSnippetContent = (path: string, content: string): void => {
+    setRelatedFilesState((current) => ({
+      ...current,
+      snippets: current.snippets.map((snippet) =>
+        snippet.path === path ? { ...snippet, content } : snippet
+      )
+    }));
+  };
+
+  const removeRelatedFileSnippet = (path: string): void => {
+    setRelatedFilesState((current) => ({
+      ...current,
+      snippets: current.snippets.filter((snippet) => snippet.path !== path)
+    }));
+    setSendReview((current) => ({
+      ...current,
+      excludedRelatedFiles: current.excludedRelatedFiles.filter((file) => file !== path)
+    }));
+  };
+
   const generateAiAssist = async (task: ThreadCreateAiTask): Promise<void> => {
     if (!canReview || !selectedProject) {
       setMessageStatus(editableSecretScan.blocked ? "error" : "warning");
@@ -877,6 +1012,7 @@ export const ThreadCreatePage = (): ReactElement => {
         errorText,
         commandText,
         relatedFiles: includedRelatedFiles,
+        relatedFileSnippets: includedRelatedFileSnippets,
         gitDiff,
         environmentSnapshot: snapshot
       });
@@ -1009,6 +1145,7 @@ export const ThreadCreatePage = (): ReactElement => {
     errorText,
     commandText,
     relatedFiles: includedRelatedFiles,
+    relatedFileSnippets: includedRelatedFileSnippets,
     secretScan,
     gitDiff: sendReview.includeGitDiff ? gitDiffResponse : null,
     environmentSnapshot: sendReview.includeEnvironmentSnapshot ? environmentSnapshot : null,
@@ -1174,6 +1311,7 @@ export const ThreadCreatePage = (): ReactElement => {
         errorText,
         commandText,
         relatedFiles: includedRelatedFiles,
+        relatedFileSnippets: includedRelatedFileSnippets,
         secretScan,
         gitDiff,
         environmentSnapshot: environmentSnapshotForSubmit,
@@ -1294,6 +1432,7 @@ export const ThreadCreatePage = (): ReactElement => {
                 onChange={(event) => {
                   setSelectedProjectId(event.target.value);
                   setGitDiffState(initialGitDiffState);
+                  setRelatedFilesState(initialRelatedFilesState);
                   setEnvironmentSnapshotState(initialEnvironmentSnapshotState);
                   setSendReview(initialSendReviewState);
                   setAllowedSecretFindingIds([]);
@@ -1347,15 +1486,51 @@ export const ThreadCreatePage = (): ReactElement => {
               />
             </label>
 
-            <label>
-              関連ファイル
-              <textarea
-                rows={4}
-                placeholder={"1行に1ファイル\nsrc/main.ts\npackage.json"}
-                value={relatedFilesText}
-                onChange={(event) => setRelatedFilesText(event.target.value)}
-              />
-            </label>
+            <div className="related-file-picker">
+              <div>
+                <span>関連ファイル</span>
+                <button
+                  className="secondary-button"
+                  disabled={relatedFilesState.loading || !selectedProject?.local_path_hash}
+                  type="button"
+                  onClick={() => void selectRelatedFiles()}
+                >
+                  {relatedFilesState.loading ? "選択中..." : "ファイルを選択"}
+                </button>
+              </div>
+
+              {relatedFilesState.snippets.length === 0 ? (
+                <p className="muted">未選択</p>
+              ) : (
+                <div className="related-file-list">
+                  {relatedFilesState.snippets.map((snippet) => (
+                    <div className="related-file-item" key={snippet.path}>
+                      <span>{snippet.path}</span>
+                      <strong>
+                        {snippet.lineCount} lines / {snippet.byteLength} bytes
+                      </strong>
+                      <button
+                        className="link-button"
+                        type="button"
+                        onClick={() => removeRelatedFileSnippet(snippet.path)}
+                      >
+                        除外
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {relatedFilesState.omitted.length > 0 ? (
+                <div className="related-file-omissions">
+                  {relatedFilesState.omitted.map((omission) => (
+                    <p className="message warning" key={`${omission.reason}-${omission.path}`}>
+                      {omission.path}: {omission.message}
+                    </p>
+                  ))}
+                </div>
+              ) : null}
+            </div>
           </article>
 
           <aside className="detail-panel thread-preview-panel">
@@ -1476,6 +1651,16 @@ export const ThreadCreatePage = (): ReactElement => {
                 送信から除外する関連ファイル: {blockedRelatedFiles.join(", ")}
               </p>
             )}
+
+            {relatedFilesState.error ? (
+              <p className="message warning" role="status">
+                {relatedFilesState.error}
+              </p>
+            ) : relatedFilesState.message ? (
+              <p className="message success" role="status">
+                {relatedFilesState.message}
+              </p>
+            ) : null}
 
             {secretFindingsForPreview.length > 0 && (
               <div className="secret-finding-list" role="group" aria-label="秘密情報チェック結果">
@@ -1605,25 +1790,44 @@ export const ThreadCreatePage = (): ReactElement => {
             <div className="review-grid">
               <section className="review-section">
                 <h3>関連ファイル</h3>
-                {relatedFiles.length === 0 ? (
+                {relatedFilesState.snippets.length === 0 ? (
                   <p className="muted">未選択</p>
                 ) : (
                   <div className="review-check-list">
-                    {relatedFiles.map((file) => {
-                      const blocked = blockedRelatedFiles.includes(file);
-                      const excluded = excludedRelatedFileSet.has(file);
+                    {relatedFilesState.snippets.map((snippet) => {
+                      const blocked = blockedRelatedFiles.includes(snippet.path);
+                      const excluded = excludedRelatedFileSet.has(snippet.path);
 
                       return (
-                        <label className="review-check-row" key={file}>
-                          <input
-                            checked={!excluded}
-                            disabled={blocked}
-                            type="checkbox"
-                            onChange={() => toggleRelatedFileExclusion(file)}
-                          />
-                          <span>{file}</span>
-                          <strong>{blocked ? "ブロック" : excluded ? "除外" : "送信"}</strong>
-                        </label>
+                        <div className="related-snippet-review" key={snippet.path}>
+                          <label className="review-check-row">
+                            <input
+                              checked={!excluded}
+                              disabled={blocked}
+                              type="checkbox"
+                              onChange={() => toggleRelatedFileExclusion(snippet.path)}
+                            />
+                            <span>{snippet.path}</span>
+                            <strong>{blocked ? "ブロック" : excluded ? "除外" : "送信"}</strong>
+                          </label>
+                          {!excluded ? (
+                            <>
+                              <textarea
+                                aria-label={`${snippet.path} snippet`}
+                                value={snippet.content}
+                                onChange={(event) =>
+                                  updateRelatedFileSnippetContent(snippet.path, event.target.value)
+                                }
+                              />
+                              <CodeContextViewer
+                                content={snippet.content}
+                                kind="code"
+                                language={snippet.language}
+                                maxVisibleLines={80}
+                              />
+                            </>
+                          ) : null}
+                        </div>
                       );
                     })}
                   </div>

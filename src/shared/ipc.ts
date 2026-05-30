@@ -9,6 +9,7 @@ export const IpcChannel = {
   ProjectInspectGit: "ask:v1:project:inspect-git",
   ProjectReconnectRoot: "ask:v1:project:reconnect-root",
   GitDiffCollect: "ask:v1:git-diff:collect",
+  RelatedFilesSelect: "ask:v1:related-files:select",
   EnvironmentSnapshotCollect: "ask:v1:environment-snapshot:collect",
   PatchValidate: "ask:v1:patch:validate",
   PatchApply: "ask:v1:patch:apply",
@@ -258,6 +259,70 @@ export interface GitDiffCollectionResponse {
   message: string;
 }
 
+export type RelatedFileOmissionReason =
+  | "root_missing"
+  | "outside_root"
+  | "not_file"
+  | "blocked_path"
+  | "secret_detected"
+  | "binary"
+  | "lockfile"
+  | "unsupported_extension"
+  | "oversized"
+  | "too_many_files"
+  | "duplicate"
+  | "read_failed";
+
+export interface RelatedFileSecretFinding {
+  severity: "block" | "warn";
+  sourceLabel: string;
+  message: string;
+  preview: string;
+  lineNumber: number | null;
+  canAllow: boolean;
+}
+
+export interface RelatedFileSnippet {
+  path: string;
+  language: string | null;
+  content: string;
+  byteLength: number;
+  lineCount: number;
+  truncated: boolean;
+  warnings: RelatedFileSecretFinding[];
+}
+
+export interface RelatedFileOmission {
+  path: string;
+  reason: RelatedFileOmissionReason;
+  message: string;
+  byteLength: number | null;
+  findings: RelatedFileSecretFinding[];
+}
+
+export type RelatedFilesSelectStatus = "ready" | "partial" | "cancelled" | "root_missing";
+
+export interface RelatedFilesSelectRequest {
+  localPathHash: string | null;
+  alreadySelectedPaths?: string[];
+}
+
+export interface RelatedFilesSelectResponse {
+  contractVersion: "v1";
+  status: RelatedFilesSelectStatus;
+  selectedAt: string;
+  snippets: RelatedFileSnippet[];
+  omitted: RelatedFileOmission[];
+  limits: {
+    maxFiles: number;
+    maxBytesPerFile: number;
+    maxTotalBytes: number;
+    allowedExtensions: string[];
+    allowedFilenames: string[];
+  };
+  message: string;
+}
+
 export type EnvironmentSnapshotStatus = "ready" | "partial";
 
 export interface EnvironmentSnapshotRequest {
@@ -463,6 +528,7 @@ export interface IpcRequestMap {
   [IpcChannel.ProjectInspectGit]: [ProjectGitInspectionRequest];
   [IpcChannel.ProjectReconnectRoot]: [ProjectRootReconnectRequest];
   [IpcChannel.GitDiffCollect]: [GitDiffCollectionRequest];
+  [IpcChannel.RelatedFilesSelect]: [RelatedFilesSelectRequest];
   [IpcChannel.EnvironmentSnapshotCollect]: [EnvironmentSnapshotRequest];
   [IpcChannel.PatchValidate]: [PatchValidateRequest];
   [IpcChannel.PatchApply]: [PatchApplyRequest];
@@ -479,6 +545,7 @@ export interface IpcResponseMap {
   [IpcChannel.ProjectInspectGit]: IpcResult<ProjectGitInspectionResponse>;
   [IpcChannel.ProjectReconnectRoot]: IpcResult<ProjectRootReconnectResponse>;
   [IpcChannel.GitDiffCollect]: IpcResult<GitDiffCollectionResponse>;
+  [IpcChannel.RelatedFilesSelect]: IpcResult<RelatedFilesSelectResponse>;
   [IpcChannel.EnvironmentSnapshotCollect]: IpcResult<EnvironmentSnapshotResponse>;
   [IpcChannel.PatchValidate]: IpcResult<PatchValidateResponse>;
   [IpcChannel.PatchApply]: IpcResult<PatchApplyResponse>;
@@ -510,6 +577,11 @@ export interface RendererApi {
     collect: (
       input: GitDiffCollectionRequest
     ) => Promise<IpcResponseMap[typeof IpcChannel.GitDiffCollect]>;
+  };
+  relatedFiles: {
+    select: (
+      input: RelatedFilesSelectRequest
+    ) => Promise<IpcResponseMap[typeof IpcChannel.RelatedFilesSelect]>;
   };
   environment: {
     collectSnapshot: (

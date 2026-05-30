@@ -25,7 +25,9 @@ import {
   type ProjectGitInspectionResponse,
   type ProjectRootReconnectRequest,
   type ProjectRootReconnectResponse,
-  type ProjectRootSelectionResponse
+  type ProjectRootSelectionResponse,
+  type RelatedFilesSelectRequest,
+  type RelatedFilesSelectResponse
 } from "../shared/ipc";
 import {
   AI_PIPELINE_LIMITS,
@@ -44,6 +46,7 @@ import { applyPatch, revertPatch, validatePatch } from "./patchWorkflow";
 import { inspectProjectGit } from "./projectGitInspector";
 import { reconnectProjectRoot } from "./projectRootReconnect";
 import { selectProjectRoot } from "./projectRoots";
+import { selectRelatedFileSnippets } from "./relatedFileSnippets";
 
 const createMetadata = (channel: IpcChannelName): IpcAuditMetadata => ({
   channel,
@@ -162,6 +165,16 @@ const isGitDiffCollectionRequest = (value: unknown): value is GitDiffCollectionR
     (typeof value.projectRootId === "string" ||
       typeof value.localPathHash === "string" ||
       value.localPathHash === null)
+  );
+};
+
+const isRelatedFilesSelectRequest = (value: unknown): value is RelatedFilesSelectRequest => {
+  return (
+    isRecord(value) &&
+    (typeof value.localPathHash === "string" || value.localPathHash === null) &&
+    (value.alreadySelectedPaths === undefined ||
+      (Array.isArray(value.alreadySelectedPaths) &&
+        value.alreadySelectedPaths.every((path) => typeof path === "string")))
   );
 };
 
@@ -390,6 +403,37 @@ export const registerIpcHandlers = (): void => {
         IpcChannel.GitDiffCollect,
         "GIT_DIFF_COLLECT_FAILED",
         "Git差分を収集できませんでした。質問作成は継続できます。"
+      );
+    }
+  });
+
+  ipcMain.handle(IpcChannel.RelatedFilesSelect, async (event, input) => {
+    try {
+      if (!isRelatedFilesSelectRequest(input)) {
+        return fail(
+          IpcChannel.RelatedFilesSelect,
+          "VALIDATION_FAILED",
+          "関連ファイル選択リクエストが正しくありません。"
+        );
+      }
+
+      return ok(
+        IpcChannel.RelatedFilesSelect,
+        (await selectRelatedFileSnippets(
+          BrowserWindow.fromWebContents(event.sender),
+          input
+        )) satisfies RelatedFilesSelectResponse
+      );
+    } catch (error) {
+      console.error(`[${IpcChannel.RelatedFilesSelect}] related file selection failed`, {
+        event: "related_file_selection_failed",
+        ...getSafeErrorFields(error)
+      });
+
+      return fail(
+        IpcChannel.RelatedFilesSelect,
+        "RELATED_FILES_SELECT_FAILED",
+        "関連ファイルを選択できませんでした。"
       );
     }
   });

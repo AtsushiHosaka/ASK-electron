@@ -32,6 +32,9 @@ const api: RendererApi = {
   gitDiff: {
     collect: (input) => invoke(IpcChannel.GitDiffCollect, input)
   },
+  relatedFiles: {
+    select: (input) => invoke(IpcChannel.RelatedFilesSelect, input)
+  },
   environment: {
     collectSnapshot: (input) => invoke(IpcChannel.EnvironmentSnapshotCollect, input)
   },
