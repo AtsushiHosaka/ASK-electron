@@ -397,6 +397,10 @@ const redactSecretPreview = (value: string): string => {
     );
 };
 
+const safeSourceLabel = (label: string): string => {
+  return redactSecretPreview(normalizeLabel(label)) || "context";
+};
+
 const createFinding = (finding: AiSecretFinding): AiSecretFinding => finding;
 
 const scanPathForSecrets = (entry: AiContextEntry): AiSecretFinding[] => {
@@ -417,7 +421,7 @@ const scanPathForSecrets = (entry: AiContextEntry): AiSecretFinding[] => {
         createFinding({
           kind: "blocked_path",
           severity: "block",
-          sourceLabel: entry.label,
+          sourceLabel: safeSourceLabel(entry.label),
           message: "AI へ送信できないファイルパスです。",
           preview: path,
           lineNumber: null
@@ -447,7 +451,7 @@ const scanTextForSecrets = (entry: AiContextEntry): AiSecretFinding[] => {
           createFinding({
             kind: rule.kind,
             severity: rule.severity,
-            sourceLabel: entry.label,
+            sourceLabel: safeSourceLabel(entry.label),
             message: rule.message,
             preview,
             lineNumber: lineIndex + 1
@@ -484,14 +488,24 @@ const dedupeFindings = (findings: AiSecretFinding[]): AiSecretFinding[] => {
   return deduped;
 };
 
+const scanLabelForSecrets = (entry: AiContextEntry): AiSecretFinding[] => {
+  return scanTextForSecrets({
+    label: "context label",
+    kind: "user_text",
+    value: entry.label
+  });
+};
+
 export const scanAiAssistRequestForSecrets = (request: AiAssistRequest): AiSecretScanSummary => {
   const findings = dedupeFindings(
     request.context.flatMap((entry) => {
+      const labelFindings = scanLabelForSecrets(entry);
+
       if (entry.kind === "file_path") {
-        return scanPathForSecrets(entry);
+        return [...labelFindings, ...scanPathForSecrets(entry)];
       }
 
-      return scanTextForSecrets(entry);
+      return [...labelFindings, ...scanTextForSecrets(entry)];
     })
   );
   const blockedFindingCount = findings.filter((finding) => finding.severity === "block").length;

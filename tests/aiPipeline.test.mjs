@@ -72,6 +72,30 @@ describe("AI request pipeline", () => {
     assert.equal(response.safety.executableOutput, false);
   });
 
+  it("scans labels before building provider prompts", () => {
+    const result = scanAiAssistRequestForSecrets({
+      task: "question_rewrite",
+      context: [
+        {
+          label: "OPENAI_API_KEY=sk-1234567890abcdefghijklmnopqrstuvwxyz",
+          kind: "user_text",
+          value: "ラベル側だけに秘密情報候補があります。"
+        }
+      ]
+    });
+
+    assert.equal(result.blocked, true);
+    assert.equal(result.blockedFindingCount > 0, true);
+    assert.equal(
+      result.findings.some((finding) => finding.kind === "provider_api_key"),
+      true
+    );
+    assert.equal(
+      result.findings.some((finding) => finding.sourceLabel.includes("sk-123456")),
+      false
+    );
+  });
+
   it("falls back without stopping the caller when a provider fails", async () => {
     const provider = {
       id: "failing-provider",
@@ -119,20 +143,14 @@ describe("AI request pipeline", () => {
 
     assert.equal(response.status, "completed");
     assert.equal(response.output?.requiresHumanReview, true);
+    assert.ok(response.output);
     assert.equal(response.safety.executableOutput, false);
     assert.equal(response.streaming.used, false);
     assert.equal(
-      scanAiAssistRequestForSecrets(
-        response.output
-          ? {
-              task: "patch_proposal",
-              context: [{ label: "output", kind: "user_text", value: response.output.text }]
-            }
-          : {
-              task: "patch_proposal",
-              context: []
-            }
-      ).blocked,
+      scanAiAssistRequestForSecrets({
+        task: "patch_proposal",
+        context: [{ label: "output", kind: "user_text", value: response.output.text }]
+      }).blocked,
       false
     );
   });

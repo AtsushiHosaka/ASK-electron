@@ -20,6 +20,7 @@ import {
   type ProjectRootSelectionResponse
 } from "../shared/ipc";
 import {
+  AI_PIPELINE_LIMITS,
   isAiAssistTask,
   isAiContextKind,
   type AiAssistRequest,
@@ -59,6 +60,27 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null;
 };
 
+const AI_IPC_MAX_CONTEXT_ITEMS = AI_PIPELINE_LIMITS.maxContextEntries * 2;
+const AI_IPC_MAX_STRING_LENGTH = 20_000;
+const AI_IPC_MAX_TOTAL_CONTEXT_CHARS = 80_000;
+const AI_IPC_MAX_ID_LENGTH = 128;
+
+const clipLogValue = (value: string, maxLength: number): string => {
+  return value.replace(/\s+/g, " ").trim().slice(0, maxLength);
+};
+
+const safeErrorFields = (error: unknown): { message: string; code: string | null } => {
+  const errorRecord = typeof error === "object" && error !== null ? error : {};
+  const rawCode = "code" in errorRecord ? errorRecord.code : null;
+  const message =
+    error instanceof Error ? error.message : typeof error === "string" ? error : "unknown error";
+
+  return {
+    message: clipLogValue(message, 240),
+    code: typeof rawCode === "string" || typeof rawCode === "number" ? String(rawCode) : null
+  };
+};
+
 const isGitignorePreviewRequest = (value: unknown): value is GitignorePreviewRequest => {
   return (
     isRecord(value) && typeof value.projectRootId === "string" && value.projectRootId.length > 0
@@ -67,6 +89,10 @@ const isGitignorePreviewRequest = (value: unknown): value is GitignorePreviewReq
 
 const isAiAssistRequest = (value: unknown): value is AiAssistRequest => {
   if (!isRecord(value) || !isAiAssistTask(value.task) || !Array.isArray(value.context)) {
+    return false;
+  }
+
+  if (value.context.length > AI_IPC_MAX_CONTEXT_ITEMS) {
     return false;
   }
 
@@ -80,22 +106,29 @@ const isAiAssistRequest = (value: unknown): value is AiAssistRequest => {
   const hasValidIds =
     (value.projectId === undefined ||
       value.projectId === null ||
-      typeof value.projectId === "string") &&
-    (value.threadId === undefined || value.threadId === null || typeof value.threadId === "string");
+      (typeof value.projectId === "string" && value.projectId.length <= AI_IPC_MAX_ID_LENGTH)) &&
+    (value.threadId === undefined ||
+      value.threadId === null ||
+      (typeof value.threadId === "string" && value.threadId.length <= AI_IPC_MAX_ID_LENGTH));
+  let totalContextChars = 0;
+  const hasValidContext = value.context.every((entry) => {
+    if (
+      !isRecord(entry) ||
+      typeof entry.label !== "string" ||
+      entry.label.trim().length === 0 ||
+      entry.label.length > AI_IPC_MAX_STRING_LENGTH ||
+      !isAiContextKind(entry.kind) ||
+      typeof entry.value !== "string" ||
+      entry.value.length > AI_IPC_MAX_STRING_LENGTH
+    ) {
+      return false;
+    }
 
-  return (
-    hasValidOptions &&
-    hasValidIds &&
-    value.context.every((entry) => {
-      return (
-        isRecord(entry) &&
-        typeof entry.label === "string" &&
-        entry.label.trim().length > 0 &&
-        isAiContextKind(entry.kind) &&
-        typeof entry.value === "string"
-      );
-    })
-  );
+    totalContextChars += entry.label.length + entry.value.length;
+    return totalContextChars <= AI_IPC_MAX_TOTAL_CONTEXT_CHARS;
+  });
+
+  return hasValidOptions && hasValidIds && hasValidContext;
 };
 
 const isProjectGitInspectionRequest = (value: unknown): value is ProjectGitInspectionRequest => {
@@ -181,7 +214,10 @@ export const registerIpcHandlers = (): void => {
         (await runAiAssistPipeline(input)) satisfies AiAssistResponse
       );
     } catch (error) {
-      console.error(`[${IpcChannel.AiGenerate}] AI pipeline failed`, error);
+      console.error(
+        `[${IpcChannel.AiGenerate}] AI pipeline failed`,
+        JSON.stringify(safeErrorFields(error))
+      );
 
       return fail(
         IpcChannel.AiGenerate,
