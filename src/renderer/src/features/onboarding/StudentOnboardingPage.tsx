@@ -2,8 +2,12 @@ import { useMemo, useState, type ReactElement } from "react";
 import type {
   GitignoreApplyResponse,
   GitignorePreviewResponse,
+  LocalDiagnosticsResponse,
+  ProjectGitInspectionResponse,
   ProjectRootSelectionResponse
 } from "../../../../shared/ipc";
+import { useAuth } from "../auth/AuthProvider";
+import { getSupabaseClient } from "../../lib/supabase";
 
 type StepStatus = "pending" | "checking" | "success" | "warning" | "error";
 
@@ -109,13 +113,66 @@ const statusLabel: Record<StepStatus, string> = {
   error: "失敗"
 };
 
+const diagnosticStepIds = ["github-account", "git-installed", "github-cli-auth", "ssh"] as const;
+
+const isDiagnosticStep = (stepId: string): boolean => {
+  return diagnosticStepIds.some((diagnosticStepId) => diagnosticStepId === stepId);
+};
+
+const resolveGithubUsername = (diagnostics: LocalDiagnosticsResponse): string | null => {
+  return diagnostics.githubCli.account ?? diagnostics.ssh.connection.account;
+};
+
+const mapDiagnosticsToSteps = (
+  diagnostics: LocalDiagnosticsResponse
+): { statuses: Partial<StatusMap>; messages: Record<string, string> } => {
+  const githubUsername = resolveGithubUsername(diagnostics);
+  const statuses: Partial<StatusMap> = {
+    "github-account": githubUsername ? "success" : "error",
+    "git-installed":
+      diagnostics.git.status === "ok" && diagnostics.git.installed ? "success" : "error",
+    "github-cli-auth":
+      diagnostics.githubCli.status === "ok" && diagnostics.githubCli.authenticated
+        ? "success"
+        : "error",
+    ssh:
+      diagnostics.ssh.keys.status === "ok" &&
+      diagnostics.ssh.connection.status === "ok" &&
+      diagnostics.ssh.connection.authenticated
+        ? "success"
+        : "error"
+  };
+
+  return {
+    statuses,
+    messages: {
+      "github-account": githubUsername
+        ? `GitHub アカウント ${githubUsername} を確認しました。`
+        : "GitHub アカウント名を確認できませんでした。GitHub CLI のログイン状態を確認してください。",
+      "git-installed": diagnostics.git.message,
+      "github-cli-auth": diagnostics.githubCli.message,
+      ssh:
+        diagnostics.ssh.keys.status !== "ok"
+          ? diagnostics.ssh.keys.message
+          : diagnostics.ssh.connection.message
+    }
+  };
+};
+
 export const StudentOnboardingPage = (): ReactElement => {
+  const { profile } = useAuth();
+  const supabase = useMemo(() => getSupabaseClient(), []);
   const [statuses, setStatuses] = useState<StatusMap>(() => readStoredStatuses());
   const [activeStepId, setActiveStepId] = useState(() => {
     return steps.find((step) => readStoredStatuses()[step.id] !== "success")?.id ?? steps[0].id;
   });
   const [selectedProjectRoot, setSelectedProjectRoot] =
     useState<ProjectRootSelectionResponse | null>(null);
+  const [repositoryInspection, setRepositoryInspection] =
+    useState<ProjectGitInspectionResponse | null>(null);
+  const [diagnostics, setDiagnostics] = useState<LocalDiagnosticsResponse | null>(null);
+  const [stepMessages, setStepMessages] = useState<Record<string, string>>({});
+  const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
   const [gitignorePreview, setGitignorePreview] = useState<GitignorePreviewResponse | null>(null);
   const [gitignoreApplyResult, setGitignoreApplyResult] = useState<GitignoreApplyResponse | null>(
     null
@@ -136,25 +193,23 @@ export const StudentOnboardingPage = (): ReactElement => {
     window.localStorage.setItem(storageKey, JSON.stringify(nextStatuses));
   };
 
-  const setStepStatus = (stepId: string, status: StepStatus): void => {
-    updateStatuses({
-      ...statuses,
-      [stepId]: status
+  const mergeStatuses = (updates: Partial<StatusMap>): void => {
+    setStatuses((current) => {
+      const nextStatuses: StatusMap = { ...current };
+
+      for (const [stepId, status] of Object.entries(updates)) {
+        if (status) {
+          nextStatuses[stepId] = status;
+        }
+      }
+
+      window.localStorage.setItem(storageKey, JSON.stringify(nextStatuses));
+      return nextStatuses;
     });
   };
 
-  const simulateCheck = (stepId: string): void => {
-    setStepStatus(stepId, "checking");
-    window.setTimeout(() => {
-      setStatuses((current) => {
-        const nextStatuses = {
-          ...current,
-          [stepId]: "success" as StepStatus
-        };
-        window.localStorage.setItem(storageKey, JSON.stringify(nextStatuses));
-        return nextStatuses;
-      });
-    }, 500);
+  const setStepStatus = (stepId: string, status: StepStatus): void => {
+    mergeStatuses({ [stepId]: status });
   };
 
   const resetProgress = (): void => {
@@ -162,6 +217,10 @@ export const StudentOnboardingPage = (): ReactElement => {
     updateStatuses(nextStatuses);
     setActiveStepId(steps[0].id);
     setSelectedProjectRoot(null);
+    setRepositoryInspection(null);
+    setDiagnostics(null);
+    setStepMessages({});
+    setDiagnosticsError(null);
     setGitignorePreview(null);
     setGitignoreApplyResult(null);
     setGitignoreError(null);
@@ -176,8 +235,131 @@ export const StudentOnboardingPage = (): ReactElement => {
     }
   };
 
+  const persistGithubConnection = async (
+    nextDiagnostics: LocalDiagnosticsResponse
+  ): Promise<void> => {
+    if (!supabase || !profile) {
+      setDiagnosticsError("GitHub 連携の保存に必要なプロフィールを確認できませんでした。");
+      return;
+    }
+
+    const githubUsername = resolveGithubUsername(nextDiagnostics);
+    const canPersist =
+      githubUsername &&
+      nextDiagnostics.githubCli.status === "ok" &&
+      nextDiagnostics.githubCli.authenticated &&
+      nextDiagnostics.ssh.connection.status === "ok" &&
+      nextDiagnostics.ssh.connection.authenticated;
+
+    if (!canPersist) {
+      return;
+    }
+
+    const { error: connectionError } = await supabase.from("github_connections").upsert(
+      {
+        user_id: profile.id,
+        github_username: githubUsername,
+        auth_method: "gh_cli",
+        ssh_status: "ok",
+        last_checked_at: nextDiagnostics.checkedAt
+      },
+      { onConflict: "user_id" }
+    );
+
+    if (connectionError) {
+      setDiagnosticsError("GitHub 連携状態を保存できませんでした。再チェックしてください。");
+      return;
+    }
+
+    const { error: profileError } = await supabase
+      .from("users")
+      .update({ github_username: githubUsername })
+      .eq("id", profile.id);
+
+    if (profileError) {
+      console.warn("Failed to update user GitHub username", profileError);
+    }
+  };
+
+  const runLocalDiagnostics = async (): Promise<void> => {
+    mergeStatuses(
+      Object.fromEntries(diagnosticStepIds.map((stepId) => [stepId, "checking" as StepStatus]))
+    );
+    setDiagnostics(null);
+    setDiagnosticsError(null);
+    setStepMessages((current) => {
+      const nextMessages = { ...current };
+
+      for (const stepId of diagnosticStepIds) {
+        delete nextMessages[stepId];
+      }
+
+      return nextMessages;
+    });
+
+    const result = await window.ask.diagnostics.runLocal();
+
+    if (!result.ok) {
+      mergeStatuses(
+        Object.fromEntries(diagnosticStepIds.map((stepId) => [stepId, "error" as StepStatus]))
+      );
+      setDiagnosticsError(result.error.message);
+      return;
+    }
+
+    setDiagnostics(result.data);
+
+    const mappedDiagnostics = mapDiagnosticsToSteps(result.data);
+    mergeStatuses(mappedDiagnostics.statuses);
+    setStepMessages((current) => ({
+      ...current,
+      ...mappedDiagnostics.messages
+    }));
+
+    await persistGithubConnection(result.data);
+  };
+
+  const inspectRepository = async (): Promise<void> => {
+    if (!selectedProjectRoot?.projectRootId) {
+      setStepStatus("repository", "error");
+      setStepMessages((current) => ({
+        ...current,
+        repository: "先にプロジェクトフォルダを選択してください。"
+      }));
+      return;
+    }
+
+    setStepStatus("repository", "checking");
+    setRepositoryInspection(null);
+    setStepMessages((current) => ({
+      ...current,
+      repository: "remote origin と GitHub repository を確認しています。"
+    }));
+
+    const result = await window.ask.project.inspectGit({
+      projectRootId: selectedProjectRoot.projectRootId
+    });
+
+    if (!result.ok) {
+      setStepStatus("repository", "error");
+      setStepMessages((current) => ({
+        ...current,
+        repository: result.error.message
+      }));
+      return;
+    }
+
+    setRepositoryInspection(result.data);
+    setStepStatus("repository", result.data.canRegister ? "success" : "error");
+    setStepMessages((current) => ({
+      ...current,
+      repository: result.data.message
+    }));
+  };
+
   const selectProjectFolder = async (): Promise<void> => {
     setStepStatus("project-root", "checking");
+    setRepositoryInspection(null);
     setGitignorePreview(null);
     setGitignoreApplyResult(null);
     setGitignoreError(null);
@@ -269,6 +451,11 @@ export const StudentOnboardingPage = (): ReactElement => {
   };
 
   const runPrimaryAction = (): void => {
+    if (isDiagnosticStep(activeStep.id)) {
+      void runLocalDiagnostics();
+      return;
+    }
+
     if (activeStep.id === "project-root") {
       void selectProjectFolder();
       return;
@@ -279,19 +466,27 @@ export const StudentOnboardingPage = (): ReactElement => {
       return;
     }
 
-    simulateCheck(activeStep.id);
+    if (activeStep.id === "repository") {
+      void inspectRepository();
+    }
   };
 
-  const primaryActionLabel =
-    activeStep.id === "project-root"
+  const primaryActionLabel = isDiagnosticStep(activeStep.id)
+    ? statuses[activeStep.id] === "checking"
+      ? "確認中..."
+      : "接続確認"
+    : activeStep.id === "project-root"
       ? "フォルダを選択"
       : activeStep.id === "gitignore"
         ? gitignoreBusy
           ? "確認中..."
           : "推奨差分を確認"
-        : statuses[activeStep.id] === "checking"
-          ? "確認中..."
-          : "接続確認";
+        : activeStep.id === "repository"
+          ? statuses.repository === "checking"
+            ? "確認中..."
+            : "repository を確認"
+          : "確認";
+  const activeStepMessage = stepMessages[activeStep.id];
 
   return (
     <section className="onboarding-page">
@@ -350,20 +545,59 @@ export const StudentOnboardingPage = (): ReactElement => {
 
           {statuses[activeStep.id] === "error" && (
             <p className="message error" role="alert">
-              {activeStep.errorText}
+              {activeStepMessage ?? diagnosticsError ?? activeStep.errorText}
             </p>
           )}
 
           {statuses[activeStep.id] === "warning" && (
             <p className="message warning" role="status">
-              進める前に先生へ確認してください。設定はあとから再チェックできます。
+              {activeStepMessage ??
+                "進める前に先生へ確認してください。設定はあとから再チェックできます。"}
             </p>
           )}
+
+          {statuses[activeStep.id] === "success" && activeStepMessage && (
+            <p className="message success" role="status">
+              {activeStepMessage}
+            </p>
+          )}
+
+          {diagnosticsError &&
+            isDiagnosticStep(activeStep.id) &&
+            statuses[activeStep.id] !== "error" && (
+              <p className="message error" role="alert">
+                {diagnosticsError}
+              </p>
+            )}
 
           {activeStep.id === "project-root" && selectedProjectRoot?.selected && (
             <div className="instruction-block">
               <h3>選択中のフォルダ</h3>
               <p>{selectedProjectRoot.displayName}</p>
+            </div>
+          )}
+
+          {isDiagnosticStep(activeStep.id) && diagnostics && (
+            <div className="project-summary-list">
+              <span>Git</span>
+              <strong>{diagnostics.git.version ?? diagnostics.git.message}</strong>
+              <span>GitHub CLI</span>
+              <strong>{diagnostics.githubCli.account ?? diagnostics.githubCli.message}</strong>
+              <span>SSH鍵</span>
+              <strong>{diagnostics.ssh.keys.message}</strong>
+              <span>SSH接続</span>
+              <strong>{diagnostics.ssh.connection.message}</strong>
+            </div>
+          )}
+
+          {activeStep.id === "repository" && repositoryInspection && (
+            <div className="project-summary-list">
+              <span>remote origin</span>
+              <strong>{repositoryInspection.remoteOriginUrl ?? "未設定"}</strong>
+              <span>GitHub repository</span>
+              <strong>{repositoryInspection.normalizedGithubRepoUrl ?? "未検出"}</strong>
+              <span>default branch</span>
+              <strong>{repositoryInspection.defaultBranch ?? "未検出"}</strong>
             </div>
           )}
 
@@ -468,20 +702,6 @@ export const StudentOnboardingPage = (): ReactElement => {
               リセット
             </button>
           </div>
-
-          <label className="status-editor">
-            開発用ステータス
-            <select
-              value={statuses[activeStep.id]}
-              onChange={(event) => setStepStatus(activeStep.id, event.target.value as StepStatus)}
-            >
-              <option value="pending">未確認</option>
-              <option value="checking">確認中</option>
-              <option value="success">完了</option>
-              <option value="warning">注意</option>
-              <option value="error">失敗</option>
-            </select>
-          </label>
         </article>
       </div>
     </section>
