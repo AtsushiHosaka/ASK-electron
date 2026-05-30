@@ -1075,6 +1075,22 @@ select:focus,
   min-height: 36px;
 }
 
+.patch-proposal-summary {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #e1e7ef;
+  border-radius: 8px;
+  padding: 12px;
+  background: #f8fafc;
+}
+
+.patch-proposal-summary p {
+  margin: 0;
+  color: #344054;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
 .patch-review-result {
   display: grid;
   gap: 10px;

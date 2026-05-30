@@ -235,6 +235,77 @@ select pg_temp.assert_rejected(
   $statement$,
   'student cannot create teacher patch proposal'
 );
+insert into public.patch_proposals (
+  id,
+  thread_id,
+  message_id,
+  created_by,
+  created_by_type,
+  target_file_path,
+  patch_text
+)
+values (
+  '80000000-0000-4000-8000-000000000104',
+  '50000000-0000-4000-8000-000000000001',
+  '60000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000004',
+  'ai',
+  'src/calculator.ts',
+  'diff --git a/src/calculator.ts b/src/calculator.ts'
+);
+select pg_temp.assert_eq(
+  (select count(*) from public.patch_proposals where id = '80000000-0000-4000-8000-000000000104' and status = 'proposed'),
+  1,
+  'student creates AI patch proposal for own thread'
+);
+select pg_temp.assert_rejected(
+  $statement$
+    insert into public.patch_proposals (
+      id,
+      thread_id,
+      message_id,
+      created_by,
+      created_by_type,
+      target_file_path,
+      patch_text
+    )
+    values (
+      '80000000-0000-4000-8000-000000000105',
+      '50000000-0000-4000-8000-000000000001',
+      '60000000-0000-4000-8000-000000000001',
+      '00000000-0000-4000-8000-000000000002',
+      'ai',
+      'src/calculator.ts',
+      'diff --git a/src/calculator.ts b/src/calculator.ts'
+    )
+  $statement$,
+  'student cannot forge created_by for AI patch proposal'
+);
+select pg_temp.assert_rejected(
+  $statement$
+    insert into public.patch_proposals (
+      id,
+      thread_id,
+      message_id,
+      created_by,
+      created_by_type,
+      target_file_path,
+      patch_text,
+      status
+    )
+    values (
+      '80000000-0000-4000-8000-000000000106',
+      '50000000-0000-4000-8000-000000000001',
+      '60000000-0000-4000-8000-000000000001',
+      '00000000-0000-4000-8000-000000000004',
+      'ai',
+      'src/calculator.ts',
+      'diff --git a/src/calculator.ts b/src/calculator.ts',
+      'applied'
+    )
+  $statement$,
+  'student cannot create AI patch proposal outside proposed status'
+);
 update public.patch_proposals
 set status = 'dismissed'
 where id = '80000000-0000-4000-8000-000000000001';

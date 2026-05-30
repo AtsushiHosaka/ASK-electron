@@ -27,8 +27,23 @@ const taskBodies: Record<AiProviderRequest["task"], string> = {
     "   根拠: エラー文だけでは断定できないため、再現手順と対象ファイルの確認が必要です。",
     "   次に確認: エラー発生直前の操作、関連ファイル、最小再現手順。"
   ].join("\n"),
-  patch_proposal:
-    "この出力はレビュー用の提案です。適用は学生の明示確認と patch review フローを通してください。"
+  patch_proposal: JSON.stringify(
+    {
+      target_file_path: "src/example.ts",
+      base_commit_sha: null,
+      explanation: "入力値が空の場合でも安全に数値化できるように、変換前のデフォルト値を補います。",
+      patch_text: [
+        "diff --git a/src/example.ts b/src/example.ts",
+        "--- a/src/example.ts",
+        "+++ b/src/example.ts",
+        "@@ -1,3 +1,3 @@",
+        "-const value = Number(input.value);",
+        "+const value = Number(input.value || 0);"
+      ].join("\n")
+    },
+    null,
+    2
+  )
 };
 
 const summarizeContext = (request: AiProviderRequest): string => {
