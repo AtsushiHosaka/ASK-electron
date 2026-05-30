@@ -99,6 +99,17 @@ const statusLabels: Record<ThreadStatus, string> = {
   reopened: "再オープン"
 };
 
+const threadStatuses: ThreadStatus[] = [
+  "open",
+  "in_progress",
+  "waiting_student",
+  "patch_proposed",
+  "resolved",
+  "reopened"
+];
+
+const studentLifecycleStatuses: ThreadStatus[] = ["resolved", "reopened"];
+
 const patchValidationLabels: Record<PatchValidationStatus, string> = {
   ready: "適用可能",
   root_missing: "ローカル未設定",
@@ -146,6 +157,7 @@ const patchProposalStatusLabels: Record<PatchStatus, string> = {
 type TextMessagePart =
   | { type: "text"; content: string }
   | { type: "code"; content: string; language: string | null };
+type LifecycleMessageStatus = "success" | "warning" | "error";
 
 const parseTextMessageParts = (body: string): TextMessagePart[] => {
   const parts: TextMessagePart[] = [];
@@ -364,6 +376,14 @@ export const ThreadDetailPage = (): ReactElement => {
   const [teacherPatchSaving, setTeacherPatchSaving] = useState(false);
   const [teacherPatchError, setTeacherPatchError] = useState<string | null>(null);
   const [teacherPatchNotice, setTeacherPatchNotice] = useState<string | null>(null);
+  const [lifecycleUpdating, setLifecycleUpdating] = useState(false);
+  const [lifecycleMessage, setLifecycleMessage] = useState<string | null>(null);
+  const [lifecycleMessageStatus, setLifecycleMessageStatus] =
+    useState<LifecycleMessageStatus>("success");
+  const canUseTeacherLifecycleControls = profile?.role === "teacher" || profile?.role === "admin";
+  const canUseStudentLifecycleControls =
+    profile?.role === "student" && state.thread?.created_by === profile.id;
+  const canUseLifecycleControls = canUseTeacherLifecycleControls || canUseStudentLifecycleControls;
 
   useEffect(() => {
     let mounted = true;
@@ -944,6 +964,95 @@ export const ThreadDetailPage = (): ReactElement => {
     }
   };
 
+  const updateThreadLifecycleStatus = async (nextStatus: ThreadStatus): Promise<void> => {
+    if (!supabase || !profile || !state.thread || nextStatus === state.thread.status) {
+      return;
+    }
+
+    const canUpdateAsTeacher = profile.role === "teacher" || profile.role === "admin";
+    const canUpdateAsStudent =
+      profile.role === "student" &&
+      state.thread.created_by === profile.id &&
+      studentLifecycleStatuses.includes(nextStatus);
+
+    if (!canUpdateAsTeacher && !canUpdateAsStudent) {
+      setLifecycleMessageStatus("warning");
+      setLifecycleMessage("このスレッドのステータスは変更できません。");
+      return;
+    }
+
+    const previousThread = state.thread;
+    const changedAt = new Date().toISOString();
+    const senderType: MessageSenderType = profile.role === "student" ? "student" : "teacher";
+    const actorLabel = senderType === "student" ? "生徒" : "先生";
+
+    setLifecycleUpdating(true);
+    setLifecycleMessage(null);
+
+    try {
+      const { error: updateError } = await supabase
+        .from("threads")
+        .update({
+          status: nextStatus,
+          updated_at: changedAt
+        })
+        .eq("id", previousThread.id);
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      const { data: lifecycleHistoryMessage, error: messageError } = await supabase
+        .from("messages")
+        .insert({
+          thread_id: previousThread.id,
+          sender_user_id: profile.id,
+          sender_type: senderType,
+          body: `${actorLabel}がステータスを「${statusLabels[previousThread.status]}」から「${statusLabels[nextStatus]}」に変更しました。`,
+          message_type: "text"
+        })
+        .select(
+          "id,thread_id,sender_user_id,sender_type,body,message_type,reply_to_message_id,created_at"
+        )
+        .single();
+
+      if (messageError) {
+        const { error: rollbackError } = await supabase
+          .from("threads")
+          .update({
+            status: previousThread.status,
+            updated_at: previousThread.updated_at
+          })
+          .eq("id", previousThread.id);
+
+        if (rollbackError) {
+          console.error("Failed to rollback thread lifecycle status", rollbackError);
+        }
+
+        throw messageError;
+      }
+
+      setState((current) => ({
+        ...current,
+        thread:
+          current.thread?.id === previousThread.id
+            ? { ...current.thread, status: nextStatus, updated_at: changedAt }
+            : current.thread,
+        messages: lifecycleHistoryMessage
+          ? upsertMessage(current.messages, lifecycleHistoryMessage)
+          : current.messages
+      }));
+      setLifecycleMessageStatus("success");
+      setLifecycleMessage("ステータスを更新しました。");
+    } catch (error) {
+      console.error("Failed to update thread lifecycle status", error);
+      setLifecycleMessageStatus("error");
+      setLifecycleMessage("ステータスを更新できませんでした。");
+    } finally {
+      setLifecycleUpdating(false);
+    }
+  };
+
   const buildThreadAiContext = (): AiContextEntry[] => {
     if (!state.thread) {
       return [];
@@ -1471,6 +1580,62 @@ export const ThreadDetailPage = (): ReactElement => {
         </article>
 
         <aside className="detail-panel composer-panel">
+          {canUseLifecycleControls ? (
+            <div className="thread-lifecycle-controls">
+              <div>
+                <p className="eyebrow">Status</p>
+                <h2>対応ステータス</h2>
+              </div>
+
+              {canUseTeacherLifecycleControls ? (
+                <label className="status-select-label">
+                  ステータス
+                  <select
+                    disabled={lifecycleUpdating}
+                    value={state.thread.status}
+                    onChange={(event) =>
+                      void updateThreadLifecycleStatus(event.target.value as ThreadStatus)
+                    }
+                  >
+                    {threadStatuses.map((option) => (
+                      <option key={option} value={option}>
+                        {statusLabels[option]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : (
+                <div className="control-row" role="group" aria-label="スレッド状態">
+                  <button
+                    className="secondary-button"
+                    disabled={lifecycleUpdating || state.thread.status === "resolved"}
+                    type="button"
+                    onClick={() => void updateThreadLifecycleStatus("resolved")}
+                  >
+                    解決済みにする
+                  </button>
+                  <button
+                    className="secondary-button"
+                    disabled={lifecycleUpdating || state.thread.status === "reopened"}
+                    type="button"
+                    onClick={() => void updateThreadLifecycleStatus("reopened")}
+                  >
+                    再オープンする
+                  </button>
+                </div>
+              )}
+
+              {lifecycleMessage ? (
+                <p
+                  className={`message ${lifecycleMessageStatus}`}
+                  role={lifecycleMessageStatus === "error" ? "alert" : "status"}
+                >
+                  {lifecycleMessage}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
           <div>
             <p className="eyebrow">Reply</p>
             <h2>メッセージ送信</h2>
