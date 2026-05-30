@@ -22,7 +22,10 @@ type ProjectRow = Database["public"]["Tables"]["projects"]["Row"];
 
 type MessageStatus = "success" | "warning" | "error";
 
-type ThreadCreateAiTask = Extract<AiAssistTask, "question_rewrite" | "error_summary">;
+type ThreadCreateAiTask = Extract<
+  AiAssistTask,
+  "question_rewrite" | "error_summary" | "cause_candidates"
+>;
 
 interface ThreadCreateState {
   loading: boolean;
@@ -48,6 +51,7 @@ interface SendReviewState {
   open: boolean;
   draftQuestion: string;
   aiErrorSummary: string;
+  aiCauseCandidates: string;
   aiUsed: boolean;
   includeGitDiff: boolean;
   includeEnvironmentSnapshot: boolean;
@@ -82,6 +86,7 @@ const initialSendReviewState: SendReviewState = {
   open: false,
   draftQuestion: "",
   aiErrorSummary: "",
+  aiCauseCandidates: "",
   aiUsed: false,
   includeGitDiff: true,
   includeEnvironmentSnapshot: true,
@@ -104,7 +109,13 @@ const findBlockedRelatedFiles = (relatedFiles: string[]): string[] => {
 };
 
 const getAiTaskLabel = (task: ThreadCreateAiTask): string => {
-  return task === "question_rewrite" ? "質問文整理" : "エラー要約";
+  const labels: Record<ThreadCreateAiTask, string> = {
+    question_rewrite: "質問文整理",
+    error_summary: "エラー要約",
+    cause_candidates: "原因候補"
+  };
+
+  return labels[task];
 };
 
 const buildAiAssistContext = ({
@@ -155,6 +166,7 @@ const scanAiAssistContextForSecrets = (context: AiContextEntry[]): SecretScanRes
 const buildInitialMessage = ({
   draftQuestion,
   aiErrorSummary,
+  aiCauseCandidates,
   aiUsed,
   situation,
   errorText,
@@ -167,6 +179,7 @@ const buildInitialMessage = ({
 }: {
   draftQuestion: string;
   aiErrorSummary: string;
+  aiCauseCandidates: string;
   aiUsed: boolean;
   situation: string;
   errorText: string;
@@ -180,6 +193,7 @@ const buildInitialMessage = ({
   const sections = [
     `## AI生成質問文\n${draftQuestion.trim() || "未入力"}`,
     aiErrorSummary.trim() ? `## AIエラー要約\n${aiErrorSummary.trim()}` : null,
+    aiCauseCandidates.trim() ? `## AI原因候補と次の確認\n${aiCauseCandidates.trim()}` : null,
     aiUsed
       ? "## AI補助の注意\nAI 出力は補助情報です。確定回答ではなく、送信前に内容を確認・編集しています。"
       : null,
@@ -442,6 +456,7 @@ export const ThreadCreatePage = (): ReactElement => {
     textEntries: [
       { label: "AI生成質問文", value: sendReview.draftQuestion },
       { label: "AIエラー要約", value: sendReview.aiErrorSummary },
+      { label: "AI原因候補", value: sendReview.aiCauseCandidates },
       { label: "タイトル", value: title },
       { label: "状況説明", value: situation },
       { label: "エラー文", value: errorText },
@@ -879,7 +894,8 @@ export const ThreadCreatePage = (): ReactElement => {
         context,
         options: {
           locale: "ja",
-          maxOutputChars: task === "question_rewrite" ? 1_800 : 1_000,
+          maxOutputChars:
+            task === "question_rewrite" ? 1_800 : task === "cause_candidates" ? 2_200 : 1_000,
           streaming: false
         }
       };
@@ -921,6 +937,7 @@ export const ThreadCreatePage = (): ReactElement => {
               ? current.draftQuestion
               : buildDefaultReviewDraft(),
         aiErrorSummary: task === "error_summary" ? outputText : current.aiErrorSummary,
+        aiCauseCandidates: task === "cause_candidates" ? outputText : current.aiCauseCandidates,
         aiUsed: true,
         includeGitDiff: current.open ? current.includeGitDiff : Boolean(gitDiff),
         includeEnvironmentSnapshot: current.open
@@ -986,6 +1003,7 @@ export const ThreadCreatePage = (): ReactElement => {
   const reviewPayloadPreview = buildInitialMessage({
     draftQuestion: sendReview.draftQuestion || buildDefaultReviewDraft(),
     aiErrorSummary: sendReview.aiErrorSummary,
+    aiCauseCandidates: sendReview.aiCauseCandidates,
     aiUsed: sendReview.aiUsed,
     situation,
     errorText,
@@ -1150,6 +1168,7 @@ export const ThreadCreatePage = (): ReactElement => {
       const body = buildInitialMessage({
         draftQuestion: sendReview.draftQuestion,
         aiErrorSummary: sendReview.aiErrorSummary,
+        aiCauseCandidates: sendReview.aiCauseCandidates,
         aiUsed: sendReview.aiUsed,
         situation,
         errorText,
@@ -1429,6 +1448,16 @@ export const ThreadCreatePage = (): ReactElement => {
                     ? "エラー要約を生成中..."
                     : "AIでエラー要約"}
                 </button>
+                <button
+                  className="secondary-button"
+                  disabled={!canGenerateAiAssist}
+                  type="button"
+                  onClick={() => void generateAiAssist("cause_candidates")}
+                >
+                  {aiAssistState.loadingTask === "cause_candidates"
+                    ? "原因候補を生成中..."
+                    : "AIで原因候補"}
+                </button>
               </div>
               <p className="message warning" role="status">
                 AI 出力は補助情報です。送信前に編集してください。
@@ -1551,6 +1580,22 @@ export const ThreadCreatePage = (): ReactElement => {
                     setSendReview((current) => ({
                       ...current,
                       aiErrorSummary: event.target.value
+                    }))
+                  }
+                />
+              </label>
+            ) : null}
+
+            {sendReview.aiCauseCandidates.trim() ? (
+              <label>
+                AI原因候補と次の確認（編集可）
+                <textarea
+                  rows={6}
+                  value={sendReview.aiCauseCandidates}
+                  onChange={(event) =>
+                    setSendReview((current) => ({
+                      ...current,
+                      aiCauseCandidates: event.target.value
                     }))
                   }
                 />
