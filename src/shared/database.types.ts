@@ -5,6 +5,15 @@ export type Json = string | number | boolean | null | { [key: string]: Json | un
 export type ClassMemberRole = "student" | "teacher" | "mentor";
 export type GithubAuthMethod = "gh_cli" | "device_flow" | "oauth" | "pat";
 export type GithubSshStatus = "unknown" | "ok" | "failed";
+export type ThreadStatus =
+  | "open"
+  | "in_progress"
+  | "waiting_student"
+  | "patch_proposed"
+  | "resolved"
+  | "reopened";
+export type ThreadPriority = "low" | "normal" | "high";
+export type ClassInviteRedeemStatus = "joined" | "already_member";
 
 export interface Database {
   public: {
@@ -86,6 +95,35 @@ export interface Database {
         };
         Relationships: [];
       };
+      class_invites: {
+        Row: {
+          id: string;
+          class_id: string;
+          token: string;
+          role: "student";
+          expires_at: string;
+          created_by: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          class_id: string;
+          token: string;
+          role?: "student";
+          expires_at: string;
+          created_by: string;
+          created_at?: string;
+        };
+        Update: {
+          class_id?: string;
+          token?: string;
+          role?: "student";
+          expires_at?: string;
+          created_by?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
       github_connections: {
         Row: {
           id: string;
@@ -144,14 +182,74 @@ export interface Database {
         };
         Relationships: [];
       };
+      threads: {
+        Row: {
+          id: string;
+          project_id: string;
+          created_by: string;
+          title: string;
+          status: ThreadStatus;
+          priority: ThreadPriority | null;
+          ai_used: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          project_id: string;
+          created_by: string;
+          title: string;
+          status?: ThreadStatus;
+          priority?: ThreadPriority | null;
+          ai_used?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          project_id?: string;
+          created_by?: string;
+          title?: string;
+          status?: ThreadStatus;
+          priority?: ThreadPriority | null;
+          ai_used?: boolean;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Functions: {
+      create_class_invite: {
+        Args: {
+          p_class_id: string;
+          p_role?: "student";
+          p_expires_in_seconds?: number;
+        };
+        Returns: {
+          token: string;
+          class_id: string;
+          role: "student";
+          expires_at: string;
+        }[];
+      };
+      redeem_class_invite: {
+        Args: {
+          p_token: string;
+        };
+        Returns: {
+          class_id: string;
+          role: "student";
+          status: ClassInviteRedeemStatus;
+        }[];
+      };
+    };
     Enums: {
       app_user_role: AppRole;
       class_member_role: ClassMemberRole;
       github_auth_method: GithubAuthMethod;
       github_ssh_status: GithubSshStatus;
+      thread_status: ThreadStatus;
+      thread_priority: ThreadPriority;
     };
     CompositeTypes: Record<string, never>;
   };

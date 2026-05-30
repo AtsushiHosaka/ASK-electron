@@ -9,6 +9,7 @@ The Electron renderer uses Supabase with only public project config:
 ```env
 VITE_SUPABASE_URL=https://your-project-ref.supabase.co
 VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
+VITE_ASK_APP_BASE_URL=http://localhost:5173
 ```
 
 Do not put database passwords, `sb_secret_...`, service role keys, GitHub client secrets, or AI provider keys in Electron `.env` files. Packaged Electron apps are inspectable by users, including main and preload output.
@@ -19,6 +20,7 @@ Foundation migrations live in `supabase/migrations`:
 
 - `20260530000100_mvp_schema.sql`: enums, MVP tables, indexes, triggers, and realtime publication setup.
 - `20260530000200_mvp_rls.sql`: helper functions, grants, RLS enablement, and baseline policies.
+- `20260530000300_class_invites.sql`: student invite tokens and RPCs for issuing and redeeming class joins.
 
 `supabase/seed.sql` provides local fixtures for future RLS and UI checks.
 

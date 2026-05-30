@@ -20,6 +20,7 @@ Initial allowlist:
 | ------------------------------- | ------------------- | --------------------------------------------------------------------------------------------------- |
 | `VITE_SUPABASE_URL`             | Public              | Supabase project URL.                                                                               |
 | `VITE_SUPABASE_PUBLISHABLE_KEY` | Public              | Supabase publishable key. It is not a secret, but it must rely on RLS and least-privilege policies. |
+| `VITE_ASK_APP_BASE_URL`         | Public              | Canonical app URL used to create shareable class invite links.                                      |
 
 Rules:
 
@@ -53,6 +54,7 @@ Renderer may use a Supabase client configured with:
 
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_PUBLISHABLE_KEY`
+- `VITE_ASK_APP_BASE_URL`
 
 That client must be treated as a user-scoped client. Authorization is enforced by:
 
