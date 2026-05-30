@@ -416,10 +416,6 @@ select:focus,
   gap: 10px;
 }
 
-.status-editor {
-  max-width: 260px;
-}
-
 .gitignore-workflow {
   display: grid;
   gap: 16px;
