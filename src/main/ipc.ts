@@ -5,8 +5,10 @@ import {
   type AppRuntimeInfoResponse,
   type IpcAuditMetadata,
   type IpcChannelName,
-  type IpcResult
+  type IpcResult,
+  type LocalDiagnosticsResponse
 } from "../shared/ipc";
+import { runLocalDiagnostics } from "./localDiagnostics";
 
 const createMetadata = (channel: IpcChannelName): IpcAuditMetadata => ({
   channel,
@@ -44,6 +46,21 @@ export const registerIpcHandlers = (): void => {
         IpcChannel.AppGetRuntimeInfo,
         "APP_RUNTIME_INFO_FAILED",
         "アプリ状態を確認できませんでした。"
+      );
+    }
+  });
+
+  ipcMain.handle(IpcChannel.DiagnosticsRunLocal, async () => {
+    try {
+      return ok(
+        IpcChannel.DiagnosticsRunLocal,
+        (await runLocalDiagnostics()) satisfies LocalDiagnosticsResponse
+      );
+    } catch {
+      return fail(
+        IpcChannel.DiagnosticsRunLocal,
+        "LOCAL_DIAGNOSTICS_FAILED",
+        "ローカル開発環境の診断を実行できませんでした。"
       );
     }
   });

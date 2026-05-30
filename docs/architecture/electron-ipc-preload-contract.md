@@ -58,6 +58,9 @@ declare global {
       app: {
         getRuntimeInfo(): Promise<AskResult<AppRuntimeInfo>>;
       };
+      diagnostics: {
+        runLocal(): Promise<AskResult<LocalDiagnostics>>;
+      };
       project: {
         selectRoot(): Promise<AskResult<ProjectRootSelection>>;
       };
@@ -113,24 +116,25 @@ Rules:
 
 ## Allowed Channels
 
-| Channel                       | Public method        | Purpose                                                        | Security notes                                                                                                       |
-| ----------------------------- | -------------------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `ask:v1:app:get-runtime-info` | `app.getRuntimeInfo` | Return app version, platform, and contract version.            | Must not include environment variables, absolute paths, tokens, or machine user names.                               |
-| `ask:v1:project:select-root`  | `project.selectRoot` | Let the user choose a project root through an OS dialog.       | Main creates or resolves a trusted `projectId`; renderer must not provide arbitrary roots for privileged operations. |
-| `ask:v1:git:diagnose`         | `git.diagnose`       | Run a read-only Git health summary for a registered project.   | Uses only read-only Git presets. Redact absolute paths and remote credentials.                                       |
-| `ask:v1:git:get-status`       | `git.getStatus`      | Read branch, HEAD, dirty state, and tracked changes.           | Read-only. Output is size-limited.                                                                                   |
-| `ask:v1:git:get-diff-summary` | `git.getDiffSummary` | Read changed file names and diff stats for preview.            | Redact denied file names where secret rules require it.                                                              |
-| `ask:v1:git:get-file-diff`    | `git.getFileDiff`    | Read a diff for a selected tracked file.                       | File path must be relative to the trusted project root and pass denylist checks.                                     |
-| `ask:v1:git:get-remote-info`  | `git.getRemoteInfo`  | Read remote origin metadata needed for GitHub linking.         | Strip credentials from URLs before returning or logging.                                                             |
-| `ask:v1:github:check-auth`    | `github.checkAuth`   | Check local GitHub CLI authentication state.                   | Fixed `gh auth status` preset only. Do not return tokens.                                                            |
-| `ask:v1:ssh:check-github`     | `ssh.checkGithub`    | Check whether SSH can authenticate to GitHub.                  | Fixed GitHub host only. Do not return private key paths or key material.                                             |
-| `ask:v1:env:collect`          | `env.collect`        | Collect a whitelisted environment snapshot.                    | Never collect full environment variables or private file contents.                                                   |
-| `ask:v1:env:check-tool`       | `env.checkTool`      | Check one approved tool version, such as Git or Node.          | Tool name must be an enum, not a command string.                                                                     |
-| `ask:v1:secrets:scan-text`    | `secrets.scanText`   | Scan renderer-provided text before sending to AI or chat.      | Return findings and redacted preview, not raw matched secret values.                                                 |
-| `ask:v1:secrets:scan-files`   | `secrets.scanFiles`  | Scan selected project files before preview or upload.          | Paths must be relative, inside project root, and subject to denylist rules.                                          |
-| `ask:v1:patch:validate`       | `patch.validate`     | Parse and validate a proposed patch without writing files.     | Produces a confirmation token only after path, denylist, and conflict checks pass.                                   |
-| `ask:v1:patch:apply`          | `patch.apply`        | Apply a previously validated patch after student confirmation. | Requires `patchId` and confirmation token from `patch.validate`; creates backup metadata.                            |
-| `ask:v1:patch:revert`         | `patch.revert`       | Revert a patch from app-created backup metadata.               | Can only revert patches that ASK applied and recorded.                                                               |
+| Channel                        | Public method          | Purpose                                                         | Security notes                                                                                                       |
+| ------------------------------ | ---------------------- | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `ask:v1:app:get-runtime-info`  | `app.getRuntimeInfo`   | Return app version, platform, and contract version.             | Must not include environment variables, absolute paths, tokens, or machine user names.                               |
+| `ask:v1:diagnostics:run-local` | `diagnostics.runLocal` | Check Git, GitHub CLI auth, SSH key candidates, and GitHub SSH. | Fixed command presets only. Returns machine-readable statuses, never tokens, private key contents, or raw paths.     |
+| `ask:v1:project:select-root`   | `project.selectRoot`   | Let the user choose a project root through an OS dialog.        | Main creates or resolves a trusted `projectId`; renderer must not provide arbitrary roots for privileged operations. |
+| `ask:v1:git:diagnose`          | `git.diagnose`         | Run a read-only Git health summary for a registered project.    | Uses only read-only Git presets. Redact absolute paths and remote credentials.                                       |
+| `ask:v1:git:get-status`        | `git.getStatus`        | Read branch, HEAD, dirty state, and tracked changes.            | Read-only. Output is size-limited.                                                                                   |
+| `ask:v1:git:get-diff-summary`  | `git.getDiffSummary`   | Read changed file names and diff stats for preview.             | Redact denied file names where secret rules require it.                                                              |
+| `ask:v1:git:get-file-diff`     | `git.getFileDiff`      | Read a diff for a selected tracked file.                        | File path must be relative to the trusted project root and pass denylist checks.                                     |
+| `ask:v1:git:get-remote-info`   | `git.getRemoteInfo`    | Read remote origin metadata needed for GitHub linking.          | Strip credentials from URLs before returning or logging.                                                             |
+| `ask:v1:github:check-auth`     | `github.checkAuth`     | Check local GitHub CLI authentication state.                    | Fixed `gh auth status` preset only. Do not return tokens.                                                            |
+| `ask:v1:ssh:check-github`      | `ssh.checkGithub`      | Check whether SSH can authenticate to GitHub.                   | Fixed GitHub host only. Do not return private key paths or key material.                                             |
+| `ask:v1:env:collect`           | `env.collect`          | Collect a whitelisted environment snapshot.                     | Never collect full environment variables or private file contents.                                                   |
+| `ask:v1:env:check-tool`        | `env.checkTool`        | Check one approved tool version, such as Git or Node.           | Tool name must be an enum, not a command string.                                                                     |
+| `ask:v1:secrets:scan-text`     | `secrets.scanText`     | Scan renderer-provided text before sending to AI or chat.       | Return findings and redacted preview, not raw matched secret values.                                                 |
+| `ask:v1:secrets:scan-files`    | `secrets.scanFiles`    | Scan selected project files before preview or upload.           | Paths must be relative, inside project root, and subject to denylist rules.                                          |
+| `ask:v1:patch:validate`        | `patch.validate`       | Parse and validate a proposed patch without writing files.      | Produces a confirmation token only after path, denylist, and conflict checks pass.                                   |
+| `ask:v1:patch:apply`           | `patch.apply`          | Apply a previously validated patch after student confirmation.  | Requires `patchId` and confirmation token from `patch.validate`; creates backup metadata.                            |
+| `ask:v1:patch:revert`          | `patch.revert`         | Revert a patch from app-created backup metadata.                | Can only revert patches that ASK applied and recorded.                                                               |
 
 ## Disallowed IPC Patterns
 
