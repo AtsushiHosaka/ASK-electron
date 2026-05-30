@@ -560,6 +560,13 @@ select:focus,
   gap: 10px;
 }
 
+.ai-thread-assist {
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid #e5e9f2;
+  padding-top: 16px;
+}
+
 .git-diff-controls .secondary-button {
   width: fit-content;
 }

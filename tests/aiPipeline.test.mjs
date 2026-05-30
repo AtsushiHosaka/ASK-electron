@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   AI_ASSIST_REQUEST_LIMITS,
   AI_PIPELINE_LIMITS,
+  buildAiProviderRequest,
   getAiAssistRequestLimitViolation,
   minimizeAiAssistRequest,
   runAiAssistPipelineWithProvider,
@@ -206,5 +207,25 @@ describe("AI request pipeline", () => {
       }).blocked,
       false
     );
+  });
+
+  it("prompts cause candidates with confidence, next checks, and uncertainty", () => {
+    const request = {
+      task: "cause_candidates",
+      context: [
+        {
+          label: "thread",
+          kind: "thread_excerpt",
+          value: "npm run dev fails with EADDRINUSE"
+        }
+      ]
+    };
+    const { context } = minimizeAiAssistRequest(request);
+    const providerRequest = buildAiProviderRequest(request, context);
+
+    assert.match(providerRequest.prompt.system, /複数件/);
+    assert.match(providerRequest.prompt.system, /確度/);
+    assert.match(providerRequest.prompt.system, /コマンドやファイル/);
+    assert.match(providerRequest.prompt.system, /断定できない理由/);
   });
 });

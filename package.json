@@ -12,6 +12,8 @@
     "build": "npm run typecheck && electron-vite build",
     "preview": "electron-vite preview",
     "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --disable-warning=ExperimentalWarning --experimental-loader ./tests/ts-extension-loader.mjs --test \"tests/**/*.test.mjs\"",
+    "test:rls": "node scripts/run-rls-tests.mjs",
+    "test:rls:static": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --disable-warning=ExperimentalWarning --experimental-loader ./tests/ts-extension-loader.mjs --test tests/rlsPermissionBoundaries.test.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "lint": "eslint . --max-warnings=0",
     "format": "prettier --check .",

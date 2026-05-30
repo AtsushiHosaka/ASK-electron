@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { Link, useParams } from "react-router-dom";
+import type { AiAssistRequest, AiContextEntry } from "../../../../shared/aiPipeline";
 import type {
   Database,
   MessageSenderType,
@@ -12,6 +13,7 @@ import type {
   PatchValidateResponse,
   PatchValidationStatus
 } from "../../../../shared/ipc";
+import { scanSecrets } from "../../../../shared/secretScanner";
 import { CodeContextViewer } from "../../components/CodeContextViewer";
 import { useAuth } from "../auth/AuthProvider";
 import { getSupabaseClient } from "../../lib/supabase";
@@ -94,9 +96,19 @@ const patchApplyLabels: Record<PatchApplyStatus, string> = {
   failed: "失敗"
 };
 
+const THREAD_AI_MESSAGE_CHAR_LIMIT = 1_000;
+
 const unique = (values: Array<string | null>): string[] => [
   ...new Set(values.filter((value): value is string => Boolean(value)))
 ];
+
+const clipThreadAiText = (value: string): string => {
+  if (value.length <= THREAD_AI_MESSAGE_CHAR_LIMIT) {
+    return value;
+  }
+
+  return `${value.slice(0, THREAD_AI_MESSAGE_CHAR_LIMIT).trimEnd()}\n[長いため一部省略]`;
+};
 
 const sortMessages = (messages: MessageRow[]): MessageRow[] => {
   return [...messages].sort(
@@ -163,6 +175,8 @@ export const ThreadDetailPage = (): ReactElement => {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [patchReviews, setPatchReviews] = useState<Record<string, PatchReviewState>>({});
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -426,6 +440,138 @@ export const ThreadDetailPage = (): ReactElement => {
     }
   };
 
+  const buildThreadAiContext = (): AiContextEntry[] => {
+    if (!state.thread) {
+      return [];
+    }
+
+    const threadExcerpt = state.messages
+      .slice(-8)
+      .map((message) => {
+        const sender =
+          message.sender_user_id !== null
+            ? (state.usersById.get(message.sender_user_id)?.display_name ??
+              senderLabels[message.sender_type])
+            : senderLabels[message.sender_type];
+
+        return `[${sender} / ${messageTypeLabels[message.message_type]}]\n${clipThreadAiText(message.body)}`;
+      })
+      .join("\n\n---\n\n");
+
+    const entries: AiContextEntry[] = [
+      { label: "スレッドタイトル", kind: "user_text", value: state.thread.title },
+      { label: "スレッド状態", kind: "thread_excerpt", value: statusLabels[state.thread.status] },
+      { label: "直近メッセージ", kind: "thread_excerpt", value: threadExcerpt }
+    ];
+
+    return entries.filter((entry) => entry.value.trim().length > 0);
+  };
+
+  const generateCauseCandidates = async (): Promise<void> => {
+    if (!supabase || !profile || !state.thread) {
+      setAiError("AI 補助に必要な情報を確認できませんでした。");
+      return;
+    }
+
+    const context = buildThreadAiContext();
+    const inputScan = scanSecrets({
+      textEntries: context.map((entry) => ({ label: entry.label, value: entry.value }))
+    });
+
+    if (inputScan.blocked) {
+      setAiError("秘密情報の可能性がある内容を検出したため、AI には送信しません。");
+      return;
+    }
+
+    setAiGenerating(true);
+    setAiError(null);
+
+    try {
+      const request: AiAssistRequest = {
+        task: "cause_candidates",
+        threadId: state.thread.id,
+        projectId: state.thread.project_id,
+        context,
+        options: {
+          locale: "ja",
+          maxOutputChars: 2_200,
+          streaming: false
+        }
+      };
+      const result = await window.ask.ai.generate(request);
+
+      if (!result.ok) {
+        setAiError(result.error.message);
+        return;
+      }
+
+      if (result.data.status !== "completed") {
+        setAiError(result.data.fallback?.message ?? "AI 応答を取得できませんでした。");
+        return;
+      }
+
+      const outputText = result.data.output?.text.trim();
+
+      if (!outputText) {
+        setAiError("AI 応答が空でした。");
+        return;
+      }
+
+      const outputScan = scanSecrets({
+        textEntries: [{ label: "AI原因候補", value: outputText }]
+      });
+
+      if (outputScan.blocked) {
+        setAiError("AI 応答に秘密情報候補が含まれるため、チャットには保存しません。");
+        return;
+      }
+
+      const senderType: MessageSenderType = profile.role === "student" ? "student" : "teacher";
+      const { data, error } = await supabase
+        .from("messages")
+        .insert({
+          thread_id: state.thread.id,
+          sender_user_id: profile.id,
+          sender_type: senderType,
+          body: [
+            "## AI原因候補と次の確認",
+            outputText,
+            "",
+            "AI 出力は補助情報です。断定ではなく、先生または生徒が確認してから判断してください。"
+          ].join("\n"),
+          message_type: "ai_summary"
+        })
+        .select(
+          "id,thread_id,sender_user_id,sender_type,body,message_type,reply_to_message_id,created_at"
+        )
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      const { error: threadUpdateError } = await supabase
+        .from("threads")
+        .update({ ai_used: true })
+        .eq("id", state.thread.id);
+
+      if (threadUpdateError) {
+        console.error("Failed to mark thread AI usage", threadUpdateError);
+      }
+
+      setState((current) => ({
+        ...current,
+        thread: current.thread ? { ...current.thread, ai_used: true } : current.thread,
+        messages: data ? sortMessages([...current.messages, data]) : current.messages
+      }));
+    } catch (error) {
+      console.error("Failed to generate cause candidates", error);
+      setAiError("AI 原因候補を生成または保存できませんでした。");
+    } finally {
+      setAiGenerating(false);
+    }
+  };
+
   if (state.loading) {
     return <ThreadStatePage title="読み込み中" body="スレッドを確認しています。" />;
   }
@@ -522,6 +668,29 @@ export const ThreadDetailPage = (): ReactElement => {
           >
             {sending ? "送信中..." : "送信"}
           </button>
+
+          <div className="ai-thread-assist">
+            <div>
+              <p className="eyebrow">AI Assist</p>
+              <h2>原因候補</h2>
+            </div>
+            <button
+              className="secondary-button"
+              disabled={aiGenerating || state.messages.length === 0}
+              type="button"
+              onClick={() => void generateCauseCandidates()}
+            >
+              {aiGenerating ? "原因候補を生成中..." : "AIで原因候補を追加"}
+            </button>
+            <p className="message warning" role="status">
+              AI 出力は断定ではありません。次に確認する項目としてチャットに保存します。
+            </p>
+            {aiError ? (
+              <p className="message error" role="alert">
+                {aiError}
+              </p>
+            ) : null}
+          </div>
 
           <Link
             className="secondary-link"

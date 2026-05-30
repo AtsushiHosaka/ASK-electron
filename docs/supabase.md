@@ -23,7 +23,7 @@ Foundation migrations live in `supabase/migrations`:
 - `20260530000300_class_invites.sql`: student invite tokens and RPCs for issuing and redeeming class joins.
 - `20260530000400_audit_events.sql`: redacted audit event table, scoped read policy, authenticated audit RPC, and DB triggers for core MVP mutations.
 
-`supabase/seed.sql` provides local fixtures for future RLS and UI checks.
+`supabase/seed.sql` provides local fixtures for RLS and UI checks.
 
 ## Auth Profiles
 
@@ -41,6 +41,25 @@ The MVP access model is class-centered:
 - Teachers and mentors can access records for classes where they are staff.
 - Admins can access all MVP records.
 - Project creation requires the student to own the project, belong to the class as a student, and have a GitHub connection record.
+
+## RLS Test Suite
+
+The RLS permission-boundary suite is separate from unit tests because it needs a Supabase Postgres database with migrations and seed data applied. Reset a local Supabase instance, then run:
+
+```sh
+supabase db reset
+ASK_RLS_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres npm run test:rls
+```
+
+The suite uses `supabase/seed.sql` fixture IDs for admin, teacher, student, and outsider clients, and rolls back all writes at the end. The runner refuses non-local database hosts by default; set `ASK_RLS_ALLOW_REMOTE=1` only for isolated CI databases.
+
+Static RLS coverage also runs under `npm test` and can be run directly:
+
+```bash
+npm run test:rls:static
+```
+
+The static checks verify that every renderer-touchable MVP table has RLS enabled, that class/project/thread/message/environment/patch policies exist for the expected operations, and that `supabase/seed.sql` remains rerunnable through stable IDs and upserts.
 
 ## Audit Events
 
