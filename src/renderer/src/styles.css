@@ -98,7 +98,7 @@ input {
   background: #ffffff;
 }
 
-textarea {
+.class-create-form textarea {
   width: 100%;
   resize: vertical;
   border: 1px solid #cbd5e1;
@@ -120,7 +120,8 @@ select {
 
 input:focus,
 select:focus,
-textarea:focus {
+.class-create-form textarea:focus,
+.preview-field textarea:focus {
   border-color: #4d65a1;
   outline: 3px solid rgb(77 101 161 / 18%);
 }
@@ -472,7 +473,7 @@ textarea:focus {
 }
 
 .code-preview,
-textarea {
+.preview-field textarea {
   width: 100%;
   min-height: 140px;
   border: 1px solid #cbd5e1;
@@ -487,7 +488,7 @@ textarea {
   white-space: pre-wrap;
 }
 
-textarea {
+.preview-field textarea {
   resize: vertical;
 }
 
