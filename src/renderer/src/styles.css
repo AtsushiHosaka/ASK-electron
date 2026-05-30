@@ -558,6 +558,46 @@ select:focus,
   width: fit-content;
 }
 
+.secret-finding-list {
+  display: grid;
+  gap: 8px;
+}
+
+.secret-finding-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.secret-finding-item.error {
+  grid-template-columns: minmax(0, 1fr);
+  color: #8f1d1d;
+  background: #fff1f1;
+}
+
+.secret-finding-item.warning {
+  color: #7a4c00;
+  background: #fff8e7;
+}
+
+.secret-finding-item span,
+.secret-finding-item strong {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.secret-finding-item small {
+  color: inherit;
+  opacity: 0.78;
+  overflow-wrap: anywhere;
+}
+
 .project-summary-list {
   display: grid;
   grid-template-columns: 150px minmax(0, 1fr);

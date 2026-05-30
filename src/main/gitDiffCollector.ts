@@ -7,6 +7,7 @@ import type {
   GitDiffOmissionReason,
   GitDiffTextSection
 } from "../shared/ipc";
+import { scanSecretPaths } from "../shared/secretScanner";
 import { runGit, type GitCommandResult } from "./gitCommand";
 import {
   findSelectedProjectRootByLocalPathHash,
@@ -79,20 +80,7 @@ const isLockfilePath = (path: string): boolean => {
 };
 
 const requiresSecretScan = (path: string): boolean => {
-  const normalized = path.replaceAll("\\", "/").toLowerCase();
-  const segments = normalized.split("/");
-  const fileName = segments.at(-1) ?? normalized;
-
-  return (
-    fileName === ".env" ||
-    fileName.startsWith(".env.") ||
-    fileName.endsWith(".env") ||
-    fileName.endsWith(".pem") ||
-    fileName.endsWith(".key") ||
-    segments.includes(".ssh") ||
-    normalized.includes("secret") ||
-    normalized.includes("token")
-  );
+  return scanSecretPaths([path]).activeFindings.length > 0;
 };
 
 const parseNameStatus = (
