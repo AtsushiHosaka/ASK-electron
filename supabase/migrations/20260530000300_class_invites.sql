@@ -106,7 +106,7 @@ set search_path = public, pg_temp
 as $$
 declare
   v_invite public.class_invites%rowtype;
-  v_existing_member_id uuid;
+  v_inserted_member_id uuid;
 begin
   if auth.uid() is null then
     raise exception 'authentication required'
@@ -134,25 +134,17 @@ begin
       using errcode = '22023';
   end if;
 
-  select cm.id
-  into v_existing_member_id
-  from public.class_members cm
-  where cm.class_id = v_invite.class_id
-    and cm.user_id = auth.uid()
-  limit 1;
-
-  if v_existing_member_id is null then
-    insert into public.class_members (class_id, user_id, role)
-    values (v_invite.class_id, auth.uid(), v_invite.role)
-    on conflict (class_id, user_id) do nothing;
-  end if;
+  insert into public.class_members (class_id, user_id, role)
+  values (v_invite.class_id, auth.uid(), v_invite.role)
+  on conflict (class_id, user_id) do nothing
+  returning id into v_inserted_member_id;
 
   return query
   select
     v_invite.class_id,
     v_invite.role,
     case
-      when v_existing_member_id is null then 'joined'
+      when v_inserted_member_id is not null then 'joined'
       else 'already_member'
     end;
 end;

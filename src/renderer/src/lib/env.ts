@@ -45,12 +45,39 @@ export const getPublicEnv = (): PublicEnvResult => {
   };
 };
 
+const normalizeHttpBaseUrl = (value: string): string | null => {
+  try {
+    const parsedUrl = new URL(value);
+
+    if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+      return null;
+    }
+
+    return value.replace(/\/+$/, "");
+  } catch {
+    return null;
+  }
+};
+
 export const getPublicAppBaseUrl = (): string => {
   const result = getPublicEnv();
+  const appBaseUrl = result.ok
+    ? result.env.appBaseUrl
+    : import.meta.env.VITE_ASK_APP_BASE_URL?.trim() || null;
 
-  if (result.ok && result.env.appBaseUrl) {
-    return result.env.appBaseUrl.replace(/\/+$/, "");
+  if (appBaseUrl) {
+    const normalizedBaseUrl = normalizeHttpBaseUrl(appBaseUrl);
+
+    if (normalizedBaseUrl) {
+      return normalizedBaseUrl;
+    }
+
+    throw new Error("VITE_ASK_APP_BASE_URL は http(s) URL を指定してください。");
   }
 
-  return window.location.origin.replace(/\/+$/, "");
+  if (import.meta.env.DEV) {
+    return window.location.origin.replace(/\/+$/, "");
+  }
+
+  throw new Error("招待リンク作成には VITE_ASK_APP_BASE_URL の設定が必要です。");
 };
