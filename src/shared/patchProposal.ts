@@ -90,6 +90,7 @@ const normalizePatchTargetPath = (rawPath: string): string | null => {
     strippedPath === "/dev/null" ||
     strippedPath.includes("\0") ||
     strippedPath.includes("\\") ||
+    /^[A-Za-z]:[\\/]/.test(strippedPath) ||
     strippedPath.startsWith("/") ||
     strippedPath.startsWith("../")
   ) {
