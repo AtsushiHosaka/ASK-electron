@@ -630,19 +630,13 @@ const TeacherClassCreatePanel = ({ onCreated }: { onCreated: () => void }): Reac
       <div className="class-create-form">
         <label>
           クラス名
-          <input
-            maxLength={80}
-            placeholder="例: Intro Programming"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-          />
+          <input maxLength={80} value={name} onChange={(event) => setName(event.target.value)} />
         </label>
 
         <label>
           説明
           <textarea
             maxLength={240}
-            placeholder="任意の説明"
             rows={3}
             value={description}
             onChange={(event) => setDescription(event.target.value)}
@@ -770,12 +764,7 @@ export const ClassDetailPage = (): ReactElement => {
             <p className="eyebrow">Invite</p>
             <h2>招待リンク</h2>
           </div>
-          <input
-            readOnly
-            aria-label="招待リンク"
-            placeholder="コピーすると招待リンクを生成します"
-            value={inviteLink}
-          />
+          <input readOnly aria-label="招待リンク" value={inviteLink} />
           <button
             className="primary-button"
             disabled={copyingInvite}

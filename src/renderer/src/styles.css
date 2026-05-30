@@ -253,12 +253,6 @@ select:focus,
   padding: 36px;
 }
 
-.workspace-page {
-  display: grid;
-  gap: 24px;
-  max-width: 1080px;
-}
-
 .detail-panel {
   display: grid;
   gap: 16px;
@@ -839,29 +833,85 @@ select:focus,
   overflow-wrap: anywhere;
 }
 
-.placeholder-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
-}
-
-.placeholder-panel {
-  min-height: 120px;
-  border: 1px solid #d9deea;
-  border-radius: 8px;
-  padding: 18px;
-  background: #ffffff;
-}
-
-.placeholder-panel span {
-  color: #1f2937;
-  font-weight: 800;
-}
-
+.student-dashboard,
 .teacher-dashboard {
   display: grid;
   gap: 28px;
   max-width: 1180px;
+}
+
+.student-home-grid {
+  display: grid;
+  grid-template-columns: minmax(300px, 0.86fr) minmax(0, 1.14fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.student-thread-panel {
+  grid-column: 1 / -1;
+}
+
+.setup-check-list,
+.student-project-list,
+.student-thread-list,
+.empty-inline-state {
+  display: grid;
+  gap: 10px;
+}
+
+.setup-check-row,
+.student-project-row,
+.student-thread-row {
+  display: grid;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid #e1e7ef;
+  border-radius: 8px;
+  padding: 12px;
+  color: inherit;
+  background: #fbfcfe;
+  text-decoration: none;
+}
+
+.setup-check-row {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.student-project-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.student-thread-row {
+  grid-template-columns: minmax(0, 1fr) 120px 180px;
+}
+
+.student-project-row:hover,
+.student-thread-row:hover {
+  border-color: #a8c5ba;
+  background: #f3faf7;
+}
+
+.setup-check-row > div,
+.student-project-row > div,
+.student-thread-row > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.setup-check-row strong,
+.student-project-row strong,
+.student-thread-row strong {
+  color: #172033;
+  overflow-wrap: anywhere;
+}
+
+.setup-check-row span:not(.status-pill),
+.student-project-row span:not(.status-pill),
+.student-thread-row span:not(.status-pill),
+.student-thread-row time {
+  color: #667085;
+  font-size: 0.88rem;
 }
 
 .teacher-class-grid {

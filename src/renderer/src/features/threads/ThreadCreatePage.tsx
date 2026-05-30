@@ -1508,7 +1508,6 @@ export const ThreadCreatePage = (): ReactElement => {
               タイトル
               <input
                 maxLength={120}
-                placeholder="例: Vite dev server が起動しない"
                 value={title}
                 onChange={(event) => setTitle(event.target.value)}
               />
@@ -1518,7 +1517,6 @@ export const ThreadCreatePage = (): ReactElement => {
               状況説明
               <textarea
                 rows={5}
-                placeholder="何をしようとして、どこで止まっているか"
                 value={situation}
                 onChange={(event) => setSituation(event.target.value)}
               />
@@ -1528,7 +1526,6 @@ export const ThreadCreatePage = (): ReactElement => {
               エラー文
               <textarea
                 rows={4}
-                placeholder="表示されたエラーやログ"
                 value={errorText}
                 onChange={(event) => setErrorText(event.target.value)}
               />
@@ -1538,7 +1535,6 @@ export const ThreadCreatePage = (): ReactElement => {
               実行コマンド
               <textarea
                 rows={3}
-                placeholder="例: npm run dev"
                 value={commandText}
                 onChange={(event) => setCommandText(event.target.value)}
               />
@@ -1548,7 +1544,6 @@ export const ThreadCreatePage = (): ReactElement => {
               関連ファイル
               <textarea
                 rows={4}
-                placeholder={"手入力もできます\nsrc/main.ts\npackage.json"}
                 value={relatedFilesText}
                 onChange={(event) => setRelatedFilesText(event.target.value)}
               />
