@@ -153,6 +153,32 @@ select pg_temp.assert_rejected(
       created_by,
       created_by_type,
       target_file_path,
+      patch_text,
+      status
+    )
+    values (
+      '80000000-0000-4000-8000-000000000107',
+      '50000000-0000-4000-8000-000000000001',
+      '60000000-0000-4000-8000-000000000003',
+      '00000000-0000-4000-8000-000000000002',
+      'teacher',
+      'src/calculator.ts',
+      'diff --git a/src/calculator.ts b/src/calculator.ts',
+      'applied'
+    )
+  $statement$,
+  'teacher cannot create patch proposal outside proposed status'
+);
+
+select pg_temp.assert_rejected(
+  $statement$
+    insert into public.patch_proposals (
+      id,
+      thread_id,
+      message_id,
+      created_by,
+      created_by_type,
+      target_file_path,
       patch_text
     )
     values (

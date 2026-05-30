@@ -1,9 +1,11 @@
-export interface AiPatchProposalDraft {
+export interface PatchProposalDraft {
   targetFilePath: string;
   baseCommitSha: string | null;
   explanation: string;
   patchText: string;
 }
+
+export type AiPatchProposalDraft = PatchProposalDraft;
 
 export type AiPatchProposalParseErrorCode =
   | "EMPTY_OUTPUT"
@@ -23,7 +25,7 @@ export interface AiPatchProposalParseError {
 export type AiPatchProposalParseResult =
   | {
       ok: true;
-      proposal: AiPatchProposalDraft;
+      proposal: PatchProposalDraft;
     }
   | {
       ok: false;
@@ -79,7 +81,7 @@ const extractJsonCandidate = (value: string): string => {
   return trimmed;
 };
 
-const normalizePatchTargetPath = (rawPath: string): string | null => {
+export const normalizePatchTargetPath = (rawPath: string): string | null => {
   const strippedPath = rawPath
     .trim()
     .replace(/^"|"$/g, "")
@@ -109,6 +111,99 @@ const normalizePatchTargetPath = (rawPath: string): string | null => {
   }
 
   return segments.join("/");
+};
+
+export const validatePatchProposalDraft = (
+  draft: PatchProposalDraft
+): AiPatchProposalParseResult => {
+  const targetFilePath = draft.targetFilePath.trim();
+  const patchText = draft.patchText.trim();
+  const explanation = draft.explanation.trim();
+  const baseCommitSha = draft.baseCommitSha?.trim() || null;
+
+  if (!targetFilePath || !patchText || !explanation) {
+    return {
+      ok: false,
+      error: {
+        code: "INVALID_SCHEMA",
+        message: "Patch proposal requires target_file_path, patch_text, and explanation."
+      }
+    };
+  }
+
+  const normalizedTargetPath = normalizePatchTargetPath(targetFilePath);
+
+  if (!normalizedTargetPath) {
+    return {
+      ok: false,
+      error: {
+        code: "INVALID_TARGET_PATH",
+        message: "Patch proposal target path is not safe."
+      }
+    };
+  }
+
+  if (baseCommitSha && !/^[a-f0-9]{7,64}$/i.test(baseCommitSha)) {
+    return {
+      ok: false,
+      error: {
+        code: "INVALID_BASE_COMMIT",
+        message: "Patch proposal base_commit_sha must be a Git commit SHA."
+      }
+    };
+  }
+
+  if (patchText.length > maxPatchProposalChars || !hasUnifiedDiffStructure(patchText)) {
+    return {
+      ok: false,
+      error: {
+        code: "INVALID_PATCH",
+        message: "Patch proposal must include a unified diff."
+      }
+    };
+  }
+
+  const { targetFiles, invalidPath } = parsePatchTargetFiles(patchText);
+
+  if (invalidPath || targetFiles.length === 0) {
+    return {
+      ok: false,
+      error: {
+        code: "INVALID_PATCH",
+        message: "Patch proposal diff target files are invalid."
+      }
+    };
+  }
+
+  if (targetFiles.length > 1) {
+    return {
+      ok: false,
+      error: {
+        code: "MULTI_FILE_PATCH",
+        message: "Patch proposals currently support one target file."
+      }
+    };
+  }
+
+  if (targetFiles[0] !== normalizedTargetPath) {
+    return {
+      ok: false,
+      error: {
+        code: "TARGET_MISMATCH",
+        message: "Patch proposal target_file_path must match the unified diff target."
+      }
+    };
+  }
+
+  return {
+    ok: true,
+    proposal: {
+      targetFilePath: normalizedTargetPath,
+      baseCommitSha,
+      explanation,
+      patchText: patchText.endsWith("\n") ? patchText : `${patchText}\n`
+    }
+  };
 };
 
 const parseGitDiffLine = (line: string): string[] => {
@@ -217,77 +312,10 @@ export const parseAiPatchProposalOutput = (output: string): AiPatchProposalParse
     };
   }
 
-  const normalizedTargetPath = normalizePatchTargetPath(targetFilePath);
-
-  if (!normalizedTargetPath) {
-    return {
-      ok: false,
-      error: {
-        code: "INVALID_TARGET_PATH",
-        message: "AI patch target path is not safe."
-      }
-    };
-  }
-
-  if (baseCommitSha && !/^[a-f0-9]{7,64}$/i.test(baseCommitSha)) {
-    return {
-      ok: false,
-      error: {
-        code: "INVALID_BASE_COMMIT",
-        message: "AI patch base_commit_sha must be a Git commit SHA."
-      }
-    };
-  }
-
-  if (patchText.length > maxPatchProposalChars || !hasUnifiedDiffStructure(patchText)) {
-    return {
-      ok: false,
-      error: {
-        code: "INVALID_PATCH",
-        message: "AI patch output must include a unified diff."
-      }
-    };
-  }
-
-  const { targetFiles, invalidPath } = parsePatchTargetFiles(patchText);
-
-  if (invalidPath || targetFiles.length === 0) {
-    return {
-      ok: false,
-      error: {
-        code: "INVALID_PATCH",
-        message: "AI patch diff target files are invalid."
-      }
-    };
-  }
-
-  if (targetFiles.length > 1) {
-    return {
-      ok: false,
-      error: {
-        code: "MULTI_FILE_PATCH",
-        message: "AI patch proposals currently support one target file."
-      }
-    };
-  }
-
-  if (targetFiles[0] !== normalizedTargetPath) {
-    return {
-      ok: false,
-      error: {
-        code: "TARGET_MISMATCH",
-        message: "AI patch target_file_path must match the unified diff target."
-      }
-    };
-  }
-
-  return {
-    ok: true,
-    proposal: {
-      targetFilePath: normalizedTargetPath,
-      baseCommitSha,
-      explanation,
-      patchText: patchText.endsWith("\n") ? patchText : `${patchText}\n`
-    }
-  };
+  return validatePatchProposalDraft({
+    targetFilePath,
+    baseCommitSha,
+    explanation,
+    patchText
+  });
 };

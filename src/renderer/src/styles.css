@@ -567,6 +567,26 @@ select:focus,
   padding-top: 16px;
 }
 
+.teacher-patch-composer {
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid #e5e9f2;
+  padding-top: 16px;
+}
+
+.teacher-patch-composer .diff-textarea {
+  min-height: 220px;
+  font-family: SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+
+.teacher-patch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .git-diff-controls .secondary-button {
   width: fit-content;
 }
