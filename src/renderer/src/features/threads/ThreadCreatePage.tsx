@@ -84,6 +84,10 @@ const splitRelatedFiles = (value: string): string[] => {
     .filter(Boolean);
 };
 
+const findBlockedRelatedFiles = (relatedFiles: string[]): string[] => {
+  return relatedFiles.filter((file) => scanSecrets({ filePaths: [file] }).blocked);
+};
+
 const buildInitialMessage = ({
   draftQuestion,
   situation,
@@ -346,8 +350,7 @@ export const ThreadCreatePage = (): ReactElement => {
   const relatedFiles = splitRelatedFiles(relatedFilesText);
   const gitDiffResponse = gitDiffState.response;
   const environmentSnapshot = environmentSnapshotState.response;
-  const relatedFileScan = scanSecrets({ filePaths: relatedFiles });
-  const blockedRelatedFiles = relatedFileScan.blockedFindings.map((finding) => finding.sourceLabel);
+  const blockedRelatedFiles = findBlockedRelatedFiles(relatedFiles);
   const excludedRelatedFileSet = new Set([
     ...blockedRelatedFiles,
     ...sendReview.excludedRelatedFiles
@@ -793,8 +796,8 @@ export const ThreadCreatePage = (): ReactElement => {
     ...sendReview.excludedRelatedFiles
       .filter((file) => !blockedRelatedFiles.includes(file))
       .map((file) => `関連ファイル: ${file}`),
-    !sendReview.includeGitDiff ? "Git差分" : null,
-    !sendReview.includeEnvironmentSnapshot ? "環境情報" : null
+    gitDiffResponse && !sendReview.includeGitDiff ? "Git差分" : null,
+    environmentSnapshot && !sendReview.includeEnvironmentSnapshot ? "環境情報" : null
   ].filter((item): item is string => Boolean(item));
   const reviewPayloadPreview = buildInitialMessage({
     draftQuestion: sendReview.draftQuestion || buildDefaultReviewDraft(),
@@ -903,15 +906,15 @@ export const ThreadCreatePage = (): ReactElement => {
       return;
     }
 
-    if (editableSecretScan.blocked || secretScan.blocked) {
-      setMessageStatus("error");
-      setMessage("秘密情報の可能性がある内容を検出したため送信を止めました。");
-      return;
-    }
-
     if (!sendReview.open) {
       setMessageStatus("warning");
       setMessage("送信前レビューで内容を確認してください。");
+      return;
+    }
+
+    if (editableSecretScan.blocked || secretScan.blocked) {
+      setMessageStatus("error");
+      setMessage("秘密情報の可能性がある内容を検出したため送信を止めました。");
       return;
     }
 
@@ -1210,7 +1213,8 @@ export const ThreadCreatePage = (): ReactElement => {
 
             {editableSecretScan.blocked && (
               <p className="message error" role="alert">
-                送信不可: {secretScan.blockedFindings.map((finding) => finding.message).join(", ")}
+                送信不可:{" "}
+                {editableSecretScan.blockedFindings.map((finding) => finding.message).join(", ")}
               </p>
             )}
 
