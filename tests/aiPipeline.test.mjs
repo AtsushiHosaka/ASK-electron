@@ -209,6 +209,28 @@ describe("AI request pipeline", () => {
     );
   });
 
+  it("prompts patch proposals as JSON review artifacts", () => {
+    const request = {
+      task: "patch_proposal",
+      context: [
+        {
+          label: "thread",
+          kind: "thread_excerpt",
+          value: "src/calculator.ts の空文字入力で NaN になります。"
+        }
+      ]
+    };
+    const { context } = minimizeAiAssistRequest(request);
+    const providerRequest = buildAiProviderRequest(request, context);
+
+    assert.match(providerRequest.prompt.system, /JSON object/);
+    assert.match(providerRequest.prompt.system, /target_file_path/);
+    assert.match(providerRequest.prompt.system, /base_commit_sha/);
+    assert.match(providerRequest.prompt.system, /patch_text/);
+    assert.match(providerRequest.prompt.system, /単一ファイル/);
+    assert.match(providerRequest.prompt.system, /ローカル適用/);
+  });
+
   it("prompts cause candidates with confidence, next checks, and uncertainty", () => {
     const request = {
       task: "cause_candidates",

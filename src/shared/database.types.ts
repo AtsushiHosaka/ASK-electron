@@ -15,6 +15,8 @@ export type ThreadStatus =
 export type ThreadPriority = "low" | "normal" | "high";
 export type MessageSenderType = "student" | "teacher" | "ai" | "system";
 export type MessageType = "text" | "code" | "patch" | "environment" | "ai_summary";
+export type PatchCreatorType = "teacher" | "ai";
+export type PatchStatus = "proposed" | "applied" | "failed" | "reverted" | "dismissed";
 export type ClassInviteRedeemStatus = "joined" | "already_member";
 export type AuditEventType =
   | "auth_login_succeeded"
@@ -312,6 +314,46 @@ export interface Database {
           runtimes?: Json | null;
           package_managers?: Json | null;
           dependencies_summary?: Json | null;
+        };
+        Relationships: [];
+      };
+      patch_proposals: {
+        Row: {
+          id: string;
+          thread_id: string;
+          message_id: string;
+          created_by: string | null;
+          created_by_type: PatchCreatorType;
+          target_file_path: string;
+          base_commit_sha: string | null;
+          patch_text: string;
+          explanation: string | null;
+          status: PatchStatus;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          thread_id: string;
+          message_id: string;
+          created_by?: string | null;
+          created_by_type: PatchCreatorType;
+          target_file_path: string;
+          base_commit_sha?: string | null;
+          patch_text: string;
+          explanation?: string | null;
+          status?: PatchStatus;
+          created_at?: string;
+        };
+        Update: {
+          thread_id?: string;
+          message_id?: string;
+          created_by?: string | null;
+          created_by_type?: PatchCreatorType;
+          target_file_path?: string;
+          base_commit_sha?: string | null;
+          patch_text?: string;
+          explanation?: string | null;
+          status?: PatchStatus;
         };
         Relationships: [];
       };

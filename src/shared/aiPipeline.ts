@@ -214,7 +214,7 @@ const taskInstructions: Record<AiAssistTask, string> = {
   cause_candidates:
     "考えられる原因候補を複数件出す。各候補は確度を 高/中/低 のどれかで示し、根拠、次に確認するコマンドやファイル、断定できない理由を分ける。危険な操作や自動実行は提案しない。",
   patch_proposal:
-    "修正案の説明とレビュー用パッチ案を作る。AI 出力は提案に限定し、ローカル適用や実行は行わない。"
+    "修正案を unified diff のレビュー用パッチとして作る。出力は JSON object のみとし、target_file_path, base_commit_sha, explanation, patch_text を含める。patch_text は単一ファイルだけを対象にした unified diff にする。AI 出力は proposed の提案に限定し、ローカル適用や実行は行わない。"
 };
 
 const fallbackMessages: Record<AiFallbackReason, string> = {

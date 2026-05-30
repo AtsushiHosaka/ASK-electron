@@ -235,6 +235,29 @@ select pg_temp.assert_rejected(
   $statement$,
   'student cannot create teacher patch proposal'
 );
+insert into public.patch_proposals (
+  id,
+  thread_id,
+  message_id,
+  created_by,
+  created_by_type,
+  target_file_path,
+  patch_text
+)
+values (
+  '80000000-0000-4000-8000-000000000104',
+  '50000000-0000-4000-8000-000000000001',
+  '60000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000004',
+  'ai',
+  'src/calculator.ts',
+  'diff --git a/src/calculator.ts b/src/calculator.ts'
+);
+select pg_temp.assert_eq(
+  (select count(*) from public.patch_proposals where id = '80000000-0000-4000-8000-000000000104' and status = 'proposed'),
+  1,
+  'student creates AI patch proposal for own thread'
+);
 update public.patch_proposals
 set status = 'dismissed'
 where id = '80000000-0000-4000-8000-000000000001';
