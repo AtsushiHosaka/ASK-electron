@@ -406,6 +406,158 @@ select:focus {
   font-weight: 800;
 }
 
+.teacher-dashboard {
+  display: grid;
+  gap: 28px;
+  max-width: 1180px;
+}
+
+.teacher-class-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.teacher-class-card,
+.detail-panel {
+  display: grid;
+  gap: 18px;
+  border: 1px solid #d9deea;
+  border-radius: 8px;
+  padding: 20px;
+  background: #ffffff;
+}
+
+.teacher-class-card h2,
+.detail-panel h2 {
+  margin: 0;
+  color: #101828;
+  font-size: 1.2rem;
+}
+
+.teacher-class-card p {
+  margin: 8px 0 0;
+  color: #5b6475;
+  line-height: 1.6;
+}
+
+.status-counter-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.status-counter-grid.compact {
+  min-width: 360px;
+}
+
+.status-counter {
+  display: grid;
+  gap: 4px;
+  min-height: 74px;
+  border-radius: 8px;
+  padding: 12px;
+  background: #f1f5f9;
+}
+
+.status-counter span {
+  color: #5b6475;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.status-counter strong {
+  color: #172033;
+  font-size: 1.45rem;
+}
+
+.teacher-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid #e5e9f2;
+  padding-top: 14px;
+}
+
+.teacher-card-footer span {
+  color: #667085;
+  font-weight: 700;
+}
+
+.secondary-link {
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: #26354f;
+  background: #e8edf6;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: minmax(300px, 0.9fr) minmax(0, 1.1fr);
+  gap: 16px;
+}
+
+.invite-panel {
+  align-content: start;
+}
+
+.thread-list-panel {
+  grid-column: 1 / -1;
+}
+
+.member-list,
+.teacher-thread-list {
+  display: grid;
+  gap: 8px;
+}
+
+.member-row,
+.teacher-thread-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid #e1e7ef;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.member-row strong,
+.teacher-thread-row span:first-child {
+  color: #172033;
+  font-weight: 800;
+}
+
+.member-row span,
+.teacher-thread-row span {
+  color: #667085;
+  font-size: 0.88rem;
+}
+
+.member-row > div:first-child,
+.member-setup {
+  display: grid;
+  gap: 4px;
+}
+
+.member-setup {
+  justify-items: end;
+}
+
+.teacher-thread-row {
+  grid-template-columns: minmax(0, 1fr) 140px 110px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.teacher-thread-row:hover {
+  border-color: #a8c5ba;
+  background: #f3faf7;
+}
+
 .empty-state {
   display: grid;
   gap: 10px;
