@@ -169,7 +169,7 @@ export type AiFallbackReason = NonNullable<AiAssistResponse["fallback"]>["reason
 
 export interface RunAiAssistPipelineOptions {
   onAudit?: (audit: AiAuditCandidate) => void;
-  onProviderError?: (error: unknown) => void;
+  onProviderError?: (error: unknown, provider: AiProvider) => void;
 }
 
 export const AI_PIPELINE_LIMITS = {
@@ -188,6 +188,17 @@ export const AI_PIPELINE_LIMITS = {
     patch: 6_000
   } satisfies Record<AiContextKind, number>
 } as const;
+
+export const AI_ASSIST_REQUEST_LIMITS = {
+  maxContextItems: AI_PIPELINE_LIMITS.maxContextEntries,
+  maxContextStringChars: AI_PIPELINE_LIMITS.maxTotalContextChars,
+  maxContextTotalBytes: AI_PIPELINE_LIMITS.maxTotalContextChars * 4
+} as const;
+
+export interface AiAssistRequestLimitViolation {
+  code: "TOO_MANY_CONTEXT_ITEMS" | "CONTEXT_STRING_TOO_LONG" | "CONTEXT_TOO_LARGE";
+  message: string;
+}
 
 interface PatternRule {
   kind: Exclude<AiSecretFindingKind, "blocked_path">;
@@ -268,6 +279,48 @@ export const isAiAssistTask = (value: unknown): value is AiAssistTask => {
 
 export const isAiContextKind = (value: unknown): value is AiContextKind => {
   return typeof value === "string" && aiContextKinds.includes(value as AiContextKind);
+};
+
+const getUtf8ByteLength = (value: string): number => {
+  return new TextEncoder().encode(value).byteLength;
+};
+
+export const getAiAssistRequestLimitViolation = (
+  request: AiAssistRequest
+): AiAssistRequestLimitViolation | null => {
+  if (request.context.length > AI_ASSIST_REQUEST_LIMITS.maxContextItems) {
+    return {
+      code: "TOO_MANY_CONTEXT_ITEMS",
+      message: "AI context item count exceeds the allowed limit."
+    };
+  }
+
+  let totalBytes = 0;
+
+  for (const entry of request.context) {
+    const strings = [entry.label, entry.kind, entry.value];
+
+    if (
+      entry.label.length > AI_PIPELINE_LIMITS.maxLabelChars ||
+      entry.value.length > AI_ASSIST_REQUEST_LIMITS.maxContextStringChars
+    ) {
+      return {
+        code: "CONTEXT_STRING_TOO_LONG",
+        message: "AI context string exceeds the allowed limit."
+      };
+    }
+
+    totalBytes += strings.reduce((total, value) => total + getUtf8ByteLength(value), 0);
+
+    if (totalBytes > AI_ASSIST_REQUEST_LIMITS.maxContextTotalBytes) {
+      return {
+        code: "CONTEXT_TOO_LARGE",
+        message: "AI context payload exceeds the allowed byte limit."
+      };
+    }
+  }
+
+  return null;
 };
 
 export const createDefaultAiOptions = (
@@ -460,6 +513,14 @@ const scanTextForSecrets = (entry: AiContextEntry): AiSecretFinding[] => {
   return findings;
 };
 
+const scanLabelForSecrets = (entry: AiContextEntry): AiSecretFinding[] => {
+  return scanTextForSecrets({
+    ...entry,
+    label: `${entry.kind} label`,
+    value: entry.label
+  });
+};
+
 const dedupeFindings = (findings: AiSecretFinding[]): AiSecretFinding[] => {
   const seen = new Set<string>();
   const deduped: AiSecretFinding[] = [];
@@ -488,10 +549,10 @@ export const scanAiAssistRequestForSecrets = (request: AiAssistRequest): AiSecre
   const findings = dedupeFindings(
     request.context.flatMap((entry) => {
       if (entry.kind === "file_path") {
-        return scanPathForSecrets(entry);
+        return [...scanLabelForSecrets(entry), ...scanPathForSecrets(entry)];
       }
 
-      return scanTextForSecrets(entry);
+      return [...scanLabelForSecrets(entry), ...scanTextForSecrets(entry)];
     })
   );
   const blockedFindingCount = findings.filter((finding) => finding.severity === "block").length;
@@ -677,7 +738,7 @@ export const runAiAssistPipelineWithProvider = async (
       onAudit: options.onAudit
     });
   } catch (error) {
-    options.onProviderError?.(error);
+    options.onProviderError?.(error, provider);
 
     return createPipelineResponse({
       request,

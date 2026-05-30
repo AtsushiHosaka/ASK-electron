@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  AI_ASSIST_REQUEST_LIMITS,
   AI_PIPELINE_LIMITS,
+  getAiAssistRequestLimitViolation,
   minimizeAiAssistRequest,
   runAiAssistPipelineWithProvider,
   scanAiAssistRequestForSecrets
@@ -72,6 +74,40 @@ describe("AI request pipeline", () => {
     assert.equal(response.safety.executableOutput, false);
   });
 
+  it("scans context labels before provider prompts are built", () => {
+    const result = scanAiAssistRequestForSecrets({
+      task: "error_summary",
+      context: [
+        {
+          label: "OPENAI_API_KEY=sk-1234567890abcdefghijklmnopqrstuvwxyz",
+          kind: "user_text",
+          value: "label contains the sensitive value"
+        }
+      ]
+    });
+
+    assert.equal(result.blocked, true);
+    assert.equal(result.blockedFindingCount, 1);
+    assert.equal(result.findings[0]?.sourceLabel, "user_text label");
+  });
+
+  it("reports oversized AI request payloads before expensive processing", () => {
+    assert.equal(
+      getAiAssistRequestLimitViolation({
+        task: "question_rewrite",
+        context: Array.from(
+          { length: AI_ASSIST_REQUEST_LIMITS.maxContextItems + 1 },
+          (_, index) => ({
+            label: `context ${index}`,
+            kind: "user_text",
+            value: "small"
+          })
+        )
+      })?.code,
+      "TOO_MANY_CONTEXT_ITEMS"
+    );
+  });
+
   it("falls back without stopping the caller when a provider fails", async () => {
     const provider = {
       id: "failing-provider",
@@ -122,17 +158,10 @@ describe("AI request pipeline", () => {
     assert.equal(response.safety.executableOutput, false);
     assert.equal(response.streaming.used, false);
     assert.equal(
-      scanAiAssistRequestForSecrets(
-        response.output
-          ? {
-              task: "patch_proposal",
-              context: [{ label: "output", kind: "user_text", value: response.output.text }]
-            }
-          : {
-              task: "patch_proposal",
-              context: []
-            }
-      ).blocked,
+      scanAiAssistRequestForSecrets({
+        task: "patch_proposal",
+        context: [{ label: "output", kind: "user_text", value: response.output.text }]
+      }).blocked,
       false
     );
   });

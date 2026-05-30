@@ -20,6 +20,8 @@ import {
   type ProjectRootSelectionResponse
 } from "../shared/ipc";
 import {
+  AI_PIPELINE_LIMITS,
+  getAiAssistRequestLimitViolation,
   isAiAssistTask,
   isAiContextKind,
   type AiAssistRequest,
@@ -59,6 +61,13 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null;
 };
 
+const getSafeErrorFields = (error: unknown): { code?: string; message: string } => {
+  const code = isRecord(error) && typeof error.code === "string" ? error.code : undefined;
+  const message = error instanceof Error ? error.message : "Unknown error";
+
+  return code ? { code, message } : { message };
+};
+
 const isGitignorePreviewRequest = (value: unknown): value is GitignorePreviewRequest => {
   return (
     isRecord(value) && typeof value.projectRootId === "string" && value.projectRootId.length > 0
@@ -75,7 +84,11 @@ const isAiAssistRequest = (value: unknown): value is AiAssistRequest => {
     options === undefined ||
     (isRecord(options) &&
       (options.locale === undefined || options.locale === "ja" || options.locale === "en") &&
-      (options.maxOutputChars === undefined || typeof options.maxOutputChars === "number") &&
+      (options.maxOutputChars === undefined ||
+        (typeof options.maxOutputChars === "number" &&
+          Number.isFinite(options.maxOutputChars) &&
+          options.maxOutputChars > 0 &&
+          options.maxOutputChars <= AI_PIPELINE_LIMITS.maxOutputChars)) &&
       (options.streaming === undefined || typeof options.streaming === "boolean"));
   const hasValidIds =
     (value.projectId === undefined ||
@@ -83,18 +96,32 @@ const isAiAssistRequest = (value: unknown): value is AiAssistRequest => {
       typeof value.projectId === "string") &&
     (value.threadId === undefined || value.threadId === null || typeof value.threadId === "string");
 
+  if (!hasValidOptions || !hasValidIds) {
+    return false;
+  }
+
+  const hasValidContext = value.context.every((entry) => {
+    return (
+      isRecord(entry) &&
+      typeof entry.label === "string" &&
+      entry.label.trim().length > 0 &&
+      isAiContextKind(entry.kind) &&
+      typeof entry.value === "string"
+    );
+  });
+
+  if (!hasValidContext) {
+    return false;
+  }
+
   return (
-    hasValidOptions &&
-    hasValidIds &&
-    value.context.every((entry) => {
-      return (
-        isRecord(entry) &&
-        typeof entry.label === "string" &&
-        entry.label.trim().length > 0 &&
-        isAiContextKind(entry.kind) &&
-        typeof entry.value === "string"
-      );
-    })
+    getAiAssistRequestLimitViolation({
+      task: value.task,
+      context: value.context as AiAssistRequest["context"],
+      options: value.options as AiAssistRequest["options"],
+      projectId: value.projectId as AiAssistRequest["projectId"],
+      threadId: value.threadId as AiAssistRequest["threadId"]
+    }) === null
   );
 };
 
@@ -181,7 +208,10 @@ export const registerIpcHandlers = (): void => {
         (await runAiAssistPipeline(input)) satisfies AiAssistResponse
       );
     } catch (error) {
-      console.error(`[${IpcChannel.AiGenerate}] AI pipeline failed`, error);
+      console.error(`[${IpcChannel.AiGenerate}] AI pipeline failed`, {
+        event: "ai_pipeline_failed",
+        ...getSafeErrorFields(error)
+      });
 
       return fail(
         IpcChannel.AiGenerate,
