@@ -23,7 +23,9 @@ Foundation migrations live in `supabase/migrations`:
 - `20260530000300_class_invites.sql`: student invite tokens and RPCs for issuing and redeeming class joins.
 - `20260530000400_audit_events.sql`: redacted audit event table, scoped read policy, authenticated audit RPC, and DB triggers for core MVP mutations.
 
-`supabase/seed.sql` provides local fixtures for RLS and UI checks.
+`supabase/seed.sql` provides local fixtures for RLS and UI checks. The login account matrix and
+manual QA steps are documented in
+[`docs/qa/test-accounts-and-login-fixtures.md`](qa/test-accounts-and-login-fixtures.md).
 
 ## Auth Profiles
 

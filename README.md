@@ -33,6 +33,9 @@ npm test
 npm run build
 ```
 
+Local login fixtures and role-based QA steps are documented in
+[`docs/qa/test-accounts-and-login-fixtures.md`](docs/qa/test-accounts-and-login-fixtures.md).
+
 ## Security Boundaries
 
 - The renderer only receives the Supabase URL and `sb_publishable_...` key.
