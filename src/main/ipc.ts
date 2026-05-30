@@ -149,8 +149,7 @@ const isProjectRootReconnectRequest = (value: unknown): value is ProjectRootReco
     typeof value.projectRootId === "string" &&
     value.projectRootId.trim().length > 0 &&
     typeof value.expectedLocalPathHash === "string" &&
-    value.expectedLocalPathHash.trim().length > 0 &&
-    value.expectedLocalPathHash.length <= 128 &&
+    /^[a-f0-9]{64}$/i.test(value.expectedLocalPathHash) &&
     typeof value.expectedGithubRepoUrl === "string" &&
     value.expectedGithubRepoUrl.startsWith("https://github.com/") &&
     value.expectedGithubRepoUrl.length <= 300

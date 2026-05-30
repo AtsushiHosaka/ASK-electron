@@ -20,6 +20,7 @@ interface PersistedProjectRootRecord {
 
 const selectedProjectRoots = new Map<string, ProjectRootRecord>();
 const localPathHashPattern = /^[a-f0-9]{64}$/;
+let persistedProjectRootWriteQueue: Promise<void> = Promise.resolve();
 
 const getProjectRootStorePath = (): string => {
   return process.env.ASK_PROJECT_ROOTS_STORE_PATH
@@ -77,6 +78,15 @@ const writePersistedProjectRoots = async (roots: PersistedProjectRootRecord[]): 
   await rename(temporaryPath, storePath);
 };
 
+const runWithPersistedProjectRootWriteLock = async <T>(operation: () => Promise<T>): Promise<T> => {
+  const pendingOperation = persistedProjectRootWriteQueue.then(operation, operation);
+  persistedProjectRootWriteQueue = pendingOperation.then(
+    () => undefined,
+    () => undefined
+  );
+  return pendingOperation;
+};
+
 export const rememberSelectedProjectRoot = (record: ProjectRootRecord): void => {
   selectedProjectRoots.set(record.id, record);
 };
@@ -104,22 +114,24 @@ export const persistSelectedProjectRootMapping = async (
     throw new Error("LOCAL_PATH_HASH_MISMATCH");
   }
 
-  const currentRoots = await readPersistedProjectRoots();
-  const nextRecord: PersistedProjectRootRecord = {
-    localPathHash,
-    rootPath: canonicalRootPath,
-    displayName: record.displayName,
-    selectedAt: record.selectedAt
-  };
-  const nextRoots = [
-    nextRecord,
-    ...currentRoots.filter((root) => root.localPathHash !== localPathHash)
-  ];
+  await runWithPersistedProjectRootWriteLock(async () => {
+    const currentRoots = await readPersistedProjectRoots();
+    const nextRecord: PersistedProjectRootRecord = {
+      localPathHash,
+      rootPath: canonicalRootPath,
+      displayName: record.displayName,
+      selectedAt: record.selectedAt
+    };
+    const nextRoots = [
+      nextRecord,
+      ...currentRoots.filter((root) => root.localPathHash !== localPathHash)
+    ];
 
-  await writePersistedProjectRoots(nextRoots);
-  selectedProjectRoots.set(record.id, {
-    ...record,
-    rootPath: canonicalRootPath
+    await writePersistedProjectRoots(nextRoots);
+    selectedProjectRoots.set(record.id, {
+      ...record,
+      rootPath: canonicalRootPath
+    });
   });
 };
 

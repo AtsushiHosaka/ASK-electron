@@ -77,6 +77,60 @@ describe("project root reconnect", () => {
     }
   });
 
+  it("serializes concurrent local root mapping writes", async () => {
+    const temporaryDirectory = await mkdtemp(join(tmpdir(), "ask-root-store-concurrent-"));
+    const firstRootPath = await mkdtemp(join(temporaryDirectory, "repo-a-"));
+    const secondRootPath = await mkdtemp(join(temporaryDirectory, "repo-b-"));
+    const storePath = join(temporaryDirectory, "roots.json");
+    const previousStorePath = process.env.ASK_PROJECT_ROOTS_STORE_PATH;
+
+    process.env.ASK_PROJECT_ROOTS_STORE_PATH = storePath;
+    clearProjectRootRegistryForTests();
+
+    try {
+      const firstHash = createLocalPathHash(await canonicalizePath(firstRootPath));
+      const secondHash = createLocalPathHash(await canonicalizePath(secondRootPath));
+
+      await Promise.all([
+        persistSelectedProjectRootMapping(
+          {
+            id: `root-${randomUUID()}`,
+            rootPath: firstRootPath,
+            displayName: "repo-a",
+            selectedAt: "2026-05-30T00:00:00.000Z"
+          },
+          firstHash
+        ),
+        persistSelectedProjectRootMapping(
+          {
+            id: `root-${randomUUID()}`,
+            rootPath: secondRootPath,
+            displayName: "repo-b",
+            selectedAt: "2026-05-30T00:00:00.000Z"
+          },
+          secondHash
+        )
+      ]);
+
+      clearProjectRootRegistryForTests();
+
+      const firstFound = await findSelectedProjectRootByLocalPathHash(firstHash);
+      const secondFound = await findSelectedProjectRootByLocalPathHash(secondHash);
+      assert.equal(firstFound?.displayName, "repo-a");
+      assert.equal(secondFound?.displayName, "repo-b");
+    } finally {
+      clearProjectRootRegistryForTests();
+
+      if (previousStorePath === undefined) {
+        delete process.env.ASK_PROJECT_ROOTS_STORE_PATH;
+      } else {
+        process.env.ASK_PROJECT_ROOTS_STORE_PATH = previousStorePath;
+      }
+
+      await rm(temporaryDirectory, { recursive: true, force: true });
+    }
+  });
+
   it("reconnects only after GitHub remote and local hash both match", async () => {
     let persistedHash = null;
     const result = await reconnectProjectRootWithDependencies(
@@ -149,17 +203,11 @@ describe("project root reconnect", () => {
 });
 
 describe("project root reconnect UI wiring", () => {
-  const projectSource = readFile(
-    "src/renderer/src/features/projects/ProjectRegistrationPage.tsx",
-    "utf8"
-  );
-  const threadDetailSource = readFile(
-    "src/renderer/src/features/threads/ThreadDetailPage.tsx",
-    "utf8"
-  );
-
   it("wires registration and project detail to the verified reconnect IPC", async () => {
-    const source = await projectSource;
+    const source = await readFile(
+      "src/renderer/src/features/projects/ProjectRegistrationPage.tsx",
+      "utf8"
+    );
 
     assert.match(source, /window\.ask\.project\.reconnectRoot/);
     assert.match(source, /expectedLocalPathHash/);
@@ -168,7 +216,7 @@ describe("project root reconnect UI wiring", () => {
   });
 
   it("links patch root-missing recovery back to project detail", async () => {
-    const source = await threadDetailSource;
+    const source = await readFile("src/renderer/src/features/threads/ThreadDetailPage.tsx", "utf8");
 
     assert.match(source, /validation\?\.status === "root_missing"/);
     assert.match(source, /revertResult\?\.status === "root_missing"/);
