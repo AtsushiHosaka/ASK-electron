@@ -233,8 +233,15 @@ export const ThreadCreatePage = (): ReactElement => {
       });
 
       if (messageError) {
-        await supabase.from("threads").delete().eq("id", thread.id);
-        createdThreadId = null;
+        const { error: rollbackError } = await supabase
+          .from("threads")
+          .delete()
+          .eq("id", thread.id);
+        if (rollbackError) {
+          console.error("Failed to roll back empty question thread", rollbackError);
+        } else {
+          createdThreadId = null;
+        }
         throw messageError;
       }
 
@@ -242,7 +249,13 @@ export const ThreadCreatePage = (): ReactElement => {
     } catch (error) {
       console.error("Failed to create question thread", error);
       if (createdThreadId) {
-        await supabase.from("threads").delete().eq("id", createdThreadId);
+        const { error: rollbackError } = await supabase
+          .from("threads")
+          .delete()
+          .eq("id", createdThreadId);
+        if (rollbackError) {
+          console.error("Failed to roll back empty question thread", rollbackError);
+        }
       }
       setMessageStatus("error");
       setMessage(
