@@ -41,6 +41,14 @@ interface EnvironmentSnapshotUiState {
   error: string | null;
 }
 
+interface SendReviewState {
+  open: boolean;
+  draftQuestion: string;
+  includeGitDiff: boolean;
+  includeEnvironmentSnapshot: boolean;
+  excludedRelatedFiles: string[];
+}
+
 const initialState: ThreadCreateState = {
   loading: true,
   error: null,
@@ -59,6 +67,14 @@ const initialEnvironmentSnapshotState: EnvironmentSnapshotUiState = {
   loading: false,
   response: null,
   error: null
+};
+
+const initialSendReviewState: SendReviewState = {
+  open: false,
+  draftQuestion: "",
+  includeGitDiff: true,
+  includeEnvironmentSnapshot: true,
+  excludedRelatedFiles: []
 };
 
 const secretPatterns: Array<{ label: string; pattern: RegExp }> = [
@@ -80,6 +96,8 @@ const runMockSecretScan = (values: string[]): SecretScanResult => {
   };
 };
 
+const isSecretCandidateText = (value: string): boolean => runMockSecretScan([value]).blocked;
+
 const splitRelatedFiles = (value: string): string[] => {
   return value
     .split(/\r?\n/)
@@ -88,14 +106,17 @@ const splitRelatedFiles = (value: string): string[] => {
 };
 
 const buildInitialMessage = ({
+  draftQuestion,
   situation,
   errorText,
   commandText,
   relatedFiles,
   secretScan,
   gitDiff,
-  environmentSnapshot
+  environmentSnapshot,
+  excludedItems
 }: {
+  draftQuestion: string;
   situation: string;
   errorText: string;
   commandText: string;
@@ -103,14 +124,17 @@ const buildInitialMessage = ({
   secretScan: SecretScanResult;
   gitDiff: GitDiffCollectionResponse | null;
   environmentSnapshot: EnvironmentSnapshotResponse | null;
+  excludedItems: string[];
 }): string => {
   const sections = [
+    `## AI生成質問文\n${draftQuestion.trim() || "未入力"}`,
     `## 状況説明\n${situation.trim()}`,
     `## エラー文\n${errorText.trim() || "未入力"}`,
     `## 実行コマンド\n${commandText.trim() || "未入力"}`,
     `## 関連ファイル\n${relatedFiles.length > 0 ? relatedFiles.join("\n") : "未選択"}`,
     buildGitDiffMessage(gitDiff),
     buildEnvironmentSnapshotMessage(environmentSnapshot),
+    `## 除外した項目\n${excludedItems.length > 0 ? excludedItems.join("\n") : "なし"}`,
     `## 秘密情報チェック\n${secretScan.blocked ? `ブロック: ${secretScan.findings.join(", ")}` : "mock チェック通過"}`
   ];
 
@@ -260,6 +284,7 @@ export const ThreadCreatePage = (): ReactElement => {
   const [gitDiffState, setGitDiffState] = useState<GitDiffUiState>(initialGitDiffState);
   const [environmentSnapshotState, setEnvironmentSnapshotState] =
     useState<EnvironmentSnapshotUiState>(initialEnvironmentSnapshotState);
+  const [sendReview, setSendReview] = useState<SendReviewState>(initialSendReviewState);
 
   useEffect(() => {
     let mounted = true;
@@ -313,21 +338,32 @@ export const ThreadCreatePage = (): ReactElement => {
   }, [profile, supabase]);
 
   const relatedFiles = splitRelatedFiles(relatedFilesText);
+  const blockedRelatedFiles = relatedFiles.filter(isSecretCandidateText);
+  const excludedRelatedFileSet = new Set([
+    ...blockedRelatedFiles,
+    ...sendReview.excludedRelatedFiles
+  ]);
+  const includedRelatedFiles = relatedFiles.filter((file) => !excludedRelatedFileSet.has(file));
+  const editableSecretScan = runMockSecretScan([title, situation, errorText, commandText]);
   const secretScan = runMockSecretScan([
     title,
     situation,
     errorText,
     commandText,
-    relatedFilesText
+    includedRelatedFiles.join("\n")
   ]);
   const selectedProject = state.projects.find((project) => project.id === selectedProjectId);
   const missingRequiredFields = !selectedProject || !title.trim() || !situation.trim();
-  const canSubmit =
+  const canReview =
     !submitting &&
     profile?.role === "student" &&
     state.projects.length > 0 &&
     !missingRequiredFields &&
-    !secretScan.blocked;
+    !editableSecretScan.blocked;
+  const buildDefaultReviewDraft = (): string => {
+    const lines = [title.trim(), situation.trim()].filter(Boolean);
+    return lines.join("\n\n");
+  };
 
   const collectGitDiff = useCallback(
     async (
@@ -628,6 +664,77 @@ export const ThreadCreatePage = (): ReactElement => {
     : environmentSnapshot?.status === "ready"
       ? "success"
       : "warning";
+  const excludedItems = [
+    ...blockedRelatedFiles.map((file) => `関連ファイル: ${file} (秘密情報候補)`),
+    ...sendReview.excludedRelatedFiles
+      .filter((file) => !blockedRelatedFiles.includes(file))
+      .map((file) => `関連ファイル: ${file}`),
+    !sendReview.includeGitDiff ? "Git差分" : null,
+    !sendReview.includeEnvironmentSnapshot ? "環境情報" : null
+  ].filter((item): item is string => Boolean(item));
+  const reviewPayloadPreview = buildInitialMessage({
+    draftQuestion: sendReview.draftQuestion || buildDefaultReviewDraft(),
+    situation,
+    errorText,
+    commandText,
+    relatedFiles: includedRelatedFiles,
+    secretScan,
+    gitDiff: sendReview.includeGitDiff ? gitDiffResponse : null,
+    environmentSnapshot: sendReview.includeEnvironmentSnapshot ? environmentSnapshot : null,
+    excludedItems
+  });
+
+  const toggleRelatedFileExclusion = (file: string): void => {
+    setSendReview((current) => {
+      const excluded = new Set(current.excludedRelatedFiles);
+
+      if (excluded.has(file)) {
+        excluded.delete(file);
+      } else {
+        excluded.add(file);
+      }
+
+      return {
+        ...current,
+        excludedRelatedFiles: [...excluded]
+      };
+    });
+  };
+
+  const openSendReview = async (): Promise<void> => {
+    if (!canReview) {
+      setMessageStatus(editableSecretScan.blocked ? "error" : "warning");
+      setMessage(
+        editableSecretScan.blocked
+          ? "入力欄に秘密情報候補があります。送信前に本文を編集してください。"
+          : "タイトル、状況説明、プロジェクトを確認してください。"
+      );
+      return;
+    }
+
+    setSubmitting(true);
+    setMessage(null);
+
+    try {
+      const [gitDiff, snapshot] = await Promise.all([
+        ensureGitDiffForSubmit(),
+        ensureEnvironmentSnapshotForSubmit()
+      ]);
+
+      setSendReview((current) => ({
+        ...current,
+        open: true,
+        draftQuestion: buildDefaultReviewDraft(),
+        includeGitDiff: Boolean(gitDiff),
+        includeEnvironmentSnapshot: Boolean(snapshot),
+        excludedRelatedFiles: current.excludedRelatedFiles.filter((file) =>
+          relatedFiles.includes(file)
+        )
+      }));
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const submitThread = async (): Promise<void> => {
     if (!supabase || !profile) {
@@ -654,9 +761,15 @@ export const ThreadCreatePage = (): ReactElement => {
       return;
     }
 
-    if (secretScan.blocked) {
+    if (editableSecretScan.blocked || secretScan.blocked) {
       setMessageStatus("error");
       setMessage("秘密情報の可能性がある内容を検出したため送信を止めました。");
+      return;
+    }
+
+    if (!sendReview.open) {
+      setMessageStatus("warning");
+      setMessage("送信前レビューで内容を確認してください。");
       return;
     }
 
@@ -667,8 +780,10 @@ export const ThreadCreatePage = (): ReactElement => {
 
     try {
       const [gitDiff, environmentSnapshotForSubmit] = await Promise.all([
-        ensureGitDiffForSubmit(),
-        ensureEnvironmentSnapshotForSubmit()
+        sendReview.includeGitDiff ? ensureGitDiffForSubmit() : Promise.resolve(null),
+        sendReview.includeEnvironmentSnapshot
+          ? ensureEnvironmentSnapshotForSubmit()
+          : Promise.resolve(null)
       ]);
       const { data: thread, error: threadError } = await supabase
         .from("threads")
@@ -690,13 +805,15 @@ export const ThreadCreatePage = (): ReactElement => {
       createdThreadId = thread.id;
 
       const body = buildInitialMessage({
+        draftQuestion: sendReview.draftQuestion,
         situation,
         errorText,
         commandText,
-        relatedFiles,
+        relatedFiles: includedRelatedFiles,
         secretScan,
         gitDiff,
-        environmentSnapshot: environmentSnapshotForSubmit
+        environmentSnapshot: environmentSnapshotForSubmit,
+        excludedItems
       });
 
       const { error: messageError } = await supabase.from("messages").insert({
@@ -901,9 +1018,11 @@ export const ThreadCreatePage = (): ReactElement => {
               <span>Node</span>
               <strong>{environmentSnapshot?.runtimes.node.version ?? "未取得"}</strong>
               <span>秘密情報チェック</span>
-              <strong>{secretScan.blocked ? "送信停止" : "通過"}</strong>
+              <strong>{editableSecretScan.blocked ? "送信停止" : "通過"}</strong>
               <span>関連ファイル</span>
-              <strong>{relatedFiles.length} 件</strong>
+              <strong>
+                {includedRelatedFiles.length} 件 / 除外 {excludedRelatedFileSet.size} 件
+              </strong>
             </div>
 
             <div className="git-diff-controls">
@@ -939,9 +1058,15 @@ export const ThreadCreatePage = (): ReactElement => {
               </p>
             </div>
 
-            {secretScan.blocked && (
+            {editableSecretScan.blocked && (
               <p className="message error" role="alert">
-                秘密情報候補: {secretScan.findings.join(", ")}
+                秘密情報候補: {editableSecretScan.findings.join(", ")}
+              </p>
+            )}
+
+            {blockedRelatedFiles.length > 0 && (
+              <p className="message warning" role="status">
+                送信から除外する関連ファイル: {blockedRelatedFiles.join(", ")}
               </p>
             )}
 
@@ -953,11 +1078,11 @@ export const ThreadCreatePage = (): ReactElement => {
 
             <button
               className="primary-button"
-              disabled={!canSubmit}
+              disabled={!canReview}
               type="button"
-              onClick={() => void submitThread()}
+              onClick={() => void openSendReview()}
             >
-              {submitting ? "作成中..." : "質問スレッドを作成"}
+              {submitting ? "確認中..." : "送信前プレビュー"}
             </button>
 
             {message && (
@@ -969,6 +1094,152 @@ export const ThreadCreatePage = (): ReactElement => {
               </p>
             )}
           </aside>
+        </div>
+      )}
+
+      {sendReview.open && (
+        <div className="review-modal-backdrop" role="presentation">
+          <div
+            aria-labelledby="send-review-title"
+            aria-modal="true"
+            className="review-modal"
+            role="dialog"
+          >
+            <header>
+              <div>
+                <p className="eyebrow">Review</p>
+                <h2 id="send-review-title">送信前プレビュー</h2>
+              </div>
+              <button
+                className="secondary-button"
+                disabled={submitting}
+                type="button"
+                onClick={() =>
+                  setSendReview((current) => ({
+                    ...current,
+                    open: false
+                  }))
+                }
+              >
+                閉じる
+              </button>
+            </header>
+
+            <label>
+              AI生成質問文（編集可）
+              <textarea
+                rows={5}
+                value={sendReview.draftQuestion}
+                onChange={(event) =>
+                  setSendReview((current) => ({
+                    ...current,
+                    draftQuestion: event.target.value
+                  }))
+                }
+              />
+            </label>
+
+            <div className="review-grid">
+              <section className="review-section">
+                <h3>関連ファイル</h3>
+                {relatedFiles.length === 0 ? (
+                  <p className="muted">未選択</p>
+                ) : (
+                  <div className="review-check-list">
+                    {relatedFiles.map((file) => {
+                      const blocked = blockedRelatedFiles.includes(file);
+                      const excluded = excludedRelatedFileSet.has(file);
+
+                      return (
+                        <label className="review-check-row" key={file}>
+                          <input
+                            checked={!excluded}
+                            disabled={blocked}
+                            type="checkbox"
+                            onChange={() => toggleRelatedFileExclusion(file)}
+                          />
+                          <span>{file}</span>
+                          <strong>{blocked ? "ブロック" : excluded ? "除外" : "送信"}</strong>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
+
+              <section className="review-section">
+                <h3>収集情報</h3>
+                <label className="review-check-row">
+                  <input
+                    checked={sendReview.includeGitDiff}
+                    disabled={!gitDiffResponse}
+                    type="checkbox"
+                    onChange={() =>
+                      setSendReview((current) => ({
+                        ...current,
+                        includeGitDiff: !current.includeGitDiff
+                      }))
+                    }
+                  />
+                  <span>Git diff</span>
+                  <strong>{gitDiffResponse ? gitDiffSummary : "未収集"}</strong>
+                </label>
+                <label className="review-check-row">
+                  <input
+                    checked={sendReview.includeEnvironmentSnapshot}
+                    disabled={!environmentSnapshot}
+                    type="checkbox"
+                    onChange={() =>
+                      setSendReview((current) => ({
+                        ...current,
+                        includeEnvironmentSnapshot: !current.includeEnvironmentSnapshot
+                      }))
+                    }
+                  />
+                  <span>環境情報</span>
+                  <strong>{environmentSummary}</strong>
+                </label>
+              </section>
+
+              <section className="review-section">
+                <h3>秘密情報チェック</h3>
+                <p className={`message ${secretScan.blocked ? "error" : "success"}`}>
+                  {secretScan.blocked
+                    ? `ブロック: ${secretScan.findings.join(", ")}`
+                    : "送信対象に秘密情報候補はありません。"}
+                </p>
+              </section>
+            </div>
+
+            <section className="review-section">
+              <h3>最終 payload</h3>
+              <pre className="review-payload-preview">{reviewPayloadPreview}</pre>
+            </section>
+
+            <footer>
+              <button
+                className="secondary-button"
+                disabled={submitting}
+                type="button"
+                onClick={() =>
+                  setSendReview((current) => ({
+                    ...current,
+                    open: false
+                  }))
+                }
+              >
+                戻って編集
+              </button>
+              <button
+                className="primary-button"
+                disabled={submitting || secretScan.blocked || !sendReview.draftQuestion.trim()}
+                type="button"
+                onClick={() => void submitThread()}
+              >
+                {submitting ? "作成中..." : "確認して送信"}
+              </button>
+            </footer>
+          </div>
         </div>
       )}
     </section>
