@@ -61,9 +61,12 @@ const normalizeHttpBaseUrl = (value: string): string | null => {
 
 export const getPublicAppBaseUrl = (): string => {
   const result = getPublicEnv();
-  const appBaseUrl = result.ok
-    ? result.env.appBaseUrl
-    : import.meta.env.VITE_ASK_APP_BASE_URL?.trim() || null;
+
+  if (!result.ok) {
+    throw new Error(result.message);
+  }
+
+  const appBaseUrl = result.env.appBaseUrl;
 
   if (appBaseUrl) {
     const normalizedBaseUrl = normalizeHttpBaseUrl(appBaseUrl);
