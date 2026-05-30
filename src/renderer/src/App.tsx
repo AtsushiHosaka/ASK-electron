@@ -4,6 +4,7 @@ import { LoginPage } from "./features/auth/LoginPage";
 import { useAuth } from "./features/auth/AuthProvider";
 import { StudentOnboardingPage } from "./features/onboarding/StudentOnboardingPage";
 import { ProjectDetailPage, ProjectsPage } from "./features/projects/ProjectRegistrationPage";
+import { StudentHomePage } from "./features/student/StudentHomePage";
 import {
   ClassDetailPage,
   ClassJoinPage,
@@ -77,8 +78,8 @@ const AppShell = (): ReactElement => {
           <NavLink to="/classes">クラス</NavLink>
           {profile.role !== "student" && <NavLink to="/teacher/queue">質問キュー</NavLink>}
           <NavLink to="/projects">プロジェクト</NavLink>
-          <NavLink to="/threads/new">質問を作成</NavLink>
-          <NavLink to="/threads/demo">スレッド</NavLink>
+          {profile.role === "student" && <NavLink to="/threads/new">質問を作成</NavLink>}
+          {profile.role === "student" && <NavLink to="/threads">質問一覧</NavLink>}
         </nav>
 
         <div className="sidebar-footer">
@@ -95,7 +96,7 @@ const AppShell = (): ReactElement => {
       <main className="content">
         <Routes>
           <Route path="/" element={<Navigate to={roleHome[profile.role]} replace />} />
-          <Route path="/student" element={<StudentHome />} />
+          <Route path="/student" element={<StudentHomePage />} />
           <Route path="/teacher" element={<TeacherHomePage />} />
           <Route path="/teacher/queue" element={<TeacherQueuePage />} />
           <Route path="/onboarding" element={<StudentOnboardingPage />} />
@@ -104,6 +105,16 @@ const AppShell = (): ReactElement => {
           <Route path="/join/:token" element={<ClassJoinPage />} />
           <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/projects/:projectId" element={<ProjectDetailPage />} />
+          <Route
+            path="/threads"
+            element={
+              profile.role === "student" ? (
+                <StudentHomePage />
+              ) : (
+                <Navigate to="/teacher/queue" replace />
+              )
+            }
+          />
           <Route path="/threads/new" element={<ThreadCreatePage />} />
           <Route path="/threads/:threadId" element={<ThreadDetailPage />} />
           <Route
@@ -120,40 +131,6 @@ const AppShell = (): ReactElement => {
     </div>
   );
 };
-
-const StudentHome = (): ReactElement => (
-  <WorkspacePage
-    eyebrow="Student"
-    title="質問の準備"
-    body="GitHub 接続、プロジェクト登録、質問作成の導線をここに集約します。"
-    items={["GitHub / SSH オンボーディング", "登録済みプロジェクト", "最近の質問スレッド"]}
-  />
-);
-
-const WorkspacePage = ({
-  eyebrow,
-  title,
-  body,
-  items
-}: {
-  eyebrow: string;
-  title: string;
-  body: string;
-  items: string[];
-}): ReactElement => (
-  <section className="workspace-page">
-    <p className="eyebrow">{eyebrow}</p>
-    <h1>{title}</h1>
-    <p className="muted">{body}</p>
-    <div className="placeholder-grid">
-      {items.map((item) => (
-        <article className="placeholder-panel" key={item}>
-          <span>{item}</span>
-        </article>
-      ))}
-    </div>
-  </section>
-);
 
 const EmptyState = ({ title, body }: { title: string; body: string }): ReactElement => (
   <section className="empty-state">

@@ -1,0 +1,38 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { describe, it } from "node:test";
+
+const appSource = readFileSync("src/renderer/src/App.tsx", "utf8");
+const studentHomeSource = readFileSync(
+  "src/renderer/src/features/student/StudentHomePage.tsx",
+  "utf8"
+);
+const styleSource = readFileSync("src/renderer/src/styles.css", "utf8");
+
+describe("student home real data", () => {
+  it("removes the demo thread route and placeholder workspace from the app shell", () => {
+    assert.doesNotMatch(appSource, /\/threads\/demo/);
+    assert.doesNotMatch(appSource, /WorkspacePage/);
+    assert.match(appSource, /StudentHomePage/);
+    assert.match(appSource, /path="\/threads"/);
+    assert.match(appSource, /質問一覧/);
+  });
+
+  it("loads student home data from Supabase tables", () => {
+    assert.match(studentHomeSource, /\.from\("github_connections"\)/);
+    assert.match(studentHomeSource, /\.from\("class_members"\)/);
+    assert.match(studentHomeSource, /\.from\("projects"\)/);
+    assert.match(studentHomeSource, /\.from\("threads"\)/);
+    assert.match(studentHomeSource, /id="threads"/);
+    assert.match(studentHomeSource, /\/threads\/new/);
+    assert.match(studentHomeSource, /\/projects/);
+    assert.match(studentHomeSource, /\/onboarding/);
+  });
+
+  it("keeps product code free of obsolete demo and placeholder implementation markers", () => {
+    const productSources = [appSource, studentHomeSource, styleSource].join("\n");
+
+    assert.doesNotMatch(productSources, /demo|placeholder|WorkspacePage/);
+    assert.doesNotMatch(styleSource, /\.placeholder-grid|\.placeholder-panel/);
+  });
+});

@@ -1340,7 +1340,6 @@ export const ThreadDetailPage = (): ReactElement => {
               <label>
                 対象ファイル
                 <input
-                  placeholder="src/calculator.ts"
                   value={teacherPatchTargetFilePath}
                   onChange={(event) => setTeacherPatchTargetFilePath(event.target.value)}
                 />
@@ -1349,7 +1348,6 @@ export const ThreadDetailPage = (): ReactElement => {
               <label>
                 Base commit
                 <input
-                  placeholder="abcdef123456"
                   value={teacherPatchBaseCommitSha}
                   onChange={(event) => setTeacherPatchBaseCommitSha(event.target.value)}
                 />
