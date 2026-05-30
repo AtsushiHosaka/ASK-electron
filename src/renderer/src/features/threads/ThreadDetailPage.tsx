@@ -5,11 +5,14 @@ import type {
   Database,
   MessageSenderType,
   MessageType,
+  PatchStatus,
   ThreadStatus
 } from "../../../../shared/database.types";
 import type {
   PatchApplyResponse,
   PatchApplyStatus,
+  PatchRevertResponse,
+  PatchRevertStatus,
   PatchValidateResponse,
   PatchValidationStatus
 } from "../../../../shared/ipc";
@@ -19,10 +22,15 @@ import { useAuth } from "../auth/AuthProvider";
 import { getSupabaseClient } from "../../lib/supabase";
 
 type MessageRow = Database["public"]["Tables"]["messages"]["Row"];
+type PatchProposalRow = Database["public"]["Tables"]["patch_proposals"]["Row"];
 type ProjectRow = Database["public"]["Tables"]["projects"]["Row"];
 type ThreadRow = Database["public"]["Tables"]["threads"]["Row"];
 type UserRow = Database["public"]["Tables"]["users"]["Row"];
 type ProjectSummary = Pick<ProjectRow, "id" | "local_path_hash" | "name">;
+type PatchProposalSummary = Pick<
+  PatchProposalRow,
+  "id" | "message_id" | "status" | "target_file_path" | "base_commit_sha"
+>;
 
 interface ThreadDetailState {
   loading: boolean;
@@ -30,14 +38,18 @@ interface ThreadDetailState {
   thread: ThreadRow | null;
   project: ProjectSummary | null;
   messages: MessageRow[];
+  patchProposalsByMessageId: Map<string, PatchProposalSummary>;
   usersById: Map<string, Pick<UserRow, "id" | "display_name" | "email" | "role">>;
 }
 
 interface PatchReviewState {
   validating: boolean;
   applying: boolean;
+  reverting: boolean;
+  dismissing: boolean;
   validation: PatchValidateResponse | null;
   applyResult: PatchApplyResponse | null;
+  revertResult: PatchRevertResponse | null;
   error: string | null;
 }
 
@@ -47,6 +59,7 @@ const initialState: ThreadDetailState = {
   thread: null,
   project: null,
   messages: [],
+  patchProposalsByMessageId: new Map(),
   usersById: new Map()
 };
 
@@ -98,6 +111,26 @@ const patchApplyLabels: Record<PatchApplyStatus, string> = {
   failed: "失敗"
 };
 
+const patchRevertLabels: Record<PatchRevertStatus, string> = {
+  reverted: "取り消し済み",
+  root_missing: "ローカル未設定",
+  stale: "再確認が必要",
+  dirty: "適用後変更あり",
+  backup_missing: "バックアップ未検出",
+  git_missing: "Git未検出",
+  git_timeout: "Gitタイムアウト",
+  permission_denied: "権限エラー",
+  failed: "失敗"
+};
+
+const patchProposalStatusLabels: Record<PatchStatus, string> = {
+  proposed: "提案中",
+  applied: "適用済み",
+  failed: "失敗",
+  reverted: "取り消し済み",
+  dismissed: "却下済み"
+};
+
 const THREAD_AI_MESSAGE_CHAR_LIMIT = 1_000;
 
 const unique = (values: Array<string | null>): string[] => [
@@ -121,8 +154,11 @@ const sortMessages = (messages: MessageRow[]): MessageRow[] => {
 const initialPatchReviewState: PatchReviewState = {
   validating: false,
   applying: false,
+  reverting: false,
+  dismissing: false,
   validation: null,
   applyResult: null,
+  revertResult: null,
   error: null
 };
 
@@ -164,6 +200,18 @@ const applyMessageClass = (applyResult: PatchApplyResponse): "error" | "success"
     applyResult.status === "conflict" ||
     applyResult.status === "stale" ||
     applyResult.status === "git_timeout"
+    ? "warning"
+    : "error";
+};
+
+const revertMessageClass = (revertResult: PatchRevertResponse): "error" | "success" | "warning" => {
+  if (revertResult.reverted) {
+    return "success";
+  }
+
+  return revertResult.status === "dirty" ||
+    revertResult.status === "stale" ||
+    revertResult.status === "git_timeout"
     ? "warning"
     : "error";
 };
@@ -215,8 +263,9 @@ export const ThreadDetailPage = (): ReactElement => {
         }
 
         const messages = messagesResult.data ?? [];
+        const messageIds = messages.map((message) => message.id);
         const senderIds = unique(messages.map((message) => message.sender_user_id));
-        const [usersResult, projectResult] = await Promise.all([
+        const [usersResult, projectResult, patchProposalsResult] = await Promise.all([
           senderIds.length > 0
             ? supabase.from("users").select("id,display_name,email,role").in("id", senderIds)
             : Promise.resolve({ data: [], error: null }),
@@ -224,7 +273,13 @@ export const ThreadDetailPage = (): ReactElement => {
             .from("projects")
             .select("id,name,local_path_hash")
             .eq("id", threadResult.data.project_id)
-            .single()
+            .single(),
+          messageIds.length > 0
+            ? supabase
+                .from("patch_proposals")
+                .select("id,message_id,status,target_file_path,base_commit_sha")
+                .in("message_id", messageIds)
+            : Promise.resolve({ data: [], error: null })
         ]);
 
         if (usersResult.error) {
@@ -235,6 +290,10 @@ export const ThreadDetailPage = (): ReactElement => {
           console.warn("Failed to load thread project summary", projectResult.error);
         }
 
+        if (patchProposalsResult.error) {
+          console.warn("Failed to load thread patch proposals", patchProposalsResult.error);
+        }
+
         if (mounted) {
           setState({
             loading: false,
@@ -242,6 +301,11 @@ export const ThreadDetailPage = (): ReactElement => {
             thread: threadResult.data,
             project: projectResult.error ? null : projectResult.data,
             messages,
+            patchProposalsByMessageId: new Map(
+              (patchProposalsResult.error ? [] : (patchProposalsResult.data ?? [])).map(
+                (proposal) => [proposal.message_id, proposal]
+              )
+            ),
             usersById: new Map((usersResult.data ?? []).map((user) => [user.id, user]))
           });
         }
@@ -311,6 +375,49 @@ export const ThreadDetailPage = (): ReactElement => {
     }));
   };
 
+  const updatePatchProposalStatus = async (
+    messageId: string,
+    status: PatchStatus
+  ): Promise<void> => {
+    if (!supabase) {
+      throw new Error("Supabase client is not configured");
+    }
+
+    const proposal = state.patchProposalsByMessageId.get(messageId);
+
+    if (!proposal) {
+      return;
+    }
+
+    const { error } = await supabase
+      .from("patch_proposals")
+      .update({ status })
+      .eq("id", proposal.id);
+
+    if (error) {
+      throw error;
+    }
+
+    setState((current) => {
+      const currentProposal = current.patchProposalsByMessageId.get(messageId);
+
+      if (!currentProposal) {
+        return current;
+      }
+
+      const nextPatchProposalsByMessageId = new Map(current.patchProposalsByMessageId);
+      nextPatchProposalsByMessageId.set(messageId, {
+        ...currentProposal,
+        status
+      });
+
+      return {
+        ...current,
+        patchProposalsByMessageId: nextPatchProposalsByMessageId
+      };
+    });
+  };
+
   const validatePatchMessage = async (message: MessageRow): Promise<void> => {
     if (profile?.role !== "student") {
       return;
@@ -338,7 +445,10 @@ export const ThreadDetailPage = (): ReactElement => {
         requesterRole: profile.role,
         localPathHash,
         patchText: message.body,
-        expectedBaseCommit: extractExpectedBaseCommit(message.body)
+        expectedBaseCommit:
+          state.patchProposalsByMessageId.get(message.id)?.base_commit_sha ??
+          extractExpectedBaseCommit(message.body),
+        patchProposalId: state.patchProposalsByMessageId.get(message.id)?.id ?? null
       });
 
       if (!result.ok) {
@@ -393,11 +503,20 @@ export const ThreadDetailPage = (): ReactElement => {
         throw new Error(result.error.message);
       }
 
+      let statusError: string | null = null;
+
+      try {
+        await updatePatchProposalStatus(message.id, result.data.applied ? "applied" : "failed");
+      } catch (error) {
+        console.error("Failed to update patch proposal status", error);
+        statusError = "パッチ状態を保存できませんでした。";
+      }
+
       updatePatchReview(message.id, (current) => ({
         ...current,
         applying: false,
         applyResult: result.data,
-        error: null
+        error: statusError
       }));
     } catch (error) {
       console.error("Failed to apply patch", error);
@@ -405,6 +524,99 @@ export const ThreadDetailPage = (): ReactElement => {
         ...current,
         applying: false,
         error: "パッチを適用できませんでした。"
+      }));
+    }
+  };
+
+  const revertPatchMessage = async (message: MessageRow): Promise<void> => {
+    if (profile?.role !== "student") {
+      return;
+    }
+
+    const localPathHash = state.project?.local_path_hash ?? null;
+    const proposal = state.patchProposalsByMessageId.get(message.id);
+    const appliedPatch = patchReviews[message.id]?.applyResult;
+    const patchId = proposal?.id ?? appliedPatch?.patchId ?? null;
+
+    if (!patchId) {
+      updatePatchReview(message.id, (current) => ({
+        ...current,
+        error: "パッチ提案の状態を確認できませんでした。"
+      }));
+      return;
+    }
+
+    updatePatchReview(message.id, (current) => ({
+      ...current,
+      reverting: true,
+      error: null
+    }));
+
+    try {
+      const backupDirectory =
+        appliedPatch?.backupDirectory ?? (proposal ? `.ask/backups/${proposal.id}` : null);
+      const result = await window.ask.patch.revert({
+        requesterRole: profile.role,
+        localPathHash,
+        patchId,
+        backupDirectory
+      });
+
+      if (!result.ok) {
+        throw new Error(result.error.message);
+      }
+
+      let statusError: string | null = null;
+
+      if (result.data.reverted) {
+        try {
+          await updatePatchProposalStatus(message.id, "reverted");
+        } catch (error) {
+          console.error("Failed to update patch proposal status", error);
+          statusError = "取り消し状態を保存できませんでした。";
+        }
+      }
+
+      updatePatchReview(message.id, (current) => ({
+        ...current,
+        reverting: false,
+        revertResult: result.data,
+        error: statusError
+      }));
+    } catch (error) {
+      console.error("Failed to revert patch", error);
+      updatePatchReview(message.id, (current) => ({
+        ...current,
+        reverting: false,
+        error: "パッチを取り消せませんでした。"
+      }));
+    }
+  };
+
+  const dismissPatchMessage = async (message: MessageRow): Promise<void> => {
+    if (profile?.role !== "student") {
+      return;
+    }
+
+    updatePatchReview(message.id, (current) => ({
+      ...current,
+      dismissing: true,
+      error: null
+    }));
+
+    try {
+      await updatePatchProposalStatus(message.id, "dismissed");
+      updatePatchReview(message.id, (current) => ({
+        ...current,
+        dismissing: false,
+        error: null
+      }));
+    } catch (error) {
+      console.error("Failed to dismiss patch", error);
+      updatePatchReview(message.id, (current) => ({
+        ...current,
+        dismissing: false,
+        error: "パッチを却下済みにできませんでした。"
       }));
     }
   };
@@ -621,11 +833,14 @@ export const ThreadDetailPage = (): ReactElement => {
                       : null
                   }
                   patchReview={patchReviews[message.id] ?? initialPatchReviewState}
+                  patchProposal={state.patchProposalsByMessageId.get(message.id) ?? null}
                   canReviewPatch={profile?.role === "student"}
                   projectHasLocalRoot={Boolean(state.project?.local_path_hash)}
                   projectName={state.project?.name ?? null}
                   onValidatePatch={() => void validatePatchMessage(message)}
                   onApplyPatch={() => void applyPatchMessage(message)}
+                  onRevertPatch={() => void revertPatchMessage(message)}
+                  onDismissPatch={() => void dismissPatchMessage(message)}
                 />
               ))
             )}
@@ -717,20 +932,26 @@ const MessageBubble = ({
   message,
   senderName,
   patchReview,
+  patchProposal,
   canReviewPatch,
   projectHasLocalRoot,
   projectName,
   onValidatePatch,
-  onApplyPatch
+  onApplyPatch,
+  onRevertPatch,
+  onDismissPatch
 }: {
   message: MessageRow;
   senderName: string | null | undefined;
   patchReview: PatchReviewState;
+  patchProposal: PatchProposalSummary | null;
   canReviewPatch: boolean;
   projectHasLocalRoot: boolean;
   projectName: string | null;
   onValidatePatch: () => void;
   onApplyPatch: () => void;
+  onRevertPatch: () => void;
+  onDismissPatch: () => void;
 }): ReactElement => {
   const isCodeLike = message.message_type === "code" || message.message_type === "patch";
   const viewerKind = message.message_type === "patch" ? "diff" : "code";
@@ -755,7 +976,11 @@ const MessageBubble = ({
           projectHasLocalRoot={projectHasLocalRoot}
           projectName={projectName}
           review={patchReview}
+          patchProposal={patchProposal}
+          patchText={message.body}
           onApplyPatch={onApplyPatch}
+          onDismissPatch={onDismissPatch}
+          onRevertPatch={onRevertPatch}
           onValidatePatch={onValidatePatch}
         />
       ) : null}
@@ -768,21 +993,39 @@ const PatchReviewPanel = ({
   canReviewPatch,
   projectHasLocalRoot,
   projectName,
+  patchProposal,
+  patchText,
   onValidatePatch,
-  onApplyPatch
+  onApplyPatch,
+  onRevertPatch,
+  onDismissPatch
 }: {
   review: PatchReviewState;
   canReviewPatch: boolean;
   projectHasLocalRoot: boolean;
   projectName: string | null;
+  patchProposal: PatchProposalSummary | null;
+  patchText: string;
   onValidatePatch: () => void;
   onApplyPatch: () => void;
+  onRevertPatch: () => void;
+  onDismissPatch: () => void;
 }): ReactElement => {
   const validation = review.validation;
   const applyResult = review.applyResult;
+  const revertResult = review.revertResult;
   const canApply = Boolean(
-    validation?.canApply && validation.patchId && validation.confirmationToken && !applyResult
+    validation?.canApply &&
+    validation.patchId &&
+    validation.confirmationToken &&
+    !applyResult &&
+    patchProposal?.status !== "dismissed" &&
+    patchProposal?.status !== "reverted"
   );
+  const canRevert = Boolean(
+    (patchProposal?.status === "applied" || applyResult?.applied) && projectHasLocalRoot
+  );
+  const canDismiss = patchProposal?.status === "proposed" || patchProposal?.status === "failed";
 
   return (
     <section className="patch-review-panel" aria-label="Patch review">
@@ -793,6 +1036,16 @@ const PatchReviewPanel = ({
           {projectName ?? "このプロジェクト"} のファイル状態を確認してから適用します。
         </p>
       </div>
+
+      {patchProposal ? (
+        <div className="patch-review-meta">
+          <span>{patchProposalStatusLabels[patchProposal.status]}</span>
+          <span>{patchProposal.target_file_path}</span>
+          {patchProposal.base_commit_sha ? (
+            <span>Base {shortCommit(patchProposal.base_commit_sha)}</span>
+          ) : null}
+        </div>
+      ) : null}
 
       {!canReviewPatch ? (
         <p className="message warning">パッチ適用は生徒のローカル環境でのみ承認できます。</p>
@@ -836,6 +1089,21 @@ const PatchReviewPanel = ({
         </div>
       ) : null}
 
+      {revertResult ? (
+        <div className="patch-review-result">
+          <div className="patch-review-meta">
+            <span>{patchRevertLabels[revertResult.status]}</span>
+            {revertResult.backupDirectory ? <span>{revertResult.backupDirectory}</span> : null}
+          </div>
+          <p className={`message ${revertMessageClass(revertResult)}`}>{revertResult.message}</p>
+        </div>
+      ) : null}
+
+      <details className="patch-manual-diff">
+        <summary>手動適用用diff</summary>
+        <pre>{patchText}</pre>
+      </details>
+
       {review.error ? (
         <p className="message error" role="alert">
           {review.error}
@@ -846,7 +1114,15 @@ const PatchReviewPanel = ({
         <div className="patch-review-actions">
           <button
             className="secondary-button"
-            disabled={review.validating || review.applying || !projectHasLocalRoot}
+            disabled={
+              review.validating ||
+              review.applying ||
+              review.reverting ||
+              review.dismissing ||
+              !projectHasLocalRoot ||
+              patchProposal?.status === "dismissed" ||
+              patchProposal?.status === "reverted"
+            }
             type="button"
             onClick={onValidatePatch}
           >
@@ -854,11 +1130,27 @@ const PatchReviewPanel = ({
           </button>
           <button
             className="primary-button"
-            disabled={!canApply || review.validating || review.applying}
+            disabled={!canApply || review.validating || review.applying || review.reverting}
             type="button"
             onClick={onApplyPatch}
           >
             {review.applying ? "適用中..." : applyResult?.applied ? "適用済み" : "承認して適用"}
+          </button>
+          <button
+            className="secondary-button"
+            disabled={!canRevert || review.validating || review.applying || review.reverting}
+            type="button"
+            onClick={onRevertPatch}
+          >
+            {review.reverting ? "取り消し中..." : "元に戻す"}
+          </button>
+          <button
+            className="secondary-button"
+            disabled={!canDismiss || review.validating || review.applying || review.dismissing}
+            type="button"
+            onClick={onDismissPatch}
+          >
+            {review.dismissing ? "却下中..." : "却下"}
           </button>
         </div>
       ) : null}

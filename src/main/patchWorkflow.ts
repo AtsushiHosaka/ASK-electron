@@ -1,12 +1,26 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { access, cp, lstat, mkdir, mkdtemp, readlink, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  cp,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readlink,
+  rm,
+  symlink,
+  writeFile
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path, { join, relative, resolve } from "node:path";
 import type {
   PatchApplyRequest,
   PatchApplyResponse,
   PatchApplyStatus,
+  PatchRevertRequest,
+  PatchRevertResponse,
+  PatchRevertStatus,
   PatchValidateRequest,
   PatchValidateResponse,
   PatchValidationStatus
@@ -21,6 +35,7 @@ const PATCH_WORKFLOW_MAX_TARGET_FILES = 50;
 const PATCH_PENDING_TTL_MS = 10 * 60 * 1_000;
 const MAX_PENDING_PATCHES = 25;
 const BACKUP_ROOT_DIRECTORY = ".ask/backups";
+const BACKUP_METADATA_FILE = "metadata.json";
 
 const deniedPathSegments = new Set([
   ".ask",
@@ -53,7 +68,19 @@ interface BackupEntry {
   path: string;
   existed: boolean;
   kind: "file" | "directory" | "symlink" | "other" | "missing";
+  sha256?: string;
   linkTarget?: string;
+}
+
+interface BackupMetadata {
+  schemaVersion: 1;
+  patchId: string;
+  currentHead: string;
+  targetFiles: string[];
+  entries: BackupEntry[];
+  postApplyEntries?: BackupEntry[];
+  createdAt: string;
+  appliedAt?: string;
 }
 
 const pendingPatches = new Map<string, PendingPatch>();
@@ -66,6 +93,11 @@ type PatchApplyCheckFailureStatus = Extract<
 const trimCommit = (value: string | null | undefined): string | null => {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
+};
+
+const trimUuid = (value: string | null | undefined): string | null => {
+  const trimmed = value?.trim();
+  return trimmed && /^[0-9a-f-]{36}$/i.test(trimmed) ? trimmed : null;
 };
 
 const createValidateResponse = ({
@@ -116,6 +148,30 @@ const createApplyResponse = ({
   contractVersion: "v1",
   status,
   applied,
+  patchId: request.patchId,
+  targetFiles,
+  backupDirectory,
+  message
+});
+
+const createRevertResponse = ({
+  request,
+  status,
+  message,
+  reverted = false,
+  targetFiles = [],
+  backupDirectory = request.backupDirectory
+}: {
+  request: PatchRevertRequest;
+  status: PatchRevertStatus;
+  message: string;
+  reverted?: boolean;
+  targetFiles?: string[];
+  backupDirectory?: string | null;
+}): PatchRevertResponse => ({
+  contractVersion: "v1",
+  status,
+  reverted,
   patchId: request.patchId,
   targetFiles,
   backupDirectory,
@@ -568,6 +624,122 @@ const getPathKind = async (absolutePath: string): Promise<BackupEntry["kind"]> =
   }
 };
 
+const hashFile = async (absolutePath: string): Promise<string> => {
+  const content = await readFile(absolutePath);
+  return createHash("sha256").update(content).digest("hex");
+};
+
+const collectBackupEntry = async (rootPath: string, targetPath: string): Promise<BackupEntry> => {
+  const absoluteTargetPath = resolveTargetPath(rootPath, targetPath);
+
+  if (!absoluteTargetPath) {
+    throw new Error("TARGET_PATH_ESCAPED_ROOT");
+  }
+
+  const kind = await getPathKind(absoluteTargetPath);
+  const entry: BackupEntry = {
+    path: targetPath,
+    existed: kind !== "missing",
+    kind
+  };
+
+  if (kind === "file") {
+    entry.sha256 = await hashFile(absoluteTargetPath);
+  }
+
+  if (kind === "symlink") {
+    entry.linkTarget = await readlink(absoluteTargetPath);
+  }
+
+  return entry;
+};
+
+const backupEntriesMatch = (current: BackupEntry, expected: BackupEntry): boolean => {
+  return (
+    current.path === expected.path &&
+    current.existed === expected.existed &&
+    current.kind === expected.kind &&
+    current.sha256 === expected.sha256 &&
+    current.linkTarget === expected.linkTarget
+  );
+};
+
+const writeBackupMetadata = async (
+  backupDirectory: string,
+  metadata: BackupMetadata
+): Promise<void> => {
+  await writeFile(
+    join(backupDirectory, BACKUP_METADATA_FILE),
+    `${JSON.stringify(metadata, null, 2)}\n`,
+    "utf8"
+  );
+};
+
+const isBackupEntry = (value: unknown): value is BackupEntry => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const entry = value as BackupEntry;
+  return (
+    typeof entry.path === "string" &&
+    typeof entry.existed === "boolean" &&
+    (entry.kind === "file" ||
+      entry.kind === "directory" ||
+      entry.kind === "symlink" ||
+      entry.kind === "other" ||
+      entry.kind === "missing") &&
+    (entry.sha256 === undefined || typeof entry.sha256 === "string") &&
+    (entry.linkTarget === undefined || typeof entry.linkTarget === "string")
+  );
+};
+
+const readBackupMetadata = async (backupDirectory: string): Promise<BackupMetadata | null> => {
+  try {
+    const rawMetadata = JSON.parse(
+      await readFile(join(backupDirectory, BACKUP_METADATA_FILE), "utf8")
+    ) as Partial<BackupMetadata>;
+
+    if (
+      rawMetadata.schemaVersion !== 1 ||
+      typeof rawMetadata.patchId !== "string" ||
+      typeof rawMetadata.currentHead !== "string" ||
+      !Array.isArray(rawMetadata.targetFiles) ||
+      !rawMetadata.targetFiles.every((targetPath) => typeof targetPath === "string") ||
+      !Array.isArray(rawMetadata.entries) ||
+      !rawMetadata.entries.every(isBackupEntry) ||
+      (rawMetadata.postApplyEntries !== undefined &&
+        (!Array.isArray(rawMetadata.postApplyEntries) ||
+          !rawMetadata.postApplyEntries.every(isBackupEntry))) ||
+      typeof rawMetadata.createdAt !== "string"
+    ) {
+      return null;
+    }
+
+    return rawMetadata as BackupMetadata;
+  } catch {
+    return null;
+  }
+};
+
+const resolveBackupDirectory = (
+  rootPath: string,
+  patchId: string,
+  backupDirectory: string | null
+): { relativeDirectory: string; absoluteDirectory: string } | null => {
+  const relativeDirectory = backupDirectory?.trim() || `${BACKUP_ROOT_DIRECTORY}/${patchId}`;
+  const normalizedDirectory = path.posix.normalize(relativeDirectory);
+
+  if (normalizedDirectory !== `${BACKUP_ROOT_DIRECTORY}/${patchId}`) {
+    return null;
+  }
+
+  return {
+    relativeDirectory: normalizedDirectory,
+    absoluteDirectory: join(rootPath, ...normalizedDirectory.split("/"))
+  };
+};
+
 const createBackup = async (
   rootPath: string,
   patchId: string,
@@ -578,52 +750,109 @@ const createBackup = async (
   const backupDirectory = join(rootPath, backupRelativeDirectory);
   const entries: BackupEntry[] = [];
 
+  await rm(backupDirectory, { recursive: true, force: true });
   await mkdir(backupDirectory, { recursive: true });
 
   for (const targetPath of targetFiles) {
+    const entry = await collectBackupEntry(rootPath, targetPath);
     const absoluteTargetPath = resolveTargetPath(rootPath, targetPath);
 
     if (!absoluteTargetPath) {
       throw new Error("TARGET_PATH_ESCAPED_ROOT");
     }
 
-    const kind = await getPathKind(absoluteTargetPath);
-    const entry: BackupEntry = {
-      path: targetPath,
-      existed: kind !== "missing",
-      kind
-    };
-
-    if (kind === "file" || kind === "directory") {
+    if (entry.kind === "file" || entry.kind === "directory") {
       const backupPath = join(backupDirectory, ...targetPath.split("/"));
       await mkdir(path.dirname(backupPath), { recursive: true });
-      await cp(absoluteTargetPath, backupPath, { recursive: kind === "directory", force: true });
-    }
-
-    if (kind === "symlink") {
-      entry.linkTarget = await readlink(absoluteTargetPath);
+      await cp(absoluteTargetPath, backupPath, {
+        recursive: entry.kind === "directory",
+        force: true
+      });
     }
 
     entries.push(entry);
   }
 
-  await writeFile(
-    join(backupDirectory, "metadata.json"),
-    `${JSON.stringify(
-      {
-        patchId,
-        currentHead,
-        targetFiles,
-        entries,
-        createdAt: new Date().toISOString()
-      },
-      null,
-      2
-    )}\n`,
-    "utf8"
-  );
+  await writeBackupMetadata(backupDirectory, {
+    schemaVersion: 1,
+    patchId,
+    currentHead,
+    targetFiles,
+    entries,
+    createdAt: new Date().toISOString()
+  });
 
   return backupRelativeDirectory;
+};
+
+const recordPostApplyState = async (
+  rootPath: string,
+  backupRelativeDirectory: string,
+  metadata: BackupMetadata
+): Promise<BackupMetadata> => {
+  const backupDirectory = join(rootPath, ...backupRelativeDirectory.split("/"));
+  const nextMetadata: BackupMetadata = {
+    ...metadata,
+    postApplyEntries: await Promise.all(
+      metadata.targetFiles.map((targetPath) => collectBackupEntry(rootPath, targetPath))
+    ),
+    appliedAt: new Date().toISOString()
+  };
+
+  await writeBackupMetadata(backupDirectory, nextMetadata);
+  return nextMetadata;
+};
+
+const restoreBackupEntries = async (
+  rootPath: string,
+  backupDirectory: string,
+  entries: BackupEntry[]
+): Promise<{ ok: true } | { ok: false; status: "permission_denied" | "failed" }> => {
+  try {
+    for (const entry of entries) {
+      const absoluteTargetPath = resolveTargetPath(rootPath, entry.path);
+
+      if (!absoluteTargetPath) {
+        return { ok: false, status: "failed" };
+      }
+
+      if (entry.kind === "other") {
+        return { ok: false, status: "failed" };
+      }
+
+      await mkdir(path.dirname(absoluteTargetPath), { recursive: true });
+
+      if (entry.kind === "missing") {
+        await rm(absoluteTargetPath, { recursive: true, force: true });
+        continue;
+      }
+
+      if (entry.kind === "symlink") {
+        if (!entry.linkTarget) {
+          return { ok: false, status: "failed" };
+        }
+
+        await rm(absoluteTargetPath, { recursive: true, force: true });
+        await symlink(entry.linkTarget, absoluteTargetPath);
+        continue;
+      }
+
+      const backupPath = join(backupDirectory, ...entry.path.split("/"));
+      await rm(absoluteTargetPath, { recursive: true, force: true });
+      await cp(backupPath, absoluteTargetPath, {
+        recursive: entry.kind === "directory",
+        force: true
+      });
+    }
+
+    return { ok: true };
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    return {
+      ok: false,
+      status: code === "EACCES" || code === "EPERM" ? "permission_denied" : "failed"
+    };
+  }
 };
 
 const classifyApplyFailure = (result: GitCommandResult): PatchApplyStatus => {
@@ -658,8 +887,12 @@ const applyPatchText = async (
       return { ok: true };
     }
 
+    if (result.status === "missing") {
+      return { ok: false, status: "git_missing" };
+    }
+
     if (result.status === "timeout") {
-      return { ok: false, status: "failed" };
+      return { ok: false, status: "git_timeout" };
     }
 
     return { ok: false, status: classifyApplyFailure(result) };
@@ -677,7 +910,7 @@ export const validatePatch = async (
     return validation.response;
   }
 
-  const patchId = randomUUID();
+  const patchId = trimUuid(input.patchProposalId) ?? randomUUID();
   const confirmationToken = randomUUID();
   evictOldestPendingPatches();
   pendingPatches.set(patchId, {
@@ -725,7 +958,21 @@ export const applyPatch = async (input: PatchApplyRequest): Promise<PatchApplyRe
 
   const headResult = await checkCurrentHead(pendingPatch.rootPath);
 
-  if (headResult.status !== "ok" || headResult.head !== pendingPatch.currentHead) {
+  if (headResult.status !== "ok") {
+    return createApplyResponse({
+      request: input,
+      status:
+        headResult.status === "missing"
+          ? "git_missing"
+          : headResult.status === "timeout"
+            ? "git_timeout"
+            : "failed",
+      targetFiles: pendingPatch.targetFiles,
+      message: headResult.message
+    });
+  }
+
+  if (headResult.head !== pendingPatch.currentHead) {
     pendingPatches.delete(input.patchId);
     return createApplyResponse({
       request: input,
@@ -736,6 +983,24 @@ export const applyPatch = async (input: PatchApplyRequest): Promise<PatchApplyRe
   }
 
   const dirtyResult = await checkDirtyTargets(pendingPatch.rootPath, pendingPatch.targetFiles);
+
+  if (dirtyResult.status === "missing") {
+    return createApplyResponse({
+      request: input,
+      status: "git_missing",
+      targetFiles: pendingPatch.targetFiles,
+      message: "Git が見つかりません。"
+    });
+  }
+
+  if (dirtyResult.status === "timeout") {
+    return createApplyResponse({
+      request: input,
+      status: "git_timeout",
+      targetFiles: pendingPatch.targetFiles,
+      message: "作業ツリーの確認がタイムアウトしました。"
+    });
+  }
 
   if (dirtyResult.dirty) {
     return createApplyResponse({
@@ -758,6 +1023,7 @@ export const applyPatch = async (input: PatchApplyRequest): Promise<PatchApplyRe
   }
 
   let backupDirectory: string;
+  let backupMetadata: BackupMetadata | null;
 
   try {
     backupDirectory = await createBackup(
@@ -766,6 +1032,7 @@ export const applyPatch = async (input: PatchApplyRequest): Promise<PatchApplyRe
       pendingPatch.targetFiles,
       pendingPatch.currentHead
     );
+    backupMetadata = await readBackupMetadata(join(pendingPatch.rootPath, backupDirectory));
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     return createApplyResponse({
@@ -779,18 +1046,58 @@ export const applyPatch = async (input: PatchApplyRequest): Promise<PatchApplyRe
     });
   }
 
+  if (!backupMetadata) {
+    return createApplyResponse({
+      request: input,
+      status: "failed",
+      targetFiles: pendingPatch.targetFiles,
+      backupDirectory,
+      message: "バックアップ情報を確認できませんでした。パッチは適用していません。"
+    });
+  }
+
   const applyResult = await applyPatchText(pendingPatch.rootPath, pendingPatch.patchText);
 
   if (!applyResult.ok) {
+    const restoreResult = await restoreBackupEntries(
+      pendingPatch.rootPath,
+      join(pendingPatch.rootPath, backupDirectory),
+      backupMetadata.entries
+    );
+    pendingPatches.delete(input.patchId);
+
     return createApplyResponse({
       request: input,
-      status: applyResult.status,
+      status: restoreResult.ok ? applyResult.status : restoreResult.status,
       targetFiles: pendingPatch.targetFiles,
       backupDirectory,
-      message:
-        applyResult.status === "permission_denied"
-          ? "パッチ適用時に権限エラーが発生しました。"
-          : "パッチを適用できませんでした。バックアップは作成済みです。"
+      message: restoreResult.ok
+        ? applyResult.status === "permission_denied"
+          ? "パッチ適用時に権限エラーが発生しました。変更はバックアップから戻しました。"
+          : "パッチを適用できませんでした。変更はバックアップから戻しました。"
+        : "パッチ適用に失敗し、バックアップからの復元も完了できませんでした。対象ファイルを確認してください。"
+    });
+  }
+
+  try {
+    await recordPostApplyState(pendingPatch.rootPath, backupDirectory, backupMetadata);
+  } catch (error) {
+    const restoreResult = await restoreBackupEntries(
+      pendingPatch.rootPath,
+      join(pendingPatch.rootPath, backupDirectory),
+      backupMetadata.entries
+    );
+    const code = (error as NodeJS.ErrnoException).code;
+    pendingPatches.delete(input.patchId);
+
+    return createApplyResponse({
+      request: input,
+      status: code === "EACCES" || code === "EPERM" ? "permission_denied" : "failed",
+      targetFiles: pendingPatch.targetFiles,
+      backupDirectory,
+      message: restoreResult.ok
+        ? "適用後の復元情報を保存できなかったため、変更をバックアップから戻しました。"
+        : "適用後の復元情報を保存できず、バックアップからの復元も完了できませんでした。対象ファイルを確認してください。"
     });
   }
 
@@ -803,5 +1110,177 @@ export const applyPatch = async (input: PatchApplyRequest): Promise<PatchApplyRe
     targetFiles: pendingPatch.targetFiles,
     backupDirectory,
     message: "パッチをローカルファイルに適用しました。"
+  });
+};
+
+export const revertPatch = async (input: PatchRevertRequest): Promise<PatchRevertResponse> => {
+  const localPathHash = input.localPathHash?.trim();
+
+  if (!localPathHash) {
+    return createRevertResponse({
+      request: input,
+      status: "root_missing",
+      backupDirectory: null,
+      message:
+        "ローカルプロジェクトフォルダが登録されていません。プロジェクト設定から選択し直してください。"
+    });
+  }
+
+  const record = await findSelectedProjectRootByLocalPathHash(localPathHash);
+
+  if (!record) {
+    return createRevertResponse({
+      request: input,
+      status: "root_missing",
+      backupDirectory: null,
+      message:
+        "このプロジェクトのローカルフォルダを確認できません。プロジェクト設定から選択し直してください。"
+    });
+  }
+
+  try {
+    await access(record.rootPath, constants.R_OK | constants.W_OK);
+  } catch {
+    return createRevertResponse({
+      request: input,
+      status: "permission_denied",
+      backupDirectory: null,
+      message: "プロジェクトフォルダに書き込む権限がありません。"
+    });
+  }
+
+  const backupDirectory = resolveBackupDirectory(
+    record.rootPath,
+    input.patchId,
+    input.backupDirectory
+  );
+
+  if (!backupDirectory) {
+    return createRevertResponse({
+      request: input,
+      status: "backup_missing",
+      backupDirectory: null,
+      message: "取り消し用バックアップの場所を安全に確認できませんでした。"
+    });
+  }
+
+  const metadata = await readBackupMetadata(backupDirectory.absoluteDirectory);
+
+  if (!metadata || metadata.patchId !== input.patchId) {
+    return createRevertResponse({
+      request: input,
+      status: "backup_missing",
+      backupDirectory: backupDirectory.relativeDirectory,
+      message: "取り消し用バックアップ情報を確認できませんでした。"
+    });
+  }
+
+  if (
+    metadata.targetFiles.some((targetPath) => {
+      return isDeniedTargetPath(targetPath) || !resolveTargetPath(record.rootPath, targetPath);
+    }) ||
+    metadata.entries.some((entry) => !metadata.targetFiles.includes(entry.path)) ||
+    metadata.postApplyEntries?.some((entry) => !metadata.targetFiles.includes(entry.path))
+  ) {
+    return createRevertResponse({
+      request: input,
+      status: "failed",
+      targetFiles: metadata.targetFiles,
+      backupDirectory: backupDirectory.relativeDirectory,
+      message: "バックアップ情報の対象ファイルを安全に確認できませんでした。"
+    });
+  }
+
+  const headResult = await checkCurrentHead(record.rootPath);
+
+  if (headResult.status !== "ok") {
+    return createRevertResponse({
+      request: input,
+      status:
+        headResult.status === "missing"
+          ? "git_missing"
+          : headResult.status === "timeout"
+            ? "git_timeout"
+            : "failed",
+      targetFiles: metadata.targetFiles,
+      backupDirectory: backupDirectory.relativeDirectory,
+      message: headResult.message
+    });
+  }
+
+  if (headResult.head !== metadata.currentHead) {
+    return createRevertResponse({
+      request: input,
+      status: "stale",
+      targetFiles: metadata.targetFiles,
+      backupDirectory: backupDirectory.relativeDirectory,
+      message: "パッチ適用後に HEAD が変更されています。手動で差分を確認してください。"
+    });
+  }
+
+  if (!metadata.postApplyEntries) {
+    return createRevertResponse({
+      request: input,
+      status: "backup_missing",
+      targetFiles: metadata.targetFiles,
+      backupDirectory: backupDirectory.relativeDirectory,
+      message: "適用後の状態情報がないため、自動で取り消せません。"
+    });
+  }
+
+  for (const expectedEntry of metadata.postApplyEntries) {
+    let currentEntry: BackupEntry;
+
+    try {
+      currentEntry = await collectBackupEntry(record.rootPath, expectedEntry.path);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      return createRevertResponse({
+        request: input,
+        status: code === "EACCES" || code === "EPERM" ? "permission_denied" : "failed",
+        targetFiles: metadata.targetFiles,
+        backupDirectory: backupDirectory.relativeDirectory,
+        message: "対象ファイルの現在状態を確認できませんでした。"
+      });
+    }
+
+    if (!backupEntriesMatch(currentEntry, expectedEntry)) {
+      return createRevertResponse({
+        request: input,
+        status: "dirty",
+        targetFiles: metadata.targetFiles,
+        backupDirectory: backupDirectory.relativeDirectory,
+        message:
+          "パッチ適用後に対象ファイルが変更されています。上書き防止のため自動取り消しを停止しました。"
+      });
+    }
+  }
+
+  const restoreResult = await restoreBackupEntries(
+    record.rootPath,
+    backupDirectory.absoluteDirectory,
+    metadata.entries
+  );
+
+  if (!restoreResult.ok) {
+    return createRevertResponse({
+      request: input,
+      status: restoreResult.status,
+      targetFiles: metadata.targetFiles,
+      backupDirectory: backupDirectory.relativeDirectory,
+      message:
+        restoreResult.status === "permission_denied"
+          ? "バックアップから戻す権限がありません。"
+          : "バックアップから元に戻せませんでした。対象ファイルを確認してください。"
+    });
+  }
+
+  return createRevertResponse({
+    request: input,
+    status: "reverted",
+    reverted: true,
+    targetFiles: metadata.targetFiles,
+    backupDirectory: backupDirectory.relativeDirectory,
+    message: "バックアップからパッチ適用前の状態に戻しました。"
   });
 };
