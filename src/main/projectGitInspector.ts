@@ -1,113 +1,11 @@
-import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
-import { realpath } from "node:fs/promises";
-import { normalize, resolve } from "node:path";
 import type {
   ProjectGitInspectionRequest,
   ProjectGitInspectionResponse,
   ProjectGitInspectionStatus
 } from "../shared/ipc";
+import { runGit } from "./gitCommand";
+import { canonicalizePath, createLocalPathHash } from "./projectPathIdentity";
 import { getSelectedProjectRoot } from "./projectRoots";
-
-const GIT_TIMEOUT_MS = 5_000;
-const MAX_OUTPUT_LENGTH = 2_000;
-
-interface GitCommandResult {
-  status: "completed" | "missing" | "timeout" | "error";
-  exitCode: number | null;
-  stdout: string;
-  stderr: string;
-}
-
-const sanitizeOutput = (value: string): string => {
-  return value
-    .split("")
-    .filter((char) => {
-      const codePoint = char.charCodeAt(0);
-      return (
-        codePoint === 9 ||
-        codePoint === 10 ||
-        codePoint === 13 ||
-        (codePoint >= 32 && codePoint !== 127)
-      );
-    })
-    .join("")
-    .slice(0, MAX_OUTPUT_LENGTH)
-    .trim();
-};
-
-const runGit = (rootPath: string, args: string[]): Promise<GitCommandResult> => {
-  return new Promise((resolve) => {
-    execFile(
-      "git",
-      ["-C", rootPath, ...args],
-      {
-        encoding: "utf8",
-        maxBuffer: 64 * 1024,
-        shell: false,
-        timeout: GIT_TIMEOUT_MS,
-        windowsHide: true
-      },
-      (error, stdout, stderr) => {
-        const cleanStdout = sanitizeOutput(stdout);
-        const cleanStderr = sanitizeOutput(stderr);
-
-        if (!error) {
-          resolve({
-            status: "completed",
-            exitCode: 0,
-            stdout: cleanStdout,
-            stderr: cleanStderr
-          });
-          return;
-        }
-
-        const commandError = error as NodeJS.ErrnoException & {
-          killed?: boolean;
-          signal?: NodeJS.Signals | null;
-          code?: string | number | null;
-        };
-
-        if (commandError.code === "ENOENT") {
-          resolve({
-            status: "missing",
-            exitCode: null,
-            stdout: cleanStdout,
-            stderr: cleanStderr
-          });
-          return;
-        }
-
-        if (commandError.killed || commandError.signal === "SIGTERM") {
-          resolve({
-            status: "timeout",
-            exitCode: null,
-            stdout: cleanStdout,
-            stderr: cleanStderr
-          });
-          return;
-        }
-
-        resolve({
-          status: typeof commandError.code === "number" ? "completed" : "error",
-          exitCode: typeof commandError.code === "number" ? commandError.code : null,
-          stdout: cleanStdout,
-          stderr: cleanStderr
-        });
-      }
-    );
-  });
-};
-
-const createLocalPathHash = (rootPath: string): string => {
-  return createHash("sha256").update(rootPath).digest("hex");
-};
-
-const canonicalizePath = async (path: string): Promise<string> => {
-  const resolvedPath = await realpath(path).catch(() => resolve(path));
-  const normalizedPath = normalize(resolvedPath);
-  return process.platform === "win32" ? normalizedPath.toLowerCase() : normalizedPath;
-};
 
 const stripGitSuffix = (value: string): string => {
   return value.endsWith(".git") ? value.slice(0, -4) : value;

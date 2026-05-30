@@ -549,6 +549,15 @@ select:focus,
   font-family: inherit;
 }
 
+.git-diff-controls {
+  display: grid;
+  gap: 10px;
+}
+
+.git-diff-controls .secondary-button {
+  width: fit-content;
+}
+
 .project-summary-list {
   display: grid;
   grid-template-columns: 150px minmax(0, 1fr);

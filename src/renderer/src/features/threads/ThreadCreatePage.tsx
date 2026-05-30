@@ -1,6 +1,12 @@
-import { useEffect, useMemo, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import type { Database } from "../../../../shared/database.types";
+import type {
+  GitDiffCollectionRequest,
+  GitDiffCollectionResponse,
+  ProjectGitInspectionResponse,
+  ProjectRootSelectionResponse
+} from "../../../../shared/ipc";
 import { useAuth } from "../auth/AuthProvider";
 import { getSupabaseClient } from "../../lib/supabase";
 
@@ -19,10 +25,26 @@ interface SecretScanResult {
   findings: string[];
 }
 
+interface GitDiffUiState {
+  loading: boolean;
+  response: GitDiffCollectionResponse | null;
+  error: string | null;
+  selectedRoot: ProjectRootSelectionResponse | null;
+  inspection: ProjectGitInspectionResponse | null;
+}
+
 const initialState: ThreadCreateState = {
   loading: true,
   error: null,
   projects: []
+};
+
+const initialGitDiffState: GitDiffUiState = {
+  loading: false,
+  response: null,
+  error: null,
+  selectedRoot: null,
+  inspection: null
 };
 
 const secretPatterns: Array<{ label: string; pattern: RegExp }> = [
@@ -56,25 +78,99 @@ const buildInitialMessage = ({
   errorText,
   commandText,
   relatedFiles,
-  secretScan
+  secretScan,
+  gitDiff
 }: {
   situation: string;
   errorText: string;
   commandText: string;
   relatedFiles: string[];
   secretScan: SecretScanResult;
+  gitDiff: GitDiffCollectionResponse | null;
 }): string => {
   const sections = [
     `## 状況説明\n${situation.trim()}`,
     `## エラー文\n${errorText.trim() || "未入力"}`,
     `## 実行コマンド\n${commandText.trim() || "未入力"}`,
     `## 関連ファイル\n${relatedFiles.length > 0 ? relatedFiles.join("\n") : "未選択"}`,
-    "## Git差分\n未収集。Git diff 収集機能と連携予定です。",
+    buildGitDiffMessage(gitDiff),
     "## 環境情報\n未収集。環境スナップショット機能と連携予定です。",
     `## 秘密情報チェック\n${secretScan.blocked ? `ブロック: ${secretScan.findings.join(", ")}` : "mock チェック通過"}`
   ];
 
   return sections.join("\n\n");
+};
+
+const formatChangedFiles = (gitDiff: GitDiffCollectionResponse): string => {
+  if (gitDiff.changedFiles.length === 0) {
+    return "未コミット差分なし";
+  }
+
+  return gitDiff.changedFiles
+    .map((file) => {
+      const states = [
+        file.staged ? `staged:${file.stagedStatus ?? "changed"}` : null,
+        file.unstaged ? `unstaged:${file.unstagedStatus ?? "changed"}` : null
+      ].filter(Boolean);
+      const flags = [
+        file.isBinary ? "binary" : null,
+        file.isLockfile ? "lockfile" : null,
+        file.requiresSecretScan ? "secret-scan" : null,
+        file.omissionReason ? `omitted:${file.omissionReason}` : null
+      ].filter(Boolean);
+
+      return `- ${file.path} (${[...states, ...flags].join(", ")})`;
+    })
+    .join("\n");
+};
+
+const formatDiffSection = (
+  title: string,
+  section: GitDiffCollectionResponse["stagedDiff"]
+): string => {
+  if (!section.text) {
+    return `### ${title}\n差分本文なし`;
+  }
+
+  const note = [
+    section.truncated ? "一部切り詰め" : null,
+    section.omittedFileCount > 0 ? `${section.omittedFileCount} ファイル省略` : null
+  ]
+    .filter(Boolean)
+    .join(" / ");
+
+  return `### ${title}${note ? ` (${note})` : ""}\n\`\`\`diff\n${section.text}\n\`\`\``;
+};
+
+const buildGitDiffMessage = (gitDiff: GitDiffCollectionResponse | null): string => {
+  if (!gitDiff) {
+    return "## Git差分\n未収集。ローカルフォルダ未選択または収集中に失敗した場合も質問作成は継続できます。";
+  }
+
+  const omittedFiles =
+    gitDiff.omittedFiles.length > 0
+      ? gitDiff.omittedFiles
+          .map((file) => `- ${file.path} (${file.omissionReason ?? "omitted"})`)
+          .join("\n")
+      : "なし";
+  const sensitiveFiles =
+    gitDiff.sensitiveFilePaths.length > 0 ? gitDiff.sensitiveFilePaths.join("\n") : "なし";
+
+  return [
+    "## Git差分",
+    `状態: ${gitDiff.message}`,
+    `branch: ${gitDiff.branch ?? "未取得"}`,
+    `HEAD: ${gitDiff.headCommit ?? "未取得"}`,
+    `対象フォルダ: ${gitDiff.displayName ?? "未選択"}`,
+    "### 変更ファイル",
+    formatChangedFiles(gitDiff),
+    "### 送信前 scanner 候補",
+    sensitiveFiles,
+    "### 差分本文から省略したファイル",
+    omittedFiles,
+    formatDiffSection("staged diff", gitDiff.stagedDiff),
+    formatDiffSection("unstaged diff", gitDiff.unstagedDiff)
+  ].join("\n");
 };
 
 export const ThreadCreatePage = (): ReactElement => {
@@ -91,6 +187,7 @@ export const ThreadCreatePage = (): ReactElement => {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [messageStatus, setMessageStatus] = useState<MessageStatus>("warning");
+  const [gitDiffState, setGitDiffState] = useState<GitDiffUiState>(initialGitDiffState);
 
   useEffect(() => {
     let mounted = true;
@@ -160,6 +257,203 @@ export const ThreadCreatePage = (): ReactElement => {
     !missingRequiredFields &&
     !secretScan.blocked;
 
+  const collectGitDiff = useCallback(
+    async (
+      input: GitDiffCollectionRequest,
+      options: { silent?: boolean } = {}
+    ): Promise<GitDiffCollectionResponse | null> => {
+      setGitDiffState((current) => ({
+        ...current,
+        loading: true,
+        error: null
+      }));
+
+      try {
+        const result = await window.ask.gitDiff.collect(input);
+
+        if (!result.ok) {
+          if (!options.silent) {
+            setMessageStatus("warning");
+            setMessage(result.error.message);
+          }
+
+          setGitDiffState((current) => ({
+            ...current,
+            loading: false,
+            response: null,
+            error: result.error.message
+          }));
+          return null;
+        }
+
+        setGitDiffState((current) => ({
+          ...current,
+          loading: false,
+          response: result.data,
+          error: null
+        }));
+        return result.data;
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : "Git差分を収集できませんでした。";
+
+        if (!options.silent) {
+          setMessageStatus("warning");
+          setMessage(`${errorMessage} 質問作成は継続できます。`);
+        }
+
+        setGitDiffState((current) => ({
+          ...current,
+          loading: false,
+          response: null,
+          error: errorMessage
+        }));
+        return null;
+      }
+    },
+    []
+  );
+
+  const selectGitDiffRoot = async (): Promise<void> => {
+    if (!selectedProject) {
+      setMessageStatus("warning");
+      setMessage("先にプロジェクトを選択してください。");
+      return;
+    }
+
+    setGitDiffState((current) => ({
+      ...current,
+      loading: true,
+      error: null
+    }));
+
+    try {
+      const rootResult = await window.ask.project.selectRoot();
+
+      if (!rootResult.ok) {
+        setGitDiffState((current) => ({
+          ...current,
+          loading: false,
+          error: rootResult.error.message
+        }));
+        setMessageStatus("warning");
+        setMessage(rootResult.error.message);
+        return;
+      }
+
+      if (!rootResult.data.selected || !rootResult.data.projectRootId) {
+        setGitDiffState((current) => ({
+          ...current,
+          loading: false
+        }));
+        setMessageStatus("warning");
+        setMessage("フォルダ選択をキャンセルしました。");
+        return;
+      }
+
+      const inspectionResult = await window.ask.project.inspectGit({
+        projectRootId: rootResult.data.projectRootId
+      });
+
+      if (!inspectionResult.ok) {
+        setGitDiffState((current) => ({
+          ...current,
+          loading: false,
+          selectedRoot: rootResult.data,
+          error: inspectionResult.error.message
+        }));
+        setMessageStatus("warning");
+        setMessage(inspectionResult.error.message);
+        return;
+      }
+
+      const selectedHash = selectedProject.local_path_hash;
+      const inspectionHash = inspectionResult.data.localPathHash;
+      const repoMatches =
+        !inspectionResult.data.normalizedGithubRepoUrl ||
+        inspectionResult.data.normalizedGithubRepoUrl === selectedProject.github_repo_url;
+      const hashMatches = !selectedHash || !inspectionHash || selectedHash === inspectionHash;
+
+      setGitDiffState((current) => ({
+        ...current,
+        selectedRoot: rootResult.data,
+        inspection: inspectionResult.data
+      }));
+
+      if (!inspectionResult.data.canRegister || !repoMatches || !hashMatches) {
+        const mismatchMessage = !hashMatches
+          ? "選択フォルダが登録済みプロジェクトの local_path_hash と一致しません。"
+          : "選択フォルダが登録済みプロジェクトの GitHub repository と一致しません。";
+        setGitDiffState((current) => ({
+          ...current,
+          loading: false,
+          error: mismatchMessage
+        }));
+        setMessageStatus("warning");
+        setMessage(mismatchMessage);
+        return;
+      }
+
+      const diff = await collectGitDiff({
+        projectRootId: rootResult.data.projectRootId
+      });
+
+      if (diff) {
+        setMessageStatus(
+          diff.status === "ready" || diff.status === "empty" ? "success" : "warning"
+        );
+        setMessage(diff.message);
+      }
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "ローカルフォルダを確認できませんでした。";
+      setGitDiffState((current) => ({
+        ...current,
+        loading: false,
+        error: errorMessage
+      }));
+      setMessageStatus("warning");
+      setMessage(`${errorMessage} 質問作成は継続できます。`);
+    }
+  };
+
+  const ensureGitDiffForSubmit = async (): Promise<GitDiffCollectionResponse | null> => {
+    if (gitDiffState.response) {
+      return gitDiffState.response;
+    }
+
+    if (!selectedProject?.local_path_hash) {
+      return null;
+    }
+
+    return collectGitDiff(
+      {
+        localPathHash: selectedProject.local_path_hash
+      },
+      { silent: true }
+    );
+  };
+
+  const gitDiffResponse = gitDiffState.response;
+  const gitDiffSummary = gitDiffState.loading
+    ? "収集中"
+    : gitDiffResponse
+      ? gitDiffResponse.status === "ready"
+        ? `${gitDiffResponse.changedFiles.length} ファイル`
+        : gitDiffResponse.status === "empty"
+          ? "差分なし"
+          : "未収集"
+      : "未収集";
+  const gitDiffStatusMessage =
+    gitDiffState.error ??
+    gitDiffResponse?.message ??
+    "ローカルフォルダを選択すると Git差分を収集します。";
+  const gitDiffStatus = gitDiffState.error
+    ? "warning"
+    : gitDiffResponse?.status === "ready" || gitDiffResponse?.status === "empty"
+      ? "success"
+      : "warning";
+
   const submitThread = async (): Promise<void> => {
     if (!supabase || !profile) {
       setMessageStatus("error");
@@ -197,6 +491,7 @@ export const ThreadCreatePage = (): ReactElement => {
     let createdThreadId: string | null = null;
 
     try {
+      const gitDiff = await ensureGitDiffForSubmit();
       const { data: thread, error: threadError } = await supabase
         .from("threads")
         .insert({
@@ -221,7 +516,8 @@ export const ThreadCreatePage = (): ReactElement => {
         errorText,
         commandText,
         relatedFiles,
-        secretScan
+        secretScan,
+        gitDiff
       });
 
       const { error: messageError } = await supabase.from("messages").insert({
@@ -312,7 +608,10 @@ export const ThreadCreatePage = (): ReactElement => {
               プロジェクト
               <select
                 value={selectedProjectId}
-                onChange={(event) => setSelectedProjectId(event.target.value)}
+                onChange={(event) => {
+                  setSelectedProjectId(event.target.value);
+                  setGitDiffState(initialGitDiffState);
+                }}
               >
                 {state.projects.map((project) => (
                   <option key={project.id} value={project.id}>
@@ -381,13 +680,38 @@ export const ThreadCreatePage = (): ReactElement => {
 
             <div className="project-summary-list">
               <span>Git差分</span>
-              <strong>未収集</strong>
+              <strong>{gitDiffSummary}</strong>
+              <span>branch</span>
+              <strong>
+                {gitDiffResponse?.branch ?? selectedProject?.default_branch ?? "未取得"}
+              </strong>
+              <span>HEAD</span>
+              <strong>{gitDiffResponse?.headShortCommit ?? "未取得"}</strong>
               <span>環境情報</span>
               <strong>未収集</strong>
               <span>秘密情報チェック</span>
               <strong>{secretScan.blocked ? "送信停止" : "通過"}</strong>
               <span>関連ファイル</span>
               <strong>{relatedFiles.length} 件</strong>
+            </div>
+
+            <div className="git-diff-controls">
+              <button
+                className="secondary-button"
+                disabled={gitDiffState.loading || !selectedProject}
+                type="button"
+                onClick={() => void selectGitDiffRoot()}
+              >
+                {gitDiffState.loading ? "Git差分を確認中..." : "ローカルフォルダを選択"}
+              </button>
+              <p className={`message ${gitDiffStatus}`} role="status">
+                {gitDiffStatusMessage}
+              </p>
+              {gitDiffResponse?.sensitiveFilePaths.length ? (
+                <p className="message warning" role="status">
+                  scanner 候補: {gitDiffResponse.sensitiveFilePaths.join(", ")}
+                </p>
+              ) : null}
             </div>
 
             {secretScan.blocked && (

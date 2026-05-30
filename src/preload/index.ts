@@ -25,6 +25,9 @@ const api: RendererApi = {
     selectRoot: () => invoke(IpcChannel.ProjectSelectRoot),
     inspectGit: (input) => invoke(IpcChannel.ProjectInspectGit, input)
   },
+  gitDiff: {
+    collect: (input) => invoke(IpcChannel.GitDiffCollect, input)
+  },
   gitignore: {
     preview: (input) => invoke(IpcChannel.GitignorePreview, input),
     apply: (input) => invoke(IpcChannel.GitignoreApply, input)
