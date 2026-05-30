@@ -11,6 +11,7 @@ import {
   TeacherQueuePage
 } from "./features/teacher/TeacherDashboard";
 import { ThreadCreatePage } from "./features/threads/ThreadCreatePage";
+import { ThreadDetailPage } from "./features/threads/ThreadDetailPage";
 import type { AppRole } from "@shared/domain";
 
 const roleHome: Record<AppRole, string> = {
@@ -126,15 +127,6 @@ const StudentHome = (): ReactElement => (
     title="質問の準備"
     body="GitHub 接続、プロジェクト登録、質問作成の導線をここに集約します。"
     items={["GitHub / SSH オンボーディング", "登録済みプロジェクト", "最近の質問スレッド"]}
-  />
-);
-
-const ThreadDetailPage = (): ReactElement => (
-  <WorkspacePage
-    eyebrow="Thread"
-    title="スレッド詳細"
-    body="チャット、コードブロック、差分、環境情報、パッチ提案を表示します。"
-    items={["チャット", "コード表示", "パッチ確認", "ステータス変更"]}
   />
 );
 
