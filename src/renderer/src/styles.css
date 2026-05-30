@@ -76,6 +76,12 @@ h1 {
   line-height: 1.7;
 }
 
+.muted.compact {
+  margin-top: 6px;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
 .form-stack {
   display: grid;
   gap: 18px;
@@ -1031,6 +1037,67 @@ select:focus,
   color: #172033;
   line-height: 1.7;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.patch-review-panel {
+  display: grid;
+  gap: 12px;
+  border: 1px solid #d9deea;
+  border-radius: 8px;
+  padding: 14px;
+  background: #ffffff;
+}
+
+.patch-review-panel h3 {
+  margin: 0;
+  color: #101828;
+  font-size: 1rem;
+}
+
+.patch-review-actions,
+.patch-review-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.patch-review-actions .primary-button,
+.patch-review-actions .secondary-button {
+  min-height: 36px;
+}
+
+.patch-review-result {
+  display: grid;
+  gap: 10px;
+}
+
+.patch-review-meta span {
+  border-radius: 999px;
+  padding: 4px 9px;
+  color: #344054;
+  background: #eef2f7;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.patch-target-list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.patch-target-list li {
+  border: 1px solid #e1e7ef;
+  border-radius: 6px;
+  padding: 7px 9px;
+  color: #172033;
+  background: #fbfcfe;
+  font-family: SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 0.82rem;
   overflow-wrap: anywhere;
 }
 
