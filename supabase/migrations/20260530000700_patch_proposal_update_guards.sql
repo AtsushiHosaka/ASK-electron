@@ -21,7 +21,8 @@ returns trigger
 language plpgsql
 as $$
 begin
-  if old.thread_id is distinct from new.thread_id
+  if old.id is distinct from new.id
+    or old.thread_id is distinct from new.thread_id
     or old.message_id is distinct from new.message_id
     or old.created_by is distinct from new.created_by
     or old.created_by_type is distinct from new.created_by_type
@@ -46,7 +47,10 @@ begin
       'dismissed'::public.patch_status
     ))
     or (old.status = 'applied'::public.patch_status and new.status = 'reverted'::public.patch_status)
-    or (old.status = 'failed'::public.patch_status and new.status = 'dismissed'::public.patch_status)
+    or (old.status = 'failed'::public.patch_status and new.status in (
+      'applied'::public.patch_status,
+      'dismissed'::public.patch_status
+    ))
   ) then
     raise exception 'invalid patch proposal status transition from % to %', old.status, new.status
       using errcode = '42501';

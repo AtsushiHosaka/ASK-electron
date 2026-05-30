@@ -126,6 +126,14 @@ select pg_temp.assert_eq(
   1,
   'teacher reads assigned class patch proposal'
 );
+update public.patch_proposals
+set status = 'applied'
+where id = '80000000-0000-4000-8000-000000000001';
+select pg_temp.assert_eq(
+  (select count(*) from public.patch_proposals where id = '80000000-0000-4000-8000-000000000001' and status = 'proposed'),
+  1,
+  'teacher cannot directly update patch proposal status'
+);
 
 insert into public.patch_proposals (
   id,
@@ -355,6 +363,22 @@ select pg_temp.assert_rejected(
     where id = '80000000-0000-4000-8000-000000000001'
   $statement$,
   'student cannot mutate patch proposal metadata'
+);
+update public.patch_proposals
+set status = 'applied'
+where id = '80000000-0000-4000-8000-000000000104';
+select pg_temp.assert_eq(
+  (select count(*) from public.patch_proposals where id = '80000000-0000-4000-8000-000000000104' and status = 'applied'),
+  1,
+  'student marks own-thread patch proposal applied'
+);
+update public.patch_proposals
+set status = 'reverted'
+where id = '80000000-0000-4000-8000-000000000104';
+select pg_temp.assert_eq(
+  (select count(*) from public.patch_proposals where id = '80000000-0000-4000-8000-000000000104' and status = 'reverted'),
+  1,
+  'student marks own-thread applied patch proposal reverted'
 );
 update public.patch_proposals
 set status = 'dismissed'

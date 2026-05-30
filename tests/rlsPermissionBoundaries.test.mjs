@@ -86,6 +86,17 @@ describe("RLS SQL coverage", () => {
       /create policy "[^"]+"\s+on public\.[\s\S]*using\s*\(\s*true\s*\)/i
     );
   });
+
+  it("guards patch proposal updates with immutable metadata and student status transitions", () => {
+    assert.match(rlsSql, /create or replace function public\.enforce_patch_proposal_update_guard/);
+    assert.match(rlsSql, /old\.id is distinct from new\.id/);
+    assert.match(rlsSql, /old\.patch_text is distinct from new\.patch_text/);
+    assert.match(rlsSql, /old\.target_file_path is distinct from new\.target_file_path/);
+    assert.match(rlsSql, /old\.status = 'proposed'::public\.patch_status/);
+    assert.match(rlsSql, /old\.status = 'applied'::public\.patch_status/);
+    assert.match(rlsSql, /old\.status = 'failed'::public\.patch_status and new\.status in/);
+    assert.match(rlsSql, /drop policy if exists "patch_proposals_update_thread_participant"/);
+  });
 });
 
 describe("RLS fixture coverage", () => {
