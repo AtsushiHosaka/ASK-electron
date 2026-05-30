@@ -1,6 +1,7 @@
 export interface PublicEnv {
   supabaseUrl: string;
   supabasePublishableKey: string;
+  appBaseUrl: string | null;
 }
 
 export type PublicEnvResult =
@@ -16,6 +17,7 @@ export type PublicEnvResult =
 export const getPublicEnv = (): PublicEnvResult => {
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim();
   const supabasePublishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim();
+  const appBaseUrl = import.meta.env.VITE_ASK_APP_BASE_URL?.trim() || null;
 
   if (!supabaseUrl || !supabasePublishableKey) {
     return {
@@ -37,7 +39,48 @@ export const getPublicEnv = (): PublicEnvResult => {
     ok: true,
     env: {
       supabaseUrl,
-      supabasePublishableKey
+      supabasePublishableKey,
+      appBaseUrl
     }
   };
+};
+
+const normalizeHttpBaseUrl = (value: string): string | null => {
+  try {
+    const parsedUrl = new URL(value);
+
+    if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+      return null;
+    }
+
+    return value.replace(/\/+$/, "");
+  } catch {
+    return null;
+  }
+};
+
+export const getPublicAppBaseUrl = (): string => {
+  const result = getPublicEnv();
+
+  if (!result.ok) {
+    throw new Error(result.message);
+  }
+
+  const appBaseUrl = result.env.appBaseUrl;
+
+  if (appBaseUrl) {
+    const normalizedBaseUrl = normalizeHttpBaseUrl(appBaseUrl);
+
+    if (normalizedBaseUrl) {
+      return normalizedBaseUrl;
+    }
+
+    throw new Error("VITE_ASK_APP_BASE_URL は http(s) URL を指定してください。");
+  }
+
+  if (import.meta.env.DEV) {
+    return window.location.origin.replace(/\/+$/, "");
+  }
+
+  throw new Error("招待リンク作成には VITE_ASK_APP_BASE_URL の設定が必要です。");
 };

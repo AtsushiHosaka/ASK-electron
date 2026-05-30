@@ -1,8 +1,13 @@
-import { Navigate, NavLink, Route, Routes } from "react-router-dom";
+import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import type { ReactElement } from "react";
 import { LoginPage } from "./features/auth/LoginPage";
 import { useAuth } from "./features/auth/AuthProvider";
 import { StudentOnboardingPage } from "./features/onboarding/StudentOnboardingPage";
+import {
+  ClassDetailPage,
+  ClassJoinPage,
+  TeacherHomePage
+} from "./features/teacher/TeacherDashboard";
 import type { AppRole } from "@shared/domain";
 
 const roleHome: Record<AppRole, string> = {
@@ -29,13 +34,14 @@ export const App = (): ReactElement => {
 
 const RequireAuth = ({ children }: { children: ReactElement }): ReactElement => {
   const { loading, session } = useAuth();
+  const location = useLocation();
 
   if (loading) {
     return <FullPageState title="読み込み中" body="セッションを確認しています。" />;
   }
 
   if (!session) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to="/login" replace state={{ from: location }} />;
   }
 
   return children;
@@ -85,9 +91,11 @@ const AppShell = (): ReactElement => {
         <Routes>
           <Route path="/" element={<Navigate to={roleHome[profile.role]} replace />} />
           <Route path="/student" element={<StudentHome />} />
-          <Route path="/teacher" element={<TeacherHome />} />
+          <Route path="/teacher" element={<TeacherHomePage />} />
           <Route path="/onboarding" element={<StudentOnboardingPage />} />
-          <Route path="/classes" element={<ClassDetail />} />
+          <Route path="/classes" element={<TeacherHomePage />} />
+          <Route path="/classes/:classId" element={<ClassDetailPage />} />
+          <Route path="/join/:token" element={<ClassJoinPage />} />
           <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/threads/new" element={<ThreadCreatePage />} />
           <Route path="/threads/:threadId" element={<ThreadDetailPage />} />
@@ -112,24 +120,6 @@ const StudentHome = (): ReactElement => (
     title="質問の準備"
     body="GitHub 接続、プロジェクト登録、質問作成の導線をここに集約します。"
     items={["GitHub / SSH オンボーディング", "登録済みプロジェクト", "最近の質問スレッド"]}
-  />
-);
-
-const TeacherHome = (): ReactElement => (
-  <WorkspacePage
-    eyebrow="Teacher"
-    title="質問キュー"
-    body="担当クラスの未対応、対応中、生徒確認待ちを確認する入口です。"
-    items={["未対応質問", "対応中質問", "生徒の初期設定状況"]}
-  />
-);
-
-const ClassDetail = (): ReactElement => (
-  <WorkspacePage
-    eyebrow="Classes"
-    title="クラス管理"
-    body="生徒一覧、メンター一覧、招待リンク、質問一覧を配置する画面です。"
-    items={["招待リンク", "生徒一覧", "クラス内質問"]}
   />
 );
 
