@@ -34,6 +34,10 @@ const api: RendererApi = {
   environment: {
     collectSnapshot: (input) => invoke(IpcChannel.EnvironmentSnapshotCollect, input)
   },
+  patch: {
+    validate: (input) => invoke(IpcChannel.PatchValidate, input),
+    apply: (input) => invoke(IpcChannel.PatchApply, input)
+  },
   gitignore: {
     preview: (input) => invoke(IpcChannel.GitignorePreview, input),
     apply: (input) => invoke(IpcChannel.GitignoreApply, input)

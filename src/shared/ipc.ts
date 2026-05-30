@@ -1,4 +1,5 @@
 import type { AiAssistRequest, AiAssistResponse } from "./aiPipeline";
+import type { AppRole } from "./domain";
 
 export const IpcChannel = {
   AppGetRuntimeInfo: "ask:v1:app:get-runtime-info",
@@ -8,6 +9,8 @@ export const IpcChannel = {
   ProjectInspectGit: "ask:v1:project:inspect-git",
   GitDiffCollect: "ask:v1:git-diff:collect",
   EnvironmentSnapshotCollect: "ask:v1:environment-snapshot:collect",
+  PatchValidate: "ask:v1:patch:validate",
+  PatchApply: "ask:v1:patch:apply",
   GitignorePreview: "ask:v1:gitignore:preview",
   GitignoreApply: "ask:v1:gitignore:apply"
 } as const;
@@ -339,6 +342,63 @@ export interface GitignoreApplyResponse {
   message: string;
 }
 
+export type PatchValidationStatus =
+  | "ready"
+  | "root_missing"
+  | "invalid_patch"
+  | "denied_path"
+  | "git_missing"
+  | "git_timeout"
+  | "base_mismatch"
+  | "dirty"
+  | "conflict"
+  | "permission_denied";
+
+export type PatchApplyStatus =
+  | "applied"
+  | "stale"
+  | "dirty"
+  | "conflict"
+  | "git_missing"
+  | "git_timeout"
+  | "permission_denied"
+  | "failed";
+
+export interface PatchValidateRequest {
+  requesterRole: AppRole;
+  localPathHash: string | null;
+  patchText: string;
+  expectedBaseCommit?: string | null;
+}
+
+export interface PatchValidateResponse {
+  contractVersion: "v1";
+  status: PatchValidationStatus;
+  canApply: boolean;
+  patchId: string | null;
+  confirmationToken: string | null;
+  targetFiles: string[];
+  currentHead: string | null;
+  expectedBaseCommit: string | null;
+  message: string;
+}
+
+export interface PatchApplyRequest {
+  requesterRole: AppRole;
+  patchId: string;
+  confirmationToken: string;
+}
+
+export interface PatchApplyResponse {
+  contractVersion: "v1";
+  status: PatchApplyStatus;
+  applied: boolean;
+  patchId: string;
+  targetFiles: string[];
+  backupDirectory: string | null;
+  message: string;
+}
+
 export interface IpcRequestMap {
   [IpcChannel.AppGetRuntimeInfo]: [];
   [IpcChannel.DiagnosticsRunLocal]: [];
@@ -347,6 +407,8 @@ export interface IpcRequestMap {
   [IpcChannel.ProjectInspectGit]: [ProjectGitInspectionRequest];
   [IpcChannel.GitDiffCollect]: [GitDiffCollectionRequest];
   [IpcChannel.EnvironmentSnapshotCollect]: [EnvironmentSnapshotRequest];
+  [IpcChannel.PatchValidate]: [PatchValidateRequest];
+  [IpcChannel.PatchApply]: [PatchApplyRequest];
   [IpcChannel.GitignorePreview]: [GitignorePreviewRequest];
   [IpcChannel.GitignoreApply]: [GitignoreApplyRequest];
 }
@@ -359,6 +421,8 @@ export interface IpcResponseMap {
   [IpcChannel.ProjectInspectGit]: IpcResult<ProjectGitInspectionResponse>;
   [IpcChannel.GitDiffCollect]: IpcResult<GitDiffCollectionResponse>;
   [IpcChannel.EnvironmentSnapshotCollect]: IpcResult<EnvironmentSnapshotResponse>;
+  [IpcChannel.PatchValidate]: IpcResult<PatchValidateResponse>;
+  [IpcChannel.PatchApply]: IpcResult<PatchApplyResponse>;
   [IpcChannel.GitignorePreview]: IpcResult<GitignorePreviewResponse>;
   [IpcChannel.GitignoreApply]: IpcResult<GitignoreApplyResponse>;
 }
@@ -388,6 +452,12 @@ export interface RendererApi {
     collectSnapshot: (
       input: EnvironmentSnapshotRequest
     ) => Promise<IpcResponseMap[typeof IpcChannel.EnvironmentSnapshotCollect]>;
+  };
+  patch: {
+    validate: (
+      input: PatchValidateRequest
+    ) => Promise<IpcResponseMap[typeof IpcChannel.PatchValidate]>;
+    apply: (input: PatchApplyRequest) => Promise<IpcResponseMap[typeof IpcChannel.PatchApply]>;
   };
   gitignore: {
     preview: (

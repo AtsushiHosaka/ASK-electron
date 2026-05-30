@@ -15,6 +15,10 @@ import {
   type IpcChannelName,
   type IpcResult,
   type LocalDiagnosticsResponse,
+  type PatchApplyRequest,
+  type PatchApplyResponse,
+  type PatchValidateRequest,
+  type PatchValidateResponse,
   type ProjectGitInspectionRequest,
   type ProjectGitInspectionResponse,
   type ProjectRootSelectionResponse
@@ -32,6 +36,7 @@ import { collectEnvironmentSnapshot } from "./environmentSnapshotCollector";
 import { collectGitDiff } from "./gitDiffCollector";
 import { applyGitignore, previewGitignore } from "./gitignoreWorkflow";
 import { runLocalDiagnostics } from "./localDiagnostics";
+import { applyPatch, validatePatch } from "./patchWorkflow";
 import { inspectProjectGit } from "./projectGitInspector";
 import { selectProjectRoot } from "./projectRoots";
 
@@ -148,6 +153,40 @@ const isEnvironmentSnapshotRequest = (value: unknown): value is EnvironmentSnaps
     (typeof value.projectRootId === "string" ||
       typeof value.localPathHash === "string" ||
       value.localPathHash === null)
+  );
+};
+
+const isAppRole = (value: unknown): value is PatchValidateRequest["requesterRole"] => {
+  return value === "student" || value === "teacher" || value === "admin";
+};
+
+const getPatchRequesterRole = (value: unknown): PatchValidateRequest["requesterRole"] | null => {
+  return isRecord(value) && isAppRole(value.requesterRole) ? value.requesterRole : null;
+};
+
+const isPatchValidateRequest = (value: unknown): value is PatchValidateRequest => {
+  return (
+    isRecord(value) &&
+    isAppRole(value.requesterRole) &&
+    (typeof value.localPathHash === "string" || value.localPathHash === null) &&
+    typeof value.patchText === "string" &&
+    value.patchText.length > 0 &&
+    value.patchText.length <= 500_000 &&
+    (value.expectedBaseCommit === undefined ||
+      value.expectedBaseCommit === null ||
+      (typeof value.expectedBaseCommit === "string" &&
+        value.expectedBaseCommit.trim().length <= 64))
+  );
+};
+
+const isPatchApplyRequest = (value: unknown): value is PatchApplyRequest => {
+  return (
+    isRecord(value) &&
+    isAppRole(value.requesterRole) &&
+    typeof value.patchId === "string" &&
+    /^[0-9a-f-]{36}$/i.test(value.patchId) &&
+    typeof value.confirmationToken === "string" &&
+    /^[0-9a-f-]{36}$/i.test(value.confirmationToken)
   );
 };
 
@@ -323,6 +362,71 @@ export const registerIpcHandlers = (): void => {
         "ENVIRONMENT_SNAPSHOT_COLLECT_FAILED",
         "環境情報を収集できませんでした。質問作成は継続できます。"
       );
+    }
+  });
+
+  ipcMain.handle(IpcChannel.PatchValidate, async (_event, input) => {
+    try {
+      if (getPatchRequesterRole(input) !== "student") {
+        return fail(
+          IpcChannel.PatchValidate,
+          "UNAUTHORIZED",
+          "パッチ確認は生徒のローカル環境からのみ実行できます。"
+        );
+      }
+
+      if (!isPatchValidateRequest(input)) {
+        return fail(
+          IpcChannel.PatchValidate,
+          "VALIDATION_FAILED",
+          "パッチ確認リクエストが正しくありません。"
+        );
+      }
+
+      return ok(
+        IpcChannel.PatchValidate,
+        (await validatePatch(input)) satisfies PatchValidateResponse
+      );
+    } catch (error) {
+      console.error(`[${IpcChannel.PatchValidate}] patch validation failed`, {
+        event: "patch_validation_failed",
+        ...getSafeErrorFields(error)
+      });
+
+      return fail(
+        IpcChannel.PatchValidate,
+        "PATCH_VALIDATE_FAILED",
+        "パッチを確認できませんでした。"
+      );
+    }
+  });
+
+  ipcMain.handle(IpcChannel.PatchApply, async (_event, input) => {
+    try {
+      if (getPatchRequesterRole(input) !== "student") {
+        return fail(
+          IpcChannel.PatchApply,
+          "UNAUTHORIZED",
+          "パッチ適用は生徒のローカル環境からのみ実行できます。"
+        );
+      }
+
+      if (!isPatchApplyRequest(input)) {
+        return fail(
+          IpcChannel.PatchApply,
+          "VALIDATION_FAILED",
+          "パッチ適用リクエストが正しくありません。"
+        );
+      }
+
+      return ok(IpcChannel.PatchApply, (await applyPatch(input)) satisfies PatchApplyResponse);
+    } catch (error) {
+      console.error(`[${IpcChannel.PatchApply}] patch apply failed`, {
+        event: "patch_apply_failed",
+        ...getSafeErrorFields(error)
+      });
+
+      return fail(IpcChannel.PatchApply, "PATCH_APPLY_FAILED", "パッチを適用できませんでした。");
     }
   });
 
