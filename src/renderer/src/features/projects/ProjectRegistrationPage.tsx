@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import type {
+  GitignoreApplyResponse,
+  GitignorePreviewResponse,
   ProjectGitInspectionResponse,
   ProjectRootSelectionResponse
 } from "../../../../shared/ipc";
@@ -32,6 +34,27 @@ const initialRegistrationState: ProjectRegistrationState = {
   githubConnection: null
 };
 
+const highRiskGitignorePatterns = new Set([
+  ".DS_Store",
+  ".env",
+  ".env.*",
+  ".ssh/",
+  "id_rsa",
+  "id_dsa",
+  "id_ecdsa",
+  "id_ed25519",
+  "*.pem",
+  "*.key",
+  "node_modules/",
+  "dist/",
+  "build/",
+  "out/",
+  "dist-electron/",
+  "release/",
+  "releases/",
+  ".venv/"
+]);
+
 export const ProjectsPage = (): ReactElement => {
   const { profile } = useAuth();
   const navigate = useNavigate();
@@ -44,6 +67,13 @@ export const ProjectsPage = (): ReactElement => {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [messageStatus, setMessageStatus] = useState<"success" | "warning" | "error">("warning");
+  const [gitignorePreview, setGitignorePreview] = useState<GitignorePreviewResponse | null>(null);
+  const [gitignoreApplyResult, setGitignoreApplyResult] = useState<GitignoreApplyResponse | null>(
+    null
+  );
+  const [gitignoreBusy, setGitignoreBusy] = useState(false);
+  const [gitignoreError, setGitignoreError] = useState<string | null>(null);
+  const [confirmHighRiskGitignore, setConfirmHighRiskGitignore] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -142,6 +172,10 @@ export const ProjectsPage = (): ReactElement => {
     setBusy(true);
     setMessage(null);
     setInspection(null);
+    setGitignorePreview(null);
+    setGitignoreApplyResult(null);
+    setGitignoreError(null);
+    setConfirmHighRiskGitignore(false);
 
     try {
       const result = await window.ask.project.selectRoot();
@@ -175,6 +209,10 @@ export const ProjectsPage = (): ReactElement => {
       setInspection(inspectionResult.data);
       setMessageStatus(inspectionResult.data.canRegister ? "success" : "warning");
       setMessage(inspectionResult.data.message);
+
+      if (inspectionResult.data.canRegister) {
+        await previewGitignore(result.data.projectRootId);
+      }
     } catch (error) {
       setMessageStatus("error");
       setMessage(
@@ -182,6 +220,77 @@ export const ProjectsPage = (): ReactElement => {
       );
     } finally {
       setBusy(false);
+    }
+  };
+
+  const previewGitignore = async (
+    projectRootId = selectedRoot?.projectRootId ?? ""
+  ): Promise<void> => {
+    if (!projectRootId) {
+      setGitignoreError("先にプロジェクトフォルダを選択してください。");
+      return;
+    }
+
+    setGitignoreBusy(true);
+    setGitignoreError(null);
+    setGitignoreApplyResult(null);
+    setConfirmHighRiskGitignore(false);
+
+    try {
+      const result = await window.ask.gitignore.preview({ projectRootId });
+
+      if (!result.ok) {
+        setGitignoreError(result.error.message);
+        return;
+      }
+
+      setGitignorePreview(result.data);
+    } catch (error) {
+      setGitignoreError(
+        error instanceof Error ? error.message : ".gitignore の推奨内容を確認できませんでした。"
+      );
+    } finally {
+      setGitignoreBusy(false);
+    }
+  };
+
+  const applyGitignore = async (): Promise<void> => {
+    if (!selectedRoot?.projectRootId || !gitignorePreview) {
+      setGitignoreError("適用前に.gitignoreの推奨差分を確認してください。");
+      return;
+    }
+
+    setGitignoreBusy(true);
+    setGitignoreError(null);
+
+    try {
+      const result = await window.ask.gitignore.apply({
+        projectRootId: selectedRoot.projectRootId,
+        recommendationHash: gitignorePreview.recommendationHash
+      });
+
+      if (!result.ok) {
+        setGitignoreError(result.error.message);
+        return;
+      }
+
+      setGitignoreApplyResult(result.data);
+
+      if (result.data.status === "applied" || result.data.status === "unchanged") {
+        setConfirmHighRiskGitignore(false);
+        await previewGitignore(selectedRoot.projectRootId);
+        return;
+      }
+
+      if (result.data.status === "failed" || result.data.status === "stale") {
+        setGitignoreError(result.data.message);
+      }
+    } catch (error) {
+      setGitignoreError(
+        error instanceof Error ? error.message : ".gitignore を更新できませんでした。"
+      );
+    } finally {
+      setGitignoreBusy(false);
     }
   };
 
@@ -205,6 +314,18 @@ export const ProjectsPage = (): ReactElement => {
     ) {
       setMessageStatus("warning");
       setMessage("登録前に GitHub remote を持つGit repositoryを選択してください。");
+      return;
+    }
+
+    if (!gitignoreCheckedForSelectedRoot) {
+      setMessageStatus("warning");
+      setMessage("登録前に .gitignore の推奨内容を確認してください。");
+      return;
+    }
+
+    if (requiresGitignoreConfirmation) {
+      setMessageStatus("warning");
+      setMessage("高リスクの .gitignore 不足を適用するか、確認チェックを入れてください。");
       return;
     }
 
@@ -262,11 +383,28 @@ export const ProjectsPage = (): ReactElement => {
     }
   };
 
+  const gitignoreCheckedForSelectedRoot = Boolean(
+    selectedRoot?.projectRootId &&
+    gitignorePreview &&
+    gitignorePreview.projectRootId === selectedRoot.projectRootId
+  );
+  const missingHighRiskEntries =
+    gitignorePreview?.entries.filter(
+      (entry) =>
+        !entry.alreadyPresent && (entry.required || highRiskGitignorePatterns.has(entry.pattern))
+    ) ?? [];
+  const gitignoreAppliedOrUnchanged =
+    gitignoreApplyResult?.status === "applied" || gitignoreApplyResult?.status === "unchanged";
+  const requiresGitignoreConfirmation =
+    missingHighRiskEntries.length > 0 && !gitignoreAppliedOrUnchanged && !confirmHighRiskGitignore;
   const canRegister =
     Boolean(state.githubConnection) &&
     state.classes.some((option) => option.classRow.id === selectedClassId) &&
     Boolean(projectName.trim()) &&
-    Boolean(inspection?.canRegister);
+    Boolean(inspection?.canRegister) &&
+    Boolean(gitignoreCheckedForSelectedRoot) &&
+    !gitignoreBusy &&
+    !requiresGitignoreConfirmation;
 
   if (state.loading) {
     return (
@@ -326,6 +464,123 @@ export const ProjectsPage = (): ReactElement => {
               <strong>{inspection.defaultBranch ?? "未検出"}</strong>
               <span>local_path_hash</span>
               <strong>{inspection.localPathHash?.slice(0, 12) ?? "未生成"}</strong>
+            </div>
+          )}
+
+          {selectedRoot?.projectRootId && (
+            <div className="gitignore-workflow">
+              <div>
+                <p className="eyebrow">.gitignore</p>
+                <h3>登録前の除外設定</h3>
+              </div>
+
+              {gitignoreBusy ? (
+                <p className="message warning" role="status">
+                  .gitignore の推奨内容を確認しています。
+                </p>
+              ) : null}
+
+              {gitignoreError ? (
+                <p className="message error" role="alert">
+                  {gitignoreError}
+                </p>
+              ) : null}
+
+              {gitignorePreview ? (
+                <>
+                  <div className="gitignore-summary">
+                    <span>{gitignorePreview.gitignoreExists ? "既存あり" : "未作成"}</span>
+                    <span>追加候補: {gitignorePreview.missingPatterns.length} 件</span>
+                    <span>高リスク不足: {missingHighRiskEntries.length} 件</span>
+                  </div>
+
+                  <div className="gitignore-entry-list" aria-label=".gitignore 登録前確認">
+                    {gitignorePreview.entries.map((entry) => (
+                      <div key={entry.pattern} className="gitignore-entry">
+                        <strong>{entry.pattern}</strong>
+                        <span>
+                          {entry.alreadyPresent
+                            ? "設定済み"
+                            : entry.required || highRiskGitignorePatterns.has(entry.pattern)
+                              ? "高リスク不足"
+                              : "追加候補"}
+                        </span>
+                        <p>{entry.reason}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {gitignorePreview.canApply ? (
+                    <label className="preview-field">
+                      追記前の確認差分
+                      <pre className="code-preview">{gitignorePreview.previewDiff}</pre>
+                    </label>
+                  ) : (
+                    <p className="message success" role="status">
+                      追加が必要な.gitignore候補はありません。
+                    </p>
+                  )}
+
+                  {missingHighRiskEntries.length > 0 && !gitignoreAppliedOrUnchanged ? (
+                    <label className="confirmation-checkbox">
+                      <input
+                        checked={confirmHighRiskGitignore}
+                        type="checkbox"
+                        onChange={(event) => setConfirmHighRiskGitignore(event.target.checked)}
+                      />
+                      <span>
+                        高リスクの不足を確認しました。登録前に適用しない理由を把握しています。
+                      </span>
+                    </label>
+                  ) : null}
+
+                  <div className="control-row">
+                    <button
+                      className="secondary-button"
+                      disabled={gitignoreBusy}
+                      type="button"
+                      onClick={() => void previewGitignore()}
+                    >
+                      再確認
+                    </button>
+                    <button
+                      className="primary-button"
+                      disabled={!gitignorePreview.canApply || gitignoreBusy}
+                      type="button"
+                      onClick={() => void applyGitignore()}
+                    >
+                      {gitignoreBusy ? "更新中..." : ".gitignore に追記"}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="control-row">
+                  <button
+                    className="secondary-button"
+                    disabled={gitignoreBusy}
+                    type="button"
+                    onClick={() => void previewGitignore()}
+                  >
+                    .gitignore を確認
+                  </button>
+                </div>
+              )}
+
+              {gitignoreApplyResult ? (
+                <p
+                  className={
+                    gitignoreApplyResult.status === "applied" ||
+                    gitignoreApplyResult.status === "unchanged"
+                      ? "message success"
+                      : gitignoreApplyResult.status === "stale"
+                        ? "message warning"
+                        : "message error"
+                  }
+                  role="status"
+                >
+                  {gitignoreApplyResult.message}
+                </p>
+              ) : null}
             </div>
           )}
         </article>

@@ -498,6 +498,21 @@ select:focus,
   resize: vertical;
 }
 
+.confirmation-checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: #344054;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.confirmation-checkbox input {
+  width: auto;
+  height: auto;
+  margin-top: 4px;
+}
+
 .project-registration {
   display: grid;
   gap: 24px;
