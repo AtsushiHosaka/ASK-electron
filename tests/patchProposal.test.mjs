@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { parseAiPatchProposalOutput, parsePatchTargetFiles } from "../src/shared/patchProposal.ts";
+import {
+  normalizePatchTargetPath,
+  parseAiPatchProposalOutput,
+  parsePatchTargetFiles,
+  validatePatchProposalDraft
+} from "../src/shared/patchProposal.ts";
 
 const validPatch = [
   "diff --git a/src/calculator.ts b/src/calculator.ts",
@@ -106,5 +111,29 @@ describe("AI patch proposal parsing", () => {
 
     assert.equal(result.invalidPath, true);
     assert.deepEqual(result.targetFiles, []);
+  });
+
+  it("validates manually composed teacher patch proposals", () => {
+    const result = validatePatchProposalDraft({
+      targetFilePath: "a/src/calculator.ts",
+      baseCommitSha: "abcdef123456",
+      explanation: "Guard empty values before conversion.",
+      patchText: validPatch
+    });
+
+    assert.equal(result.ok, true);
+
+    if (!result.ok) {
+      return;
+    }
+
+    assert.equal(result.proposal.targetFilePath, "src/calculator.ts");
+    assert.equal(result.proposal.baseCommitSha, "abcdef123456");
+    assert.equal(result.proposal.patchText.endsWith("\n"), true);
+  });
+
+  it("normalizes safe target paths for composer templates", () => {
+    assert.equal(normalizePatchTargetPath("b/src/calculator.ts"), "src/calculator.ts");
+    assert.equal(normalizePatchTargetPath("../src/calculator.ts"), null);
   });
 });

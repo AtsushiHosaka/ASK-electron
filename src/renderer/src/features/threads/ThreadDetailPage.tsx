@@ -17,8 +17,10 @@ import type {
   PatchValidationStatus
 } from "../../../../shared/ipc";
 import {
+  normalizePatchTargetPath,
   parseAiPatchProposalOutput,
-  type AiPatchProposalDraft
+  validatePatchProposalDraft,
+  type PatchProposalDraft
 } from "../../../../shared/patchProposal";
 import { scanSecrets } from "../../../../shared/secretScanner";
 import { CodeContextViewer } from "../../components/CodeContextViewer";
@@ -240,6 +242,13 @@ export const ThreadDetailPage = (): ReactElement => {
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiPatchGenerating, setAiPatchGenerating] = useState(false);
   const [aiPatchError, setAiPatchError] = useState<string | null>(null);
+  const [teacherPatchTargetFilePath, setTeacherPatchTargetFilePath] = useState("");
+  const [teacherPatchBaseCommitSha, setTeacherPatchBaseCommitSha] = useState("");
+  const [teacherPatchExplanation, setTeacherPatchExplanation] = useState("");
+  const [teacherPatchText, setTeacherPatchText] = useState("");
+  const [teacherPatchSaving, setTeacherPatchSaving] = useState(false);
+  const [teacherPatchError, setTeacherPatchError] = useState<string | null>(null);
+  const [teacherPatchNotice, setTeacherPatchNotice] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -807,7 +816,170 @@ export const ThreadDetailPage = (): ReactElement => {
     }
   };
 
-  const saveAiPatchProposal = async (proposal: AiPatchProposalDraft): Promise<void> => {
+  const createTeacherPatchTemplate = (): void => {
+    const normalizedTargetPath = normalizePatchTargetPath(teacherPatchTargetFilePath);
+
+    if (!normalizedTargetPath) {
+      setTeacherPatchError("安全な対象ファイルを入力してください。");
+      setTeacherPatchNotice(null);
+      return;
+    }
+
+    setTeacherPatchTargetFilePath(normalizedTargetPath);
+    setTeacherPatchText(
+      [
+        `diff --git a/${normalizedTargetPath} b/${normalizedTargetPath}`,
+        `--- a/${normalizedTargetPath}`,
+        `+++ b/${normalizedTargetPath}`,
+        "@@ -1 +1 @@",
+        "-変更前の1行",
+        "+変更後の1行"
+      ].join("\n")
+    );
+    setTeacherPatchError(null);
+    setTeacherPatchNotice("対象ファイルに合わせた diff ひな形を作成しました。");
+  };
+
+  const saveTeacherPatchProposal = async (): Promise<void> => {
+    if (!supabase || !profile || !state.thread) {
+      setTeacherPatchError("パッチ提案の保存に必要な情報を確認できませんでした。");
+      setTeacherPatchNotice(null);
+      return;
+    }
+
+    if (profile.role !== "teacher") {
+      setTeacherPatchError("先生アカウントのみパッチ提案を作成できます。");
+      setTeacherPatchNotice(null);
+      return;
+    }
+
+    const parsed = validatePatchProposalDraft({
+      targetFilePath: teacherPatchTargetFilePath,
+      baseCommitSha: teacherPatchBaseCommitSha || null,
+      explanation: teacherPatchExplanation,
+      patchText: teacherPatchText
+    });
+
+    if (!parsed.ok) {
+      setTeacherPatchError(`送信前に diff を確認してください。${parsed.error.message}`);
+      setTeacherPatchNotice(null);
+      return;
+    }
+
+    const proposal = parsed.proposal;
+    const outputScan = scanSecrets({
+      textEntries: [
+        { label: "先生パッチ本文", value: proposal.patchText },
+        { label: "先生パッチ理由", value: proposal.explanation }
+      ],
+      filePaths: [proposal.targetFilePath]
+    });
+
+    if (outputScan.blocked) {
+      setTeacherPatchError(
+        "パッチ提案に秘密情報候補または保護対象パスが含まれるため保存しません。"
+      );
+      setTeacherPatchNotice(null);
+      return;
+    }
+
+    setTeacherPatchSaving(true);
+    setTeacherPatchError(null);
+    setTeacherPatchNotice(null);
+
+    try {
+      const { data: message, error: messageError } = await supabase
+        .from("messages")
+        .insert({
+          thread_id: state.thread.id,
+          sender_user_id: profile.id,
+          sender_type: "teacher",
+          body: proposal.patchText,
+          message_type: "patch"
+        })
+        .select(
+          "id,thread_id,sender_user_id,sender_type,body,message_type,reply_to_message_id,created_at"
+        )
+        .single();
+
+      if (messageError) {
+        throw messageError;
+      }
+
+      if (!message) {
+        throw new Error("Teacher patch message insert returned no row.");
+      }
+
+      const { data: patchProposal, error: patchProposalError } = await supabase
+        .from("patch_proposals")
+        .insert({
+          thread_id: state.thread.id,
+          message_id: message.id,
+          created_by: profile.id,
+          created_by_type: "teacher",
+          target_file_path: proposal.targetFilePath,
+          base_commit_sha: proposal.baseCommitSha,
+          patch_text: proposal.patchText,
+          explanation: proposal.explanation,
+          status: "proposed"
+        })
+        .select("id,message_id,target_file_path,base_commit_sha,explanation,status,created_by_type")
+        .single();
+
+      if (patchProposalError) {
+        const { error: rollbackError } = await supabase
+          .from("messages")
+          .delete()
+          .eq("id", message.id);
+
+        if (rollbackError) {
+          console.error("Failed to rollback orphaned teacher patch message", rollbackError);
+        }
+
+        throw patchProposalError;
+      }
+
+      if (!patchProposal) {
+        throw new Error("Teacher patch proposal insert returned no row.");
+      }
+
+      const { error: threadUpdateError } = await supabase
+        .from("threads")
+        .update({ status: "patch_proposed" })
+        .eq("id", state.thread.id);
+
+      if (threadUpdateError) {
+        console.error("Failed to mark thread teacher patch proposal status", threadUpdateError);
+      }
+
+      setState((current) => {
+        const patchProposalsByMessageId = new Map(current.patchProposalsByMessageId);
+        patchProposalsByMessageId.set(patchProposal.message_id, patchProposal);
+
+        return {
+          ...current,
+          thread: current.thread ? { ...current.thread, status: "patch_proposed" } : current.thread,
+          messages: current.messages.some((currentMessage) => currentMessage.id === message.id)
+            ? current.messages
+            : sortMessages([...current.messages, message]),
+          patchProposalsByMessageId
+        };
+      });
+
+      setTeacherPatchTargetFilePath("");
+      setTeacherPatchBaseCommitSha("");
+      setTeacherPatchExplanation("");
+      setTeacherPatchText("");
+      setTeacherPatchNotice("パッチ提案をチャットへ追加しました。");
+    } catch (error) {
+      console.error("Failed to save teacher patch proposal", error);
+      setTeacherPatchError("パッチ提案を保存できませんでした。内容は保持しています。");
+    } finally {
+      setTeacherPatchSaving(false);
+    }
+  };
+
+  const saveAiPatchProposal = async (proposal: PatchProposalDraft): Promise<void> => {
     if (!supabase || !profile || !state.thread) {
       setAiPatchError("AI パッチ保存に必要な情報を確認できませんでした。");
       return;
@@ -1082,6 +1254,90 @@ export const ThreadDetailPage = (): ReactElement => {
           >
             {sending ? "送信中..." : "送信"}
           </button>
+
+          {profile?.role === "teacher" ? (
+            <div className="teacher-patch-composer">
+              <div>
+                <p className="eyebrow">Patch Composer</p>
+                <h2>先生パッチ提案</h2>
+              </div>
+
+              <label>
+                対象ファイル
+                <input
+                  placeholder="src/calculator.ts"
+                  value={teacherPatchTargetFilePath}
+                  onChange={(event) => setTeacherPatchTargetFilePath(event.target.value)}
+                />
+              </label>
+
+              <label>
+                Base commit
+                <input
+                  placeholder="abcdef123456"
+                  value={teacherPatchBaseCommitSha}
+                  onChange={(event) => setTeacherPatchBaseCommitSha(event.target.value)}
+                />
+              </label>
+
+              <label>
+                変更理由
+                <textarea
+                  rows={4}
+                  value={teacherPatchExplanation}
+                  onChange={(event) => setTeacherPatchExplanation(event.target.value)}
+                />
+              </label>
+
+              <label>
+                Unified diff
+                <textarea
+                  className="diff-textarea"
+                  rows={14}
+                  value={teacherPatchText}
+                  onChange={(event) => setTeacherPatchText(event.target.value)}
+                />
+              </label>
+
+              <div className="teacher-patch-actions">
+                <button
+                  className="secondary-button"
+                  disabled={teacherPatchSaving || !teacherPatchTargetFilePath.trim()}
+                  type="button"
+                  onClick={createTeacherPatchTemplate}
+                >
+                  diffひな形
+                </button>
+                <button
+                  className="primary-button"
+                  disabled={
+                    teacherPatchSaving ||
+                    !teacherPatchTargetFilePath.trim() ||
+                    !teacherPatchExplanation.trim() ||
+                    !teacherPatchText.trim()
+                  }
+                  type="button"
+                  onClick={() => void saveTeacherPatchProposal()}
+                >
+                  {teacherPatchSaving ? "保存中..." : "パッチ提案を送信"}
+                </button>
+              </div>
+
+              <p className="message warning" role="status">
+                先生の提案は proposed として保存され、生徒のローカル環境には直接適用されません。
+              </p>
+              {teacherPatchNotice ? (
+                <p className="message success" role="status">
+                  {teacherPatchNotice}
+                </p>
+              ) : null}
+              {teacherPatchError ? (
+                <p className="message error" role="alert">
+                  {teacherPatchError}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
 
           <div className="ai-thread-assist">
             <div>
