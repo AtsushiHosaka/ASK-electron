@@ -21,6 +21,7 @@ Foundation migrations live in `supabase/migrations`:
 - `20260530000100_mvp_schema.sql`: enums, MVP tables, indexes, triggers, and realtime publication setup.
 - `20260530000200_mvp_rls.sql`: helper functions, grants, RLS enablement, and baseline policies.
 - `20260530000300_class_invites.sql`: student invite tokens and RPCs for issuing and redeeming class joins.
+- `20260530000400_audit_events.sql`: redacted audit event table, scoped read policy, authenticated audit RPC, and DB triggers for core MVP mutations.
 
 `supabase/seed.sql` provides local fixtures for future RLS and UI checks.
 
@@ -36,5 +37,11 @@ The MVP access model is class-centered:
 - Teachers and mentors can access records for classes where they are staff.
 - Admins can access all MVP records.
 - Project creation requires the student to own the project, belong to the class as a student, and have a GitHub connection record.
+
+## Audit Events
+
+Audit records are stored in `public.audit_events` through DB triggers and the `record_audit_event` RPC. The table is append-only for authenticated clients: renderer code cannot insert, update, or delete rows directly. Scoped reads are allowed for the actor, admins, and users who can access the related class, project, or thread.
+
+Audit metadata is intentionally small and redacted. The database rejects metadata keys or values that look like passwords, tokens, private keys, `.env` contents, service role secrets, or raw absolute paths. Project roots should be represented by `project_root_hash`, and file references should be relative paths only. Login failures remain in Supabase Auth logs for MVP because unauthenticated clients cannot safely write audit rows without a trusted server or Edge Function.
 
 Run the migrations against a local Supabase instance before relying on the policies in production.
