@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import {
   IpcChannel,
   type AppRuntimeInfoResponse,
+  type GitDiffContextRequest,
+  type GitDiffContextResponse,
   type GitignoreApplyRequest,
   type GitignoreApplyResponse,
   type GitignorePreviewRequest,
@@ -15,6 +17,7 @@ import {
   type ProjectGitInspectionResponse,
   type ProjectRootSelectionResponse
 } from "../shared/ipc";
+import { collectGitDiffContext } from "./gitDiffContext";
 import { applyGitignore, previewGitignore } from "./gitignoreWorkflow";
 import { runLocalDiagnostics } from "./localDiagnostics";
 import { inspectProjectGit } from "./projectGitInspector";
@@ -49,6 +52,14 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
 const isGitignorePreviewRequest = (value: unknown): value is GitignorePreviewRequest => {
   return (
     isRecord(value) && typeof value.projectRootId === "string" && value.projectRootId.length > 0
+  );
+};
+
+const isGitDiffContextRequest = (value: unknown): value is GitDiffContextRequest => {
+  return (
+    isRecord(value) &&
+    typeof value.localPathHash === "string" &&
+    /^[a-f0-9]{64}$/.test(value.localPathHash)
   );
 };
 
@@ -150,6 +161,31 @@ export const registerIpcHandlers = (): void => {
         IpcChannel.ProjectInspectGit,
         "PROJECT_GIT_INSPECTION_FAILED",
         "プロジェクトフォルダを検証できませんでした。"
+      );
+    }
+  });
+
+  ipcMain.handle(IpcChannel.GitCollectDiffContext, async (_event, input) => {
+    try {
+      if (!isGitDiffContextRequest(input)) {
+        return fail(
+          IpcChannel.GitCollectDiffContext,
+          "VALIDATION_FAILED",
+          "Git差分収集リクエストが正しくありません。"
+        );
+      }
+
+      return ok(
+        IpcChannel.GitCollectDiffContext,
+        (await collectGitDiffContext(input)) satisfies GitDiffContextResponse
+      );
+    } catch (error) {
+      console.error(`[${IpcChannel.GitCollectDiffContext}] git diff collection failed`, error);
+
+      return fail(
+        IpcChannel.GitCollectDiffContext,
+        "GIT_DIFF_COLLECTION_FAILED",
+        "Git差分を収集できませんでした。質問作成は続行できます。"
       );
     }
   });

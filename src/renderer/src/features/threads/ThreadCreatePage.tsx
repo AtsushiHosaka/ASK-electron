@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import type { Database } from "../../../../shared/database.types";
+import type { GitDiffContextResponse } from "../../../../shared/ipc";
 import { useAuth } from "../auth/AuthProvider";
 import { getSupabaseClient } from "../../lib/supabase";
 
@@ -56,12 +57,16 @@ const buildInitialMessage = ({
   errorText,
   commandText,
   relatedFiles,
+  gitContext,
+  gitContextError,
   secretScan
 }: {
   situation: string;
   errorText: string;
   commandText: string;
   relatedFiles: string[];
+  gitContext: GitDiffContextResponse | null;
+  gitContextError: string | null;
   secretScan: SecretScanResult;
 }): string => {
   const sections = [
@@ -69,12 +74,91 @@ const buildInitialMessage = ({
     `## エラー文\n${errorText.trim() || "未入力"}`,
     `## 実行コマンド\n${commandText.trim() || "未入力"}`,
     `## 関連ファイル\n${relatedFiles.length > 0 ? relatedFiles.join("\n") : "未選択"}`,
-    "## Git差分\n未収集。Git diff 収集機能と連携予定です。",
+    `## Git差分\n${formatGitContextForMessage(gitContext, gitContextError)}`,
     "## 環境情報\n未収集。環境スナップショット機能と連携予定です。",
     `## 秘密情報チェック\n${secretScan.blocked ? `ブロック: ${secretScan.findings.join(", ")}` : "mock チェック通過"}`
   ];
 
   return sections.join("\n\n");
+};
+
+const gitContextStatusLabels: Record<GitDiffContextResponse["status"], string> = {
+  ready: "収集済み",
+  empty: "差分なし",
+  partial: "一部収集",
+  root_not_selected: "未選択",
+  git_missing: "Gitなし",
+  git_timeout: "タイムアウト",
+  not_git_repository: "Git外",
+  error: "失敗"
+};
+
+const omissionReasonLabels: Record<
+  GitDiffContextResponse["omittedFiles"][number]["reason"],
+  string
+> = {
+  binary: "binary",
+  lockfile: "lockfile",
+  sensitive_path: "送信禁止候補",
+  file_limit: "ファイル数上限"
+};
+
+const formatGitContextForMessage = (
+  gitContext: GitDiffContextResponse | null,
+  gitContextError: string | null
+): string => {
+  if (gitContextError) {
+    return `収集できませんでした: ${gitContextError}\n質問作成は継続されました。`;
+  }
+
+  if (!gitContext) {
+    return "未収集。ローカルフォルダが未選択、または収集中です。";
+  }
+
+  const summary = [
+    `収集結果: ${gitContext.message}`,
+    `branch: ${gitContext.branch ?? "不明"}`,
+    `HEAD: ${gitContext.headCommit ?? "不明"}`,
+    `変更ファイル: ${gitContext.files.length} 件`,
+    `差分文字数: ${gitContext.totalDiffChars} / ${gitContext.maxDiffChars}`
+  ];
+
+  const fileLines =
+    gitContext.files.length > 0
+      ? gitContext.files
+          .map((file) => {
+            const states = [
+              file.staged ? "staged" : null,
+              file.unstaged ? "unstaged" : null,
+              file.binary ? "binary" : null,
+              file.lockfile ? "lockfile" : null,
+              file.sensitivePath ? "送信禁止候補" : null
+            ].filter(Boolean);
+            return `- ${file.path}${states.length > 0 ? ` (${states.join(", ")})` : ""}`;
+          })
+          .join("\n")
+      : "- なし";
+
+  const omittedLines =
+    gitContext.omittedFiles.length > 0
+      ? gitContext.omittedFiles
+          .map((file) => `- ${file.path} (${file.kind}, ${omissionReasonLabels[file.reason]})`)
+          .join("\n")
+      : "- なし";
+
+  const diffSections = gitContext.sections
+    .filter((section) => section.text.trim().length > 0)
+    .map(
+      (section) =>
+        `### ${section.kind} diff${section.truncated ? " (truncated)" : ""}\n\n\`\`\`diff\n${section.text}\n\`\`\``
+    );
+
+  return [
+    summary.join("\n"),
+    `### 変更ファイル\n${fileLines}`,
+    `### 省略ファイル\n${omittedLines}`,
+    diffSections.length > 0 ? diffSections.join("\n\n") : "### diff本文\nなし"
+  ].join("\n\n");
 };
 
 export const ThreadCreatePage = (): ReactElement => {
@@ -88,6 +172,10 @@ export const ThreadCreatePage = (): ReactElement => {
   const [errorText, setErrorText] = useState("");
   const [commandText, setCommandText] = useState("");
   const [relatedFilesText, setRelatedFilesText] = useState("");
+  const [gitContext, setGitContext] = useState<GitDiffContextResponse | null>(null);
+  const [gitContextLoading, setGitContextLoading] = useState(false);
+  const [gitContextError, setGitContextError] = useState<string | null>(null);
+  const [gitContextRequestHash, setGitContextRequestHash] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [messageStatus, setMessageStatus] = useState<MessageStatus>("warning");
@@ -143,15 +231,81 @@ export const ThreadCreatePage = (): ReactElement => {
     };
   }, [profile, supabase]);
 
+  const selectedProject = state.projects.find((project) => project.id === selectedProjectId);
+
+  useEffect(() => {
+    let mounted = true;
+    const localPathHash = selectedProject?.local_path_hash;
+
+    if (!localPathHash) {
+      return;
+    }
+
+    const collect = async (): Promise<void> => {
+      setGitContextRequestHash(localPathHash);
+      setGitContextLoading(true);
+      setGitContextError(null);
+
+      try {
+        const result = await window.ask.git.collectDiffContext({ localPathHash });
+
+        if (!mounted) {
+          return;
+        }
+
+        if (!result.ok) {
+          setGitContext(null);
+          setGitContextError(result.error.message);
+          return;
+        }
+
+        setGitContext(result.data);
+      } catch (error) {
+        if (!mounted) {
+          return;
+        }
+
+        setGitContext(null);
+        setGitContextError(
+          error instanceof Error ? error.message : "Git差分を収集できませんでした。"
+        );
+      } finally {
+        if (mounted) {
+          setGitContextLoading(false);
+        }
+      }
+    };
+
+    void collect();
+
+    return () => {
+      mounted = false;
+    };
+  }, [selectedProject]);
+
+  const activeLocalPathHash = selectedProject?.local_path_hash ?? null;
+  const activeGitContext =
+    activeLocalPathHash && gitContext?.localPathHash === activeLocalPathHash ? gitContext : null;
+  const activeGitContextLoading = Boolean(
+    activeLocalPathHash && gitContextRequestHash === activeLocalPathHash && gitContextLoading
+  );
+  const activeGitContextError = activeLocalPathHash
+    ? gitContextRequestHash === activeLocalPathHash
+      ? gitContextError
+      : null
+    : selectedProject
+      ? "このプロジェクトにはローカルパス情報がありません。"
+      : null;
+
   const relatedFiles = splitRelatedFiles(relatedFilesText);
   const secretScan = runMockSecretScan([
     title,
     situation,
     errorText,
     commandText,
-    relatedFilesText
+    relatedFilesText,
+    ...(activeGitContext?.secretScanValues ?? [])
   ]);
-  const selectedProject = state.projects.find((project) => project.id === selectedProjectId);
   const missingRequiredFields = !selectedProject || !title.trim() || !situation.trim();
   const canSubmit =
     !submitting &&
@@ -159,6 +313,49 @@ export const ThreadCreatePage = (): ReactElement => {
     state.projects.length > 0 &&
     !missingRequiredFields &&
     !secretScan.blocked;
+  const gitContextLabel = activeGitContextLoading
+    ? "収集中"
+    : activeGitContext
+      ? gitContextStatusLabels[activeGitContext.status]
+      : activeGitContextError
+        ? "失敗"
+        : "未収集";
+  const gitBranchHeadLabel = activeGitContext?.branch
+    ? `${activeGitContext.branch} / ${activeGitContext.headCommit?.slice(0, 8) ?? "HEAD不明"}`
+    : "未確認";
+
+  const refreshGitContext = async (): Promise<void> => {
+    const localPathHash = selectedProject?.local_path_hash;
+
+    if (!localPathHash) {
+      setGitContext(null);
+      setGitContextError("このプロジェクトにはローカルパス情報がありません。");
+      return;
+    }
+
+    setGitContextRequestHash(localPathHash);
+    setGitContextLoading(true);
+    setGitContextError(null);
+
+    try {
+      const result = await window.ask.git.collectDiffContext({ localPathHash });
+
+      if (!result.ok) {
+        setGitContext(null);
+        setGitContextError(result.error.message);
+        return;
+      }
+
+      setGitContext(result.data);
+    } catch (error) {
+      setGitContext(null);
+      setGitContextError(
+        error instanceof Error ? error.message : "Git差分を収集できませんでした。"
+      );
+    } finally {
+      setGitContextLoading(false);
+    }
+  };
 
   const submitThread = async (): Promise<void> => {
     if (!supabase || !profile) {
@@ -221,6 +418,8 @@ export const ThreadCreatePage = (): ReactElement => {
         errorText,
         commandText,
         relatedFiles,
+        gitContext: activeGitContext,
+        gitContextError: activeGitContextError,
         secretScan
       });
 
@@ -381,7 +580,11 @@ export const ThreadCreatePage = (): ReactElement => {
 
             <div className="project-summary-list">
               <span>Git差分</span>
-              <strong>未収集</strong>
+              <strong>{gitContextLabel}</strong>
+              <span>branch / HEAD</span>
+              <strong>{gitBranchHeadLabel}</strong>
+              <span>変更ファイル</span>
+              <strong>{activeGitContext ? `${activeGitContext.files.length} 件` : "未確認"}</strong>
               <span>環境情報</span>
               <strong>未収集</strong>
               <span>秘密情報チェック</span>
@@ -389,6 +592,40 @@ export const ThreadCreatePage = (): ReactElement => {
               <span>関連ファイル</span>
               <strong>{relatedFiles.length} 件</strong>
             </div>
+
+            <button
+              className="secondary-button"
+              disabled={activeGitContextLoading || !selectedProject?.local_path_hash}
+              type="button"
+              onClick={() => void refreshGitContext()}
+            >
+              {activeGitContextLoading ? "Git差分を収集中..." : "Git差分を再取得"}
+            </button>
+
+            {activeGitContext &&
+              activeGitContext.status !== "ready" &&
+              activeGitContext.status !== "empty" && (
+                <p className="message warning" role="status">
+                  {activeGitContext.message}
+                </p>
+              )}
+
+            {activeGitContextError && (
+              <p className="message warning" role="status">
+                {activeGitContextError}
+              </p>
+            )}
+
+            {activeGitContext && activeGitContext.omittedFiles.length > 0 && (
+              <p className="message warning" role="status">
+                省略ファイル:{" "}
+                {activeGitContext.omittedFiles
+                  .slice(0, 3)
+                  .map((file) => `${file.path} (${omissionReasonLabels[file.reason]})`)
+                  .join(", ")}
+                {activeGitContext.omittedFiles.length > 3 ? " ..." : ""}
+              </p>
+            )}
 
             {secretScan.blocked && (
               <p className="message error" role="alert">

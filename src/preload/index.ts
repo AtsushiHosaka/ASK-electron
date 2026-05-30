@@ -28,6 +28,9 @@ const api: RendererApi = {
   gitignore: {
     preview: (input) => invoke(IpcChannel.GitignorePreview, input),
     apply: (input) => invoke(IpcChannel.GitignoreApply, input)
+  },
+  git: {
+    collectDiffContext: (input) => invoke(IpcChannel.GitCollectDiffContext, input)
   }
 };
 

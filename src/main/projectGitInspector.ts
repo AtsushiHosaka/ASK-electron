@@ -1,12 +1,10 @@
 import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
-import { realpath } from "node:fs/promises";
-import { normalize, resolve } from "node:path";
 import type {
   ProjectGitInspectionRequest,
   ProjectGitInspectionResponse,
   ProjectGitInspectionStatus
 } from "../shared/ipc";
+import { canonicalizePath, createLocalPathHash } from "./projectPathIdentity";
 import { getSelectedProjectRoot } from "./projectRoots";
 
 const GIT_TIMEOUT_MS = 5_000;
@@ -97,16 +95,6 @@ const runGit = (rootPath: string, args: string[]): Promise<GitCommandResult> => 
       }
     );
   });
-};
-
-const createLocalPathHash = (rootPath: string): string => {
-  return createHash("sha256").update(rootPath).digest("hex");
-};
-
-const canonicalizePath = async (path: string): Promise<string> => {
-  const resolvedPath = await realpath(path).catch(() => resolve(path));
-  const normalizedPath = normalize(resolvedPath);
-  return process.platform === "win32" ? normalizedPath.toLowerCase() : normalizedPath;
 };
 
 const stripGitSuffix = (value: string): string => {

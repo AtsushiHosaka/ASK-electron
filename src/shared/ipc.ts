@@ -3,6 +3,7 @@ export const IpcChannel = {
   DiagnosticsRunLocal: "ask:v1:diagnostics:run-local",
   ProjectSelectRoot: "ask:v1:project:select-root",
   ProjectInspectGit: "ask:v1:project:inspect-git",
+  GitCollectDiffContext: "ask:v1:git:collect-diff-context",
   GitignorePreview: "ask:v1:gitignore:preview",
   GitignoreApply: "ask:v1:gitignore:apply"
 } as const;
@@ -163,6 +164,64 @@ export interface ProjectGitInspectionResponse {
   message: string;
 }
 
+export type GitDiffContextStatus =
+  | "ready"
+  | "empty"
+  | "partial"
+  | "root_not_selected"
+  | "git_missing"
+  | "git_timeout"
+  | "not_git_repository"
+  | "error";
+
+export type GitDiffKind = "staged" | "unstaged";
+
+export type GitDiffOmissionReason = "binary" | "lockfile" | "sensitive_path" | "file_limit";
+
+export interface GitDiffContextRequest {
+  localPathHash: string;
+}
+
+export interface GitDiffContextFile {
+  path: string;
+  staged: boolean;
+  unstaged: boolean;
+  binary: boolean;
+  lockfile: boolean;
+  sensitivePath: boolean;
+}
+
+export interface GitDiffContextOmittedFile {
+  path: string;
+  kind: GitDiffKind;
+  reason: GitDiffOmissionReason;
+}
+
+export interface GitDiffContextSection {
+  kind: GitDiffKind;
+  text: string;
+  includedFiles: string[];
+  truncated: boolean;
+  originalLength: number;
+}
+
+export interface GitDiffContextResponse {
+  contractVersion: "v1";
+  localPathHash: string;
+  status: GitDiffContextStatus;
+  message: string;
+  branch: string | null;
+  headCommit: string | null;
+  hasChanges: boolean;
+  files: GitDiffContextFile[];
+  sections: GitDiffContextSection[];
+  omittedFiles: GitDiffContextOmittedFile[];
+  secretScanValues: string[];
+  totalDiffChars: number;
+  maxDiffChars: number;
+  timeoutMs: number;
+}
+
 export type GitignoreProjectKind = "node" | "electron" | "python" | "generic";
 
 export interface GitignorePreviewRequest {
@@ -213,6 +272,7 @@ export interface IpcRequestMap {
   [IpcChannel.DiagnosticsRunLocal]: [];
   [IpcChannel.ProjectSelectRoot]: [];
   [IpcChannel.ProjectInspectGit]: [ProjectGitInspectionRequest];
+  [IpcChannel.GitCollectDiffContext]: [GitDiffContextRequest];
   [IpcChannel.GitignorePreview]: [GitignorePreviewRequest];
   [IpcChannel.GitignoreApply]: [GitignoreApplyRequest];
 }
@@ -222,6 +282,7 @@ export interface IpcResponseMap {
   [IpcChannel.DiagnosticsRunLocal]: IpcResult<LocalDiagnosticsResponse>;
   [IpcChannel.ProjectSelectRoot]: IpcResult<ProjectRootSelectionResponse>;
   [IpcChannel.ProjectInspectGit]: IpcResult<ProjectGitInspectionResponse>;
+  [IpcChannel.GitCollectDiffContext]: IpcResult<GitDiffContextResponse>;
   [IpcChannel.GitignorePreview]: IpcResult<GitignorePreviewResponse>;
   [IpcChannel.GitignoreApply]: IpcResult<GitignoreApplyResponse>;
 }
@@ -246,5 +307,10 @@ export interface RendererApi {
     apply: (
       input: GitignoreApplyRequest
     ) => Promise<IpcResponseMap[typeof IpcChannel.GitignoreApply]>;
+  };
+  git: {
+    collectDiffContext: (
+      input: GitDiffContextRequest
+    ) => Promise<IpcResponseMap[typeof IpcChannel.GitCollectDiffContext]>;
   };
 }
