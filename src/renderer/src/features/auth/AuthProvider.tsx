@@ -11,6 +11,7 @@ import {
 } from "react";
 import type { Session } from "@supabase/supabase-js";
 import type { UserProfile } from "@shared/domain";
+import { recordAuditEvent } from "../../lib/audit";
 import { getPublicEnv } from "../../lib/env";
 import { getSupabaseClient } from "../../lib/supabase";
 
@@ -126,10 +127,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }): ReactElemen
       }
 
       setAuthError(null);
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
       if (error) {
         setAuthError("メールアドレスまたはパスワードを確認してください。");
+        return;
+      }
+
+      if (data.session) {
+        await recordAuditEvent({
+          eventType: "auth_login_succeeded",
+          operation: "auth.sign_in_with_password",
+          metadata: {
+            provider: "password"
+          }
+        });
       }
     },
     [configError, supabase]
@@ -161,6 +173,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }): ReactElemen
 
       if (data.user && !data.session) {
         setAuthError("確認メールを送信しました。メールを確認してからログインしてください。");
+        return;
+      }
+
+      if (data.session) {
+        await recordAuditEvent({
+          eventType: "auth_signup_succeeded",
+          operation: "auth.sign_up",
+          metadata: {
+            provider: "password"
+          }
+        });
       }
     },
     [configError, supabase]
@@ -171,7 +194,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }): ReactElemen
       return;
     }
 
-    await supabase.auth.signOut();
+    await recordAuditEvent({
+      eventType: "auth_signout_requested",
+      decision: "allowed",
+      operation: "auth.sign_out"
+    });
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      setAuthError("ログアウトできませんでした。");
+      return;
+    }
+
     setSession(null);
     setProfile(null);
   }, [supabase]);

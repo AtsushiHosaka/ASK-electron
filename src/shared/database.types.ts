@@ -16,6 +16,26 @@ export type ThreadPriority = "low" | "normal" | "high";
 export type MessageSenderType = "student" | "teacher" | "ai" | "system";
 export type MessageType = "text" | "code" | "patch" | "environment" | "ai_summary";
 export type ClassInviteRedeemStatus = "joined" | "already_member";
+export type AuditEventType =
+  | "auth_login_succeeded"
+  | "auth_login_failed"
+  | "auth_signup_succeeded"
+  | "auth_signout_requested"
+  | "class_created"
+  | "class_invite_created"
+  | "class_invite_redeemed"
+  | "project_created"
+  | "thread_created"
+  | "message_sent"
+  | "ai_used"
+  | "patch_proposed"
+  | "patch_applied"
+  | "patch_failed"
+  | "patch_reverted"
+  | "patch_dismissed"
+  | "ipc_operation"
+  | "security_blocked";
+export type AuditDecision = "allowed" | "denied" | "blocked" | "failed" | "succeeded";
 
 export interface Database {
   public: {
@@ -249,6 +269,73 @@ export interface Database {
         };
         Relationships: [];
       };
+      audit_events: {
+        Row: {
+          id: string;
+          actor_user_id: string | null;
+          actor_role: AppRole | null;
+          event_type: AuditEventType;
+          decision: AuditDecision;
+          operation: string;
+          class_id: string | null;
+          project_id: string | null;
+          thread_id: string | null;
+          message_id: string | null;
+          patch_proposal_id: string | null;
+          ipc_channel: string | null;
+          request_id: string | null;
+          project_root_hash: string | null;
+          relative_paths: string[];
+          duration_ms: number | null;
+          error_code: string | null;
+          metadata: Json;
+          redaction: Json;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          actor_user_id?: string | null;
+          actor_role?: AppRole | null;
+          event_type: AuditEventType;
+          decision: AuditDecision;
+          operation: string;
+          class_id?: string | null;
+          project_id?: string | null;
+          thread_id?: string | null;
+          message_id?: string | null;
+          patch_proposal_id?: string | null;
+          ipc_channel?: string | null;
+          request_id?: string | null;
+          project_root_hash?: string | null;
+          relative_paths?: string[];
+          duration_ms?: number | null;
+          error_code?: string | null;
+          metadata?: Json;
+          redaction?: Json;
+          created_at?: string;
+        };
+        Update: {
+          actor_user_id?: string | null;
+          actor_role?: AppRole | null;
+          event_type?: AuditEventType;
+          decision?: AuditDecision;
+          operation?: string;
+          class_id?: string | null;
+          project_id?: string | null;
+          thread_id?: string | null;
+          message_id?: string | null;
+          patch_proposal_id?: string | null;
+          ipc_channel?: string | null;
+          request_id?: string | null;
+          project_root_hash?: string | null;
+          relative_paths?: string[];
+          duration_ms?: number | null;
+          error_code?: string | null;
+          metadata?: Json;
+          redaction?: Json;
+        };
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -275,6 +362,27 @@ export interface Database {
           status: ClassInviteRedeemStatus;
         }[];
       };
+      record_audit_event: {
+        Args: {
+          p_event_type: AuditEventType;
+          p_decision: AuditDecision;
+          p_operation: string;
+          p_class_id?: string | null;
+          p_project_id?: string | null;
+          p_thread_id?: string | null;
+          p_message_id?: string | null;
+          p_patch_proposal_id?: string | null;
+          p_ipc_channel?: string | null;
+          p_request_id?: string | null;
+          p_project_root_hash?: string | null;
+          p_relative_paths?: string[];
+          p_duration_ms?: number | null;
+          p_error_code?: string | null;
+          p_metadata?: Json;
+          p_redaction?: Json;
+        };
+        Returns: string;
+      };
     };
     Enums: {
       app_user_role: AppRole;
@@ -285,6 +393,8 @@ export interface Database {
       thread_priority: ThreadPriority;
       message_sender_type: MessageSenderType;
       message_type: MessageType;
+      audit_event_type: AuditEventType;
+      audit_decision: AuditDecision;
     };
     CompositeTypes: Record<string, never>;
   };

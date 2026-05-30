@@ -321,6 +321,8 @@ export type AskAuditMetadata = {
 };
 ```
 
+MVP persistence is implemented by `public.audit_events` and `public.record_audit_event`. Database triggers automatically record core Supabase mutations such as class invite creation/redeem, project creation, thread creation, messages, AI patch proposal creation, and patch status transitions. Renderer code may call the RPC for authenticated UI events such as login success. Unauthenticated login failures stay in Supabase Auth logs until a trusted server or Edge Function can record them safely.
+
 Do not store:
 
 - Raw `.env` values.
