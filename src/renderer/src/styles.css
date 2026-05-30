@@ -558,6 +558,12 @@ select:focus,
   width: fit-content;
 }
 
+.ai-assist-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .review-modal-backdrop {
   position: fixed;
   inset: 0;
