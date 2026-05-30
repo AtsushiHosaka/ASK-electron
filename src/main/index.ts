@@ -1,6 +1,7 @@
 import { app, BrowserWindow, shell } from "electron";
 import { join } from "node:path";
 import { registerIpcHandlers } from "./ipc";
+import { configureProjectRootRegistryStorage } from "./projectRootRegistry";
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -85,7 +86,8 @@ const createWindow = (): void => {
 
 app
   .whenReady()
-  .then(() => {
+  .then(async () => {
+    await configureProjectRootRegistryStorage(join(app.getPath("userData"), "project-roots.json"));
     registerIpcHandlers();
     createWindow();
 

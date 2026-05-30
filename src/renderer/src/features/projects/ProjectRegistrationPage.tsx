@@ -4,6 +4,7 @@ import type {
   GitignoreApplyResponse,
   GitignorePreviewResponse,
   ProjectGitInspectionResponse,
+  ProjectRootReconnectResponse,
   ProjectRootSelectionResponse
 } from "../../../../shared/ipc";
 import type { Database } from "../../../../shared/database.types";
@@ -643,6 +644,17 @@ export const ProjectDetailPage = (): ReactElement => {
   const [project, setProject] = useState<ProjectRow | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [reconnectState, setReconnectState] = useState<{
+    loading: boolean;
+    status: ProjectRootReconnectResponse["status"] | "error" | null;
+    message: string | null;
+    inspection: ProjectGitInspectionResponse | null;
+  }>({
+    loading: false,
+    status: null,
+    message: null,
+    inspection: null
+  });
 
   useEffect(() => {
     let mounted = true;
@@ -684,6 +696,58 @@ export const ProjectDetailPage = (): ReactElement => {
     };
   }, [projectId, supabase]);
 
+  const reconnectLocalFolder = async (): Promise<void> => {
+    if (!project?.local_path_hash || !project.github_repo_url) {
+      setReconnectState({
+        loading: false,
+        status: "invalid_request",
+        message:
+          "登録済みプロジェクトの GitHub repository または local_path_hash が不足しています。",
+        inspection: null
+      });
+      return;
+    }
+
+    setReconnectState({
+      loading: true,
+      status: null,
+      message: null,
+      inspection: null
+    });
+
+    try {
+      const result = await window.ask.project.reconnectRoot({
+        localPathHash: project.local_path_hash,
+        githubRepoUrl: project.github_repo_url
+      });
+
+      if (!result.ok) {
+        setReconnectState({
+          loading: false,
+          status: "error",
+          message: result.error.message,
+          inspection: null
+        });
+        return;
+      }
+
+      setReconnectState({
+        loading: false,
+        status: result.data.status,
+        message: result.data.message,
+        inspection: result.data.inspection
+      });
+    } catch (error) {
+      setReconnectState({
+        loading: false,
+        status: "error",
+        message:
+          error instanceof Error ? error.message : "ローカルフォルダを再接続できませんでした。",
+        inspection: null
+      });
+    }
+  };
+
   if (loading) {
     return <ProjectPageState title="読み込み中" body="プロジェクト詳細を確認しています。" />;
   }
@@ -691,6 +755,13 @@ export const ProjectDetailPage = (): ReactElement => {
   if (error || !project) {
     return <ProjectPageState title="プロジェクトが見つかりません" body={error ?? ""} />;
   }
+
+  const reconnectMessageClass =
+    reconnectState.status === "connected"
+      ? "success"
+      : reconnectState.status === "cancelled"
+        ? "warning"
+        : "error";
 
   return (
     <section className="workspace-page">
@@ -707,6 +778,46 @@ export const ProjectDetailPage = (): ReactElement => {
         <span>created</span>
         <strong>{new Date(project.created_at).toLocaleString()}</strong>
       </div>
+
+      <div className="detail-panel project-registration-panel">
+        <div>
+          <p className="eyebrow">Local Folder</p>
+          <h2>ローカルフォルダ再接続</h2>
+          <p className="muted">
+            アプリ再起動後に差分収集やパッチ適用ができない場合、このプロジェクトの GitHub repository
+            と local_path_hash に一致するフォルダを選択します。
+          </p>
+        </div>
+        <button
+          className="primary-button"
+          disabled={reconnectState.loading || !project.local_path_hash || !project.github_repo_url}
+          type="button"
+          onClick={() => void reconnectLocalFolder()}
+        >
+          {reconnectState.loading ? "確認中..." : "ローカルフォルダを再接続"}
+        </button>
+
+        {reconnectState.message ? (
+          <p
+            className={`message ${reconnectMessageClass}`}
+            role={reconnectMessageClass === "error" ? "alert" : "status"}
+          >
+            {reconnectState.message}
+          </p>
+        ) : null}
+
+        {reconnectState.inspection ? (
+          <div className="project-summary-list">
+            <span>選択フォルダ</span>
+            <strong>{reconnectState.inspection.displayName}</strong>
+            <span>GitHub repository</span>
+            <strong>{reconnectState.inspection.normalizedGithubRepoUrl ?? "未検出"}</strong>
+            <span>local_path_hash</span>
+            <strong>{reconnectState.inspection.localPathHash?.slice(0, 12) ?? "未生成"}</strong>
+          </div>
+        ) : null}
+      </div>
+
       <Link className="secondary-link" to="/projects">
         プロジェクト一覧へ
       </Link>

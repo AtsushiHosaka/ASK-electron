@@ -408,7 +408,9 @@ export const collectEnvironmentSnapshot = async (
   const warnings = [...dependenciesSummary.warnings];
 
   if (!record) {
-    warnings.push("ローカルフォルダ未選択のためプロジェクト固有情報は未収集です。");
+    warnings.push(
+      "ローカルフォルダを確認できないためプロジェクト固有情報は未収集です。プロジェクト詳細から再接続できます。"
+    );
   }
 
   return {

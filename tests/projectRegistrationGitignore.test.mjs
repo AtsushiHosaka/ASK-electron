@@ -21,4 +21,11 @@ describe("project registration gitignore gate", () => {
     assert.match(source, /高リスクの不足を確認しました/);
     assert.match(source, /高リスク不足/);
   });
+
+  it("offers a verified local folder reconnect flow from project detail", () => {
+    assert.match(source, /window\.ask\.project\.reconnectRoot/);
+    assert.match(source, /localPathHash: project\.local_path_hash/);
+    assert.match(source, /githubRepoUrl: project\.github_repo_url/);
+    assert.match(source, /ローカルフォルダを再接続/);
+  });
 });

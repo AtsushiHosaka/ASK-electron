@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
@@ -7,6 +7,8 @@ import { runLocalDiagnostics } from "../src/main/localDiagnostics.ts";
 import { inspectProjectGitWithDependencies } from "../src/main/projectGitInspector.ts";
 import { canonicalizePath, createLocalPathHash } from "../src/main/projectPathIdentity.ts";
 import {
+  clearProjectRootRegistryForTest,
+  configureProjectRootRegistryStorage,
   findSelectedProjectRootByLocalPathHash,
   rememberSelectedProjectRoot
 } from "../src/main/projectRootRegistry.ts";
@@ -301,13 +303,13 @@ describe("Project root registry", () => {
     const liveRoot = await mkdtemp(join(tmpdir(), "ask-live-root-"));
 
     try {
-      rememberSelectedProjectRoot({
+      await rememberSelectedProjectRoot({
         id: "stale-root",
         rootPath: join(liveRoot, "missing"),
         displayName: "missing",
         selectedAt: "2026-05-30T00:00:00.000Z"
       });
-      rememberSelectedProjectRoot({
+      await rememberSelectedProjectRoot({
         id: "live-root",
         rootPath: liveRoot,
         displayName: "live",
@@ -322,6 +324,42 @@ describe("Project root registry", () => {
       assert.equal(result?.id, "live-root");
     } finally {
       await rm(liveRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("restores selected roots from local-only storage by local path hash", async () => {
+    const liveRoot = await mkdtemp(join(tmpdir(), "ask-persisted-root-"));
+    const storageRoot = await mkdtemp(join(tmpdir(), "ask-root-storage-"));
+    const storagePath = join(storageRoot, "project-roots.json");
+
+    try {
+      clearProjectRootRegistryForTest();
+      await configureProjectRootRegistryStorage(storagePath);
+      await rememberSelectedProjectRoot({
+        id: "persisted-root",
+        rootPath: liveRoot,
+        displayName: "persisted",
+        selectedAt: "2026-05-30T00:00:00.000Z"
+      });
+
+      const persistedContent = JSON.parse(await readFile(storagePath, "utf8"));
+      assert.equal(persistedContent.schemaVersion, 1);
+      assert.equal(persistedContent.roots[0].rootPath, liveRoot);
+
+      clearProjectRootRegistryForTest();
+      await configureProjectRootRegistryStorage(storagePath);
+
+      const canonicalLiveRoot = await canonicalizePath(liveRoot);
+      const result = await findSelectedProjectRootByLocalPathHash(
+        createLocalPathHash(canonicalLiveRoot)
+      );
+
+      assert.equal(result?.id, "persisted-root");
+      assert.equal(result?.displayName, "persisted");
+    } finally {
+      clearProjectRootRegistryForTest();
+      await rm(liveRoot, { recursive: true, force: true });
+      await rm(storageRoot, { recursive: true, force: true });
     }
   });
 });

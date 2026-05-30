@@ -272,7 +272,7 @@ export const collectGitDiff = async (
   if (!record) {
     return createBaseResponse(
       "root_missing",
-      "ローカルフォルダが未選択です。質問作成は継続できます。"
+      "ローカルフォルダを確認できません。プロジェクト詳細から再接続すると差分を収集できます。"
     );
   }
 

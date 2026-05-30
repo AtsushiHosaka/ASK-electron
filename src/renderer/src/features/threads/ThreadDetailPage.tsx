@@ -1198,6 +1198,7 @@ export const ThreadDetailPage = (): ReactElement => {
                   patchProposal={state.patchProposalsByMessageId.get(message.id) ?? null}
                   canReviewPatch={profile?.role === "student"}
                   projectHasLocalRoot={Boolean(state.project?.local_path_hash)}
+                  projectId={state.project?.id ?? null}
                   projectName={state.project?.name ?? null}
                   onValidatePatch={() => void validatePatchMessage(message)}
                   onApplyPatch={() => void applyPatchMessage(message)}
@@ -1398,6 +1399,7 @@ const MessageBubble = ({
   patchProposal,
   canReviewPatch,
   projectHasLocalRoot,
+  projectId,
   projectName,
   onValidatePatch,
   onApplyPatch,
@@ -1410,6 +1412,7 @@ const MessageBubble = ({
   patchProposal: PatchProposalSummary | null;
   canReviewPatch: boolean;
   projectHasLocalRoot: boolean;
+  projectId: string | null;
   projectName: string | null;
   onValidatePatch: () => void;
   onApplyPatch: () => void;
@@ -1437,6 +1440,7 @@ const MessageBubble = ({
         <PatchReviewPanel
           canReviewPatch={canReviewPatch}
           projectHasLocalRoot={projectHasLocalRoot}
+          projectId={projectId}
           projectName={projectName}
           review={patchReview}
           patchProposal={patchProposal}
@@ -1455,6 +1459,7 @@ const PatchReviewPanel = ({
   review,
   canReviewPatch,
   projectHasLocalRoot,
+  projectId,
   projectName,
   patchProposal,
   patchText,
@@ -1466,6 +1471,7 @@ const PatchReviewPanel = ({
   review: PatchReviewState;
   canReviewPatch: boolean;
   projectHasLocalRoot: boolean;
+  projectId: string | null;
   projectName: string | null;
   patchProposal: PatchProposalSummary | null;
   patchText: string;
@@ -1477,6 +1483,7 @@ const PatchReviewPanel = ({
   const validation = review.validation;
   const applyResult = review.applyResult;
   const revertResult = review.revertResult;
+  const projectDetailPath = projectId ? `/projects/${projectId}` : null;
   const canApply = Boolean(
     validation?.canApply &&
     validation.patchId &&
@@ -1524,9 +1531,14 @@ const PatchReviewPanel = ({
       ) : null}
 
       {canReviewPatch && !projectHasLocalRoot ? (
-        <p className="message warning">
-          ローカルフォルダが未登録です。プロジェクト設定からフォルダを選択してください。
-        </p>
+        <div className="message warning">
+          <p>ローカルフォルダが未登録です。</p>
+          {projectDetailPath ? (
+            <Link className="secondary-link" to={projectDetailPath}>
+              プロジェクト詳細で再接続
+            </Link>
+          ) : null}
+        </div>
       ) : null}
 
       {validation ? (
@@ -1548,6 +1560,11 @@ const PatchReviewPanel = ({
           ) : null}
 
           <p className={`message ${validationMessageClass(validation)}`}>{validation.message}</p>
+          {validation.status === "root_missing" && projectDetailPath ? (
+            <Link className="secondary-link" to={projectDetailPath}>
+              プロジェクト詳細で再接続
+            </Link>
+          ) : null}
         </div>
       ) : null}
 

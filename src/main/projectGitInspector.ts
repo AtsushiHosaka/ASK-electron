@@ -113,17 +113,11 @@ export const inspectProjectGit = async (
   return inspectProjectGitWithDependencies(input);
 };
 
-export const inspectProjectGitWithDependencies = async (
+const inspectResolvedProjectRoot = async (
   input: ProjectGitInspectionRequest,
-  dependenciesInput: ProjectGitInspectionDependencies = {}
+  record: ProjectRootRecord,
+  dependencies: ResolvedProjectGitInspectionDependencies
 ): Promise<ProjectGitInspectionResponse> => {
-  const dependencies = resolveDependencies(dependenciesInput);
-  const record = dependencies.getSelectedProjectRoot(input.projectRootId);
-
-  if (!record) {
-    throw new Error("PROJECT_ROOT_NOT_FOUND");
-  }
-
   const canonicalRootPath = await dependencies.canonicalizePath(record.rootPath);
   const insideWorkTree = await dependencies.runGit(record.rootPath, [
     "rev-parse",
@@ -231,4 +225,26 @@ export const inspectProjectGitWithDependencies = async (
       canRegister: true
     }
   );
+};
+
+export const inspectProjectGitRecordWithDependencies = async (
+  record: ProjectRootRecord,
+  dependenciesInput: ProjectGitInspectionDependencies = {}
+): Promise<ProjectGitInspectionResponse> => {
+  const dependencies = resolveDependencies(dependenciesInput);
+  return inspectResolvedProjectRoot({ projectRootId: record.id }, record, dependencies);
+};
+
+export const inspectProjectGitWithDependencies = async (
+  input: ProjectGitInspectionRequest,
+  dependenciesInput: ProjectGitInspectionDependencies = {}
+): Promise<ProjectGitInspectionResponse> => {
+  const dependencies = resolveDependencies(dependenciesInput);
+  const record = dependencies.getSelectedProjectRoot(input.projectRootId);
+
+  if (!record) {
+    throw new Error("PROJECT_ROOT_NOT_FOUND");
+  }
+
+  return inspectResolvedProjectRoot(input, record, dependencies);
 };

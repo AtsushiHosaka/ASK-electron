@@ -423,7 +423,7 @@ const createValidationContext = async (
       response: createValidateResponse({
         status: "root_missing",
         message:
-          "ローカルプロジェクトフォルダが登録されていません。プロジェクト設定から選択し直してください。",
+          "ローカルプロジェクトフォルダが登録されていません。プロジェクト詳細から再接続してください。",
         expectedBaseCommit
       })
     };
@@ -448,7 +448,7 @@ const createValidationContext = async (
       response: createValidateResponse({
         status: "root_missing",
         message:
-          "このプロジェクトのローカルフォルダを確認できません。プロジェクト設定から選択し直してください。",
+          "このプロジェクトのローカルフォルダを確認できません。プロジェクト詳細から再接続してください。",
         expectedBaseCommit
       })
     };
@@ -1122,7 +1122,7 @@ export const revertPatch = async (input: PatchRevertRequest): Promise<PatchRever
       status: "root_missing",
       backupDirectory: null,
       message:
-        "ローカルプロジェクトフォルダが登録されていません。プロジェクト設定から選択し直してください。"
+        "ローカルプロジェクトフォルダが登録されていません。プロジェクト詳細から再接続してください。"
     });
   }
 
@@ -1134,7 +1134,7 @@ export const revertPatch = async (input: PatchRevertRequest): Promise<PatchRever
       status: "root_missing",
       backupDirectory: null,
       message:
-        "このプロジェクトのローカルフォルダを確認できません。プロジェクト設定から選択し直してください。"
+        "このプロジェクトのローカルフォルダを確認できません。プロジェクト詳細から再接続してください。"
     });
   }
 
