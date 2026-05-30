@@ -7,7 +7,8 @@ import { ProjectDetailPage, ProjectsPage } from "./features/projects/ProjectRegi
 import {
   ClassDetailPage,
   ClassJoinPage,
-  TeacherHomePage
+  TeacherHomePage,
+  TeacherQueuePage
 } from "./features/teacher/TeacherDashboard";
 import { ThreadCreatePage } from "./features/threads/ThreadCreatePage";
 import type { AppRole } from "@shared/domain";
@@ -73,6 +74,7 @@ const AppShell = (): ReactElement => {
           <NavLink to={profile.role === "student" ? "/student" : "/teacher"}>ホーム</NavLink>
           {profile.role === "student" && <NavLink to="/onboarding">初期設定</NavLink>}
           <NavLink to="/classes">クラス</NavLink>
+          {profile.role !== "student" && <NavLink to="/teacher/queue">質問キュー</NavLink>}
           <NavLink to="/projects">プロジェクト</NavLink>
           <NavLink to="/threads/new">質問を作成</NavLink>
           <NavLink to="/threads/demo">スレッド</NavLink>
@@ -94,6 +96,7 @@ const AppShell = (): ReactElement => {
           <Route path="/" element={<Navigate to={roleHome[profile.role]} replace />} />
           <Route path="/student" element={<StudentHome />} />
           <Route path="/teacher" element={<TeacherHomePage />} />
+          <Route path="/teacher/queue" element={<TeacherQueuePage />} />
           <Route path="/onboarding" element={<StudentOnboardingPage />} />
           <Route path="/classes" element={<TeacherHomePage />} />
           <Route path="/classes/:classId" element={<ClassDetailPage />} />
