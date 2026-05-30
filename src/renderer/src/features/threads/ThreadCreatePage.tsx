@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import type { Database, Json } from "../../../../shared/database.types";
 import type {
@@ -288,6 +288,8 @@ export const ThreadCreatePage = (): ReactElement => {
     useState<EnvironmentSnapshotUiState>(initialEnvironmentSnapshotState);
   const [sendReview, setSendReview] = useState<SendReviewState>(initialSendReviewState);
   const [allowedSecretFindingIds, setAllowedSecretFindingIds] = useState<string[]>([]);
+  const reviewModalRef = useRef<HTMLDivElement | null>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -402,6 +404,92 @@ export const ThreadCreatePage = (): ReactElement => {
     const lines = [title.trim(), situation.trim()].filter(Boolean);
     return lines.join("\n\n");
   };
+  const closeSendReview = useCallback((): void => {
+    setSendReview((current) => ({
+      ...current,
+      open: false
+    }));
+  }, []);
+
+  useEffect(() => {
+    if (!sendReview.open) {
+      return;
+    }
+
+    previousFocusRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
+    const modal = reviewModalRef.current;
+    const focusableSelector = [
+      "a[href]",
+      "button:not([disabled])",
+      "input:not([disabled])",
+      "select:not([disabled])",
+      "textarea:not([disabled])",
+      '[tabindex]:not([tabindex="-1"])'
+    ].join(",");
+    const getFocusableElements = (): HTMLElement[] =>
+      Array.from(modal?.querySelectorAll<HTMLElement>(focusableSelector) ?? []).filter(
+        (element) => !element.hasAttribute("disabled") && element.offsetParent !== null
+      );
+
+    window.requestAnimationFrame(() => {
+      const [firstFocusable] = getFocusableElements();
+      (firstFocusable ?? modal)?.focus();
+    });
+
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeSendReview();
+        return;
+      }
+
+      if (event.key !== "Tab" || !modal) {
+        return;
+      }
+
+      const focusableElements = getFocusableElements();
+
+      if (focusableElements.length === 0) {
+        event.preventDefault();
+        modal.focus();
+        return;
+      }
+
+      const firstFocusable = focusableElements[0];
+      const lastFocusable = focusableElements.at(-1);
+
+      if (!firstFocusable || !lastFocusable) {
+        return;
+      }
+
+      if (!modal.contains(document.activeElement)) {
+        event.preventDefault();
+        firstFocusable.focus();
+        return;
+      }
+
+      if (event.shiftKey && document.activeElement === firstFocusable) {
+        event.preventDefault();
+        lastFocusable.focus();
+        return;
+      }
+
+      if (!event.shiftKey && document.activeElement === lastFocusable) {
+        event.preventDefault();
+        firstFocusable.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      previousFocusRef.current?.focus();
+      previousFocusRef.current = null;
+    };
+  }, [closeSendReview, sendReview.open]);
 
   const collectGitDiff = useCallback(
     async (
@@ -1189,10 +1277,12 @@ export const ThreadCreatePage = (): ReactElement => {
       {sendReview.open && (
         <div className="review-modal-backdrop" role="presentation">
           <div
+            ref={reviewModalRef}
             aria-labelledby="send-review-title"
             aria-modal="true"
             className="review-modal"
             role="dialog"
+            tabIndex={-1}
           >
             <header>
               <div>
@@ -1203,12 +1293,7 @@ export const ThreadCreatePage = (): ReactElement => {
                 className="secondary-button"
                 disabled={submitting}
                 type="button"
-                onClick={() =>
-                  setSendReview((current) => ({
-                    ...current,
-                    open: false
-                  }))
-                }
+                onClick={closeSendReview}
               >
                 閉じる
               </button>
@@ -1346,12 +1431,7 @@ export const ThreadCreatePage = (): ReactElement => {
                 className="secondary-button"
                 disabled={submitting}
                 type="button"
-                onClick={() =>
-                  setSendReview((current) => ({
-                    ...current,
-                    open: false
-                  }))
-                }
+                onClick={closeSendReview}
               >
                 戻って編集
               </button>
