@@ -21,6 +21,10 @@ const api: RendererApi = {
   diagnostics: {
     runLocal: () => invoke(IpcChannel.DiagnosticsRunLocal)
   },
+  github: {
+    startDeviceFlow: () => invoke(IpcChannel.GithubDeviceFlowStart),
+    pollDeviceFlow: (input) => invoke(IpcChannel.GithubDeviceFlowPoll, input)
+  },
   ai: {
     generate: (input) => invoke(IpcChannel.AiGenerate, input)
   },
