@@ -760,7 +760,9 @@ export const ThreadCreatePage = (): ReactElement => {
       setSendReview((current) => ({
         ...current,
         open: true,
-        draftQuestion: buildDefaultReviewDraft(),
+        draftQuestion: current.draftQuestion.trim()
+          ? current.draftQuestion
+          : buildDefaultReviewDraft(),
         includeGitDiff: Boolean(gitDiff),
         includeEnvironmentSnapshot: Boolean(snapshot),
         excludedRelatedFiles: current.excludedRelatedFiles.filter((file) =>
