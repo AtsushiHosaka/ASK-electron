@@ -55,7 +55,7 @@ const policyExpectations = [
   ["patch_proposals", "select", "patch_proposals_select_accessible_thread"],
   ["patch_proposals", "insert", "patch_proposals_insert_teacher_staff"],
   ["patch_proposals", "insert", "patch_proposals_insert_ai_thread_owner"],
-  ["patch_proposals", "update", "patch_proposals_update_thread_participant"]
+  ["patch_proposals", "update", "patch_proposals_update_student_status"]
 ];
 
 describe("RLS SQL coverage", () => {
@@ -85,6 +85,15 @@ describe("RLS SQL coverage", () => {
       rlsSql,
       /create policy "[^"]+"\s+on public\.[\s\S]*using\s*\(\s*true\s*\)/i
     );
+  });
+
+  it("guards patch proposal updates with immutable metadata and student status transitions", () => {
+    assert.match(rlsSql, /create or replace function public\.enforce_patch_proposal_update_guard/);
+    assert.match(rlsSql, /old\.patch_text is distinct from new\.patch_text/);
+    assert.match(rlsSql, /old\.target_file_path is distinct from new\.target_file_path/);
+    assert.match(rlsSql, /old\.status = 'proposed'::public\.patch_status/);
+    assert.match(rlsSql, /old\.status = 'applied'::public\.patch_status/);
+    assert.match(rlsSql, /drop policy if exists "patch_proposals_update_thread_participant"/);
   });
 });
 

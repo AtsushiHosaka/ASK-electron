@@ -45,6 +45,7 @@ The MVP access model is class-centered:
 - Project creation requires the student to own the project, belong to the class as a student, and have a GitHub connection record.
 - AI-generated patch proposals can be inserted only by the student who owns the thread project, and they are still stored as proposed review artifacts rather than applied changes.
 - Teacher-created patch proposals can be inserted only by assigned class staff and must start as `proposed`, leaving local apply/revert actions to the student's device flow.
+- Patch proposal updates are limited to student-owned status transitions. Proposal metadata such as patch text, target path, creator, and base commit is immutable after creation.
 
 ## RLS Test Suite
 
