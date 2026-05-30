@@ -1,66 +1,161 @@
 import type { AiProvider, AiProviderRequest, AiProviderResult } from "../shared/aiPipeline";
 
-const taskTitles: Record<AiProviderRequest["task"], string> = {
-  question_rewrite: "質問文の整理案",
-  error_summary: "エラー要約",
-  cause_candidates: "原因候補と次の確認",
-  patch_proposal: "レビュー用パッチ案"
+const DEFAULT_PROVIDER_URL = "https://api.openai.com/v1/chat/completions";
+const DEFAULT_TIMEOUT_MS = 30_000;
+const MAX_TIMEOUT_MS = 120_000;
+
+interface ConfiguredAiProviderEnvironment {
+  ASK_AI_PROVIDER_API_KEY?: string;
+  ASK_AI_PROVIDER_MODEL?: string;
+  ASK_AI_PROVIDER_URL?: string;
+  ASK_AI_PROVIDER_TIMEOUT_MS?: string;
+}
+
+interface ConfiguredAiProviderOptions {
+  env?: ConfiguredAiProviderEnvironment;
+  fetchImpl?: typeof fetch;
+}
+
+interface ProviderConfig {
+  apiKey: string;
+  model: string;
+  endpointUrl: URL;
+  timeoutMs: number;
+}
+
+interface ChatCompletionChoice {
+  message?: {
+    content?: unknown;
+  };
+  text?: unknown;
+}
+
+interface ChatCompletionUsage {
+  prompt_tokens?: unknown;
+  completion_tokens?: unknown;
+}
+
+interface ChatCompletionResponse {
+  choices?: unknown;
+  usage?: unknown;
+  error?: unknown;
+}
+
+class AiProviderConfigurationError extends Error {
+  readonly code = "PROVIDER_NOT_CONFIGURED";
+}
+
+class AiProviderRequestError extends Error {
+  readonly code: string;
+
+  constructor(code: string, message: string) {
+    super(message);
+    this.code = code;
+  }
+}
+
+const getEnv = (options: ConfiguredAiProviderOptions): ConfiguredAiProviderEnvironment => {
+  return options.env ?? process.env;
 };
 
-const taskBodies: Record<AiProviderRequest["task"], string> = {
-  question_rewrite:
-    "状況、期待した結果、実際の結果、先生に確認してほしい点を分けて書くと伝わりやすくなります。",
-  error_summary:
-    "重要なログ、直前に実行した操作、再現条件を残し、重複した stack trace や環境固有のノイズは省いてください。",
-  cause_candidates: [
-    "以下は断定ではない調査開始用の候補です。",
-    "",
-    "1. 確度: 中 / 依存関係やlockfile差分の影響",
-    "   根拠: Git差分、環境情報、実行コマンドに変更点がある場合に起きやすいです。",
-    "   次に確認: `npm install` の直後差分、`package.json`、lockfile、実行ログ。",
-    "",
-    "2. 確度: 中 / 設定値または環境変数の不足",
-    "   根拠: ローカルでは再現しやすく、別環境では通るケースがあります。",
-    "   次に確認: `.env.example`、起動時ログ、必要な公開設定名。秘密値そのものは送信しないでください。",
-    "",
-    "3. 確度: 低 / 入力値や状態遷移の想定漏れ",
-    "   根拠: エラー文だけでは断定できないため、再現手順と対象ファイルの確認が必要です。",
-    "   次に確認: エラー発生直前の操作、関連ファイル、最小再現手順。"
-  ].join("\n"),
-  patch_proposal: JSON.stringify(
-    {
-      target_file_path: "src/example.ts",
-      base_commit_sha: null,
-      explanation: "入力値が空の場合でも安全に数値化できるように、変換前のデフォルト値を補います。",
-      patch_text: [
-        "diff --git a/src/example.ts b/src/example.ts",
-        "--- a/src/example.ts",
-        "+++ b/src/example.ts",
-        "@@ -1,3 +1,3 @@",
-        "-const value = Number(input.value);",
-        "+const value = Number(input.value || 0);"
-      ].join("\n")
-    },
-    null,
-    2
-  )
-};
-
-const summarizeContext = (request: AiProviderRequest): string => {
-  if (request.context.length === 0) {
-    return "- 追加コンテキストなし";
+const parsePositiveInteger = (value: string | undefined, fallback: number): number => {
+  if (!value) {
+    return fallback;
   }
 
-  return request.context
-    .slice(0, 6)
-    .map((entry) => {
-      const suffix = entry.truncated ? " / truncated" : "";
-      return `- ${entry.label}: ${entry.kind}, ${entry.valueChars} chars${suffix}`;
-    })
-    .join("\n");
+  const parsed = Number(value);
+
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+
+  return Math.min(Math.floor(parsed), MAX_TIMEOUT_MS);
 };
 
-const clipOutput = (value: string, maxChars: number): string => {
+const normalizeEndpointUrl = (value: string | undefined): URL => {
+  const endpointUrl = new URL(value?.trim() || DEFAULT_PROVIDER_URL);
+  const isHttps = endpointUrl.protocol === "https:";
+  const isLocalHttp =
+    endpointUrl.protocol === "http:" &&
+    (endpointUrl.hostname === "localhost" || endpointUrl.hostname === "127.0.0.1");
+
+  if (!isHttps && !isLocalHttp) {
+    throw new AiProviderConfigurationError(
+      "ASK_AI_PROVIDER_URL は https URL または localhost の http URL を指定してください。"
+    );
+  }
+
+  return endpointUrl;
+};
+
+const loadProviderConfig = (env: ConfiguredAiProviderEnvironment): ProviderConfig => {
+  const apiKey = env.ASK_AI_PROVIDER_API_KEY?.trim();
+  const model = env.ASK_AI_PROVIDER_MODEL?.trim();
+
+  if (!apiKey || !model) {
+    throw new AiProviderConfigurationError(
+      "ASK_AI_PROVIDER_API_KEY と ASK_AI_PROVIDER_MODEL を main process の環境変数に設定してください。"
+    );
+  }
+
+  return {
+    apiKey,
+    model,
+    endpointUrl: normalizeEndpointUrl(env.ASK_AI_PROVIDER_URL),
+    timeoutMs: parsePositiveInteger(env.ASK_AI_PROVIDER_TIMEOUT_MS, DEFAULT_TIMEOUT_MS)
+  };
+};
+
+const sanitizeProviderMessage = (value: unknown): string => {
+  const message =
+    typeof value === "object" && value !== null && "message" in value
+      ? String(value.message)
+      : typeof value === "string"
+        ? value
+        : "AI provider request failed.";
+
+  return message
+    .replace(/\s+/g, " ")
+    .replace(/\bBearer\s+[A-Za-z0-9._-]{8,}/gi, "Bearer [redacted]")
+    .replace(/\bsk-[A-Za-z0-9_-]{8,}/g, "[redacted api key]")
+    .replace(/\bAKIA[0-9A-Z]{8,}/g, "[redacted api key]")
+    .replace(/\bAIza[0-9A-Za-z_-]{8,}/g, "[redacted api key]")
+    .replace(/\bsb_secret_[A-Za-z0-9_-]{8,}/g, "[redacted api key]")
+    .slice(0, 240);
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+  return typeof value === "object" && value !== null;
+};
+
+const getChoices = (response: ChatCompletionResponse): ChatCompletionChoice[] => {
+  if (!Array.isArray(response.choices)) {
+    return [];
+  }
+
+  return response.choices.filter(isRecord) as ChatCompletionChoice[];
+};
+
+const getCompletionText = (response: ChatCompletionResponse): string => {
+  const text = getChoices(response)
+    .map((choice) => {
+      if (isRecord(choice.message) && typeof choice.message.content === "string") {
+        return choice.message.content;
+      }
+
+      return typeof choice.text === "string" ? choice.text : "";
+    })
+    .join("\n")
+    .trim();
+
+  if (!text) {
+    throw new AiProviderRequestError("PROVIDER_EMPTY_RESPONSE", "AI provider returned no text.");
+  }
+
+  return text;
+};
+
+const clipText = (value: string, maxChars: number): string => {
   if (value.length <= maxChars) {
     return value;
   }
@@ -68,34 +163,108 @@ const clipOutput = (value: string, maxChars: number): string => {
   return value.slice(0, maxChars).trimEnd();
 };
 
-const buildMockResponse = (request: AiProviderRequest): string => {
-  const text = [
-    `## ${taskTitles[request.task]}`,
-    taskBodies[request.task],
-    "",
-    "### 利用した最小コンテキスト",
-    summarizeContext(request),
-    "",
-    "### 注意",
-    "AI 出力は提案です。コードの実行、ローカル適用、秘密情報を含む再送信は行っていません。"
-  ].join("\n");
+const getUsage = (
+  response: ChatCompletionResponse,
+  request: AiProviderRequest,
+  text: string
+): AiProviderResult["usage"] => {
+  const usage = isRecord(response.usage) ? (response.usage as ChatCompletionUsage) : null;
+  const promptTokens = typeof usage?.prompt_tokens === "number" ? usage.prompt_tokens : null;
+  const completionTokens =
+    typeof usage?.completion_tokens === "number" ? usage.completion_tokens : null;
 
-  return clipOutput(text, request.options.maxOutputChars);
+  return {
+    inputChars: promptTokens ?? request.prompt.system.length + request.prompt.user.length,
+    outputChars: completionTokens ?? text.length
+  };
 };
 
-export const createMockAiProvider = (): AiProvider => ({
-  id: "mock-safe-local",
-  mode: "mock",
-  supportsStreaming: false,
-  generate: async (request): Promise<AiProviderResult> => {
-    const text = buildMockResponse(request);
+const buildRequestBody = (config: ProviderConfig, request: AiProviderRequest): string => {
+  return JSON.stringify({
+    model: config.model,
+    messages: [
+      { role: "system", content: request.prompt.system },
+      { role: "user", content: request.prompt.user }
+    ],
+    temperature: 0.2,
+    max_tokens: Math.max(128, Math.ceil(request.options.maxOutputChars / 2))
+  });
+};
 
-    return {
-      text,
-      usage: {
-        inputChars: request.prompt.system.length + request.prompt.user.length,
-        outputChars: text.length
-      }
-    };
+const fetchWithTimeout = async (
+  fetchImpl: typeof fetch,
+  url: URL,
+  init: RequestInit,
+  timeoutMs: number
+): Promise<Response> => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetchImpl(url, {
+      ...init,
+      signal: controller.signal
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new AiProviderRequestError("PROVIDER_TIMEOUT", "AI provider request timed out.");
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeout);
   }
-});
+};
+
+export const createConfiguredAiProvider = (
+  options: ConfiguredAiProviderOptions = {}
+): AiProvider => {
+  const env = getEnv(options);
+  const fetchImpl = options.fetchImpl ?? fetch;
+
+  return {
+    id: "configured-openai-compatible",
+    mode: "remote",
+    supportsStreaming: false,
+    generate: async (request): Promise<AiProviderResult> => {
+      const config = loadProviderConfig(env);
+      const response = await fetchWithTimeout(
+        fetchImpl,
+        config.endpointUrl,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${config.apiKey}`,
+            "Content-Type": "application/json"
+          },
+          body: buildRequestBody(config, request)
+        },
+        config.timeoutMs
+      );
+      const rawResponse = (await response
+        .json()
+        .catch(() => null)) as ChatCompletionResponse | null;
+
+      if (!response.ok) {
+        throw new AiProviderRequestError(
+          `PROVIDER_HTTP_${response.status}`,
+          sanitizeProviderMessage(rawResponse?.error)
+        );
+      }
+
+      if (!rawResponse) {
+        throw new AiProviderRequestError(
+          "PROVIDER_INVALID_RESPONSE",
+          "AI provider response is not JSON."
+        );
+      }
+
+      const text = clipText(getCompletionText(rawResponse), request.options.maxOutputChars);
+
+      return {
+        text,
+        usage: getUsage(rawResponse, request, text)
+      };
+    }
+  };
+};

@@ -4,9 +4,9 @@ import {
   type AiAssistResponse,
   type AiProvider
 } from "../shared/aiPipeline";
-import { createMockAiProvider } from "./aiProvider";
+import { createConfiguredAiProvider } from "./aiProvider";
 
-const activeProvider = createMockAiProvider();
+const activeProvider = createConfiguredAiProvider();
 
 const getSafeErrorFields = (error: unknown): { code?: string; message: string } => {
   const code =
