@@ -1023,7 +1023,9 @@ const PatchReviewPanel = ({
     patchProposal?.status !== "reverted"
   );
   const canRevert = Boolean(
-    (patchProposal?.status === "applied" || applyResult?.applied) && projectHasLocalRoot
+    (patchProposal?.status === "applied" || applyResult?.applied) &&
+    projectHasLocalRoot &&
+    !revertResult?.reverted
   );
   const canDismiss = patchProposal?.status === "proposed" || patchProposal?.status === "failed";
 
@@ -1130,7 +1132,13 @@ const PatchReviewPanel = ({
           </button>
           <button
             className="primary-button"
-            disabled={!canApply || review.validating || review.applying || review.reverting}
+            disabled={
+              !canApply ||
+              review.validating ||
+              review.applying ||
+              review.reverting ||
+              review.dismissing
+            }
             type="button"
             onClick={onApplyPatch}
           >
@@ -1138,7 +1146,13 @@ const PatchReviewPanel = ({
           </button>
           <button
             className="secondary-button"
-            disabled={!canRevert || review.validating || review.applying || review.reverting}
+            disabled={
+              !canRevert ||
+              review.validating ||
+              review.applying ||
+              review.reverting ||
+              review.dismissing
+            }
             type="button"
             onClick={onRevertPatch}
           >
@@ -1146,7 +1160,13 @@ const PatchReviewPanel = ({
           </button>
           <button
             className="secondary-button"
-            disabled={!canDismiss || review.validating || review.applying || review.dismissing}
+            disabled={
+              !canDismiss ||
+              review.validating ||
+              review.applying ||
+              review.reverting ||
+              review.dismissing
+            }
             type="button"
             onClick={onDismissPatch}
           >
