@@ -42,6 +42,17 @@ The MVP access model is class-centered:
 - Admins can access all MVP records.
 - Project creation requires the student to own the project, belong to the class as a student, and have a GitHub connection record.
 
+## RLS Test Suite
+
+The RLS permission-boundary suite is separate from unit tests because it needs a Supabase Postgres database with migrations and seed data applied. Reset a local Supabase instance, then run:
+
+```sh
+supabase db reset
+ASK_RLS_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres npm run test:rls
+```
+
+The suite uses `supabase/seed.sql` fixture IDs for admin, teacher, student, and outsider clients, and rolls back all writes at the end. The runner refuses non-local database hosts by default; set `ASK_RLS_ALLOW_REMOTE=1` only for isolated CI databases.
+
 ## Audit Events
 
 Audit records are stored in `public.audit_events` through DB triggers and the `record_audit_event` RPC. The table is append-only for authenticated clients: renderer code cannot insert, update, or delete rows directly. Scoped reads are allowed for the actor, admins, and users who can access the related class, project, or thread.
