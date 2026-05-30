@@ -113,7 +113,7 @@ const createProjectInspectionDependencies = (responses, root = projectRoot) => (
 });
 
 describe("GitHub onboarding diagnostics", () => {
-  it("reports missing Git and GitHub CLI as blocking checks", async () => {
+  it("blocks missing Git while allowing GitHub CLI fallback", async () => {
     const result = await runLocalDiagnostics(
       createLocalDiagnosticsDependencies({
         gitVersion: missingCommand(),
