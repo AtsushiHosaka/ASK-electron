@@ -105,6 +105,18 @@ Automation target:
 - Main-process IPC tests with fixed command fixtures.
 - No-shell command execution assertions.
 
+Abnormal-path coverage:
+
+| Failure state              | Expected result                               | macOS / Windows note                                      |
+| -------------------------- | --------------------------------------------- | --------------------------------------------------------- |
+| Git missing                | Git check blocks onboarding with next action  | Covers missing PATH entries on both OSes                  |
+| GitHub CLI missing         | Onboarding continues with fallback guidance   | Covers `gh` CLI not installed fallback                    |
+| GitHub CLI unauthenticated | Auth check blocks onboarding, version remains | Covers expired tokens and fresh devices                   |
+| SSH key missing            | SSH key check blocks onboarding               | Covers empty `~/.ssh` and Windows user profile migration  |
+| SSH public key not trusted | SSH connection reports auth failure           | Covers key not registered on GitHub                       |
+| GitHub network failure     | SSH/GitHub CLI report network failure         | Covers DNS, proxy, firewall, and offline classroom states |
+| Timeout                    | Timeout state returns without hanging UI      | Covers slow network and blocked process execution         |
+
 ## 4. Project Registration
 
 - [ ] Student selects a local project folder.
@@ -119,6 +131,16 @@ Automation target:
 Automation target:
 
 - Fixture repositories for no `.git`, no remote, remote mismatch, and valid repo.
+
+Abnormal-path coverage:
+
+| Failure state       | Expected result                                  |
+| ------------------- | ------------------------------------------------ |
+| No `.git` work tree | Registration is blocked with `.git` guidance     |
+| Nested folder       | Registration is blocked until repo root selected |
+| Missing origin      | Registration is blocked with remote guidance     |
+| Non-GitHub origin   | Registration is blocked as repo mismatch         |
+| GitHub origin       | GitHub URL, branch, and local path hash resolve  |
 
 ## 5. Question Creation
 
