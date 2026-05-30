@@ -12,7 +12,8 @@ import { canonicalizePath, createLocalPathHash } from "../src/main/projectPathId
 import { rememberSelectedProjectRoot } from "../src/main/projectRootRegistry.ts";
 
 const execFileAsync = promisify(execFile);
-const supportsPermissionDeniedTest = process.platform !== "win32" && process.getuid?.() !== 0;
+const skipPermissionDeniedTest =
+  process.platform === "win32" || (typeof process.getuid === "function" && process.getuid() === 0);
 
 const git = async (cwd, args) => {
   const { stdout } = await execFileAsync("git", args, {
@@ -181,8 +182,8 @@ describe("patch workflow", () => {
   });
 
   it(
-    "returns permission_denied when the project root is not writable during revert",
-    { skip: supportsPermissionDeniedTest ? false : "chmod write checks are platform-dependent" },
+    "returns permission_denied when revert cannot write project root",
+    { skip: skipPermissionDeniedTest },
     async () => {
       const repo = await createRepo();
 
@@ -200,7 +201,6 @@ describe("patch workflow", () => {
         });
 
         assert.equal(applyResult.status, "applied");
-
         await chmod(repo.rootPath, 0o500);
 
         const revertResult = await revertPatch({
@@ -210,8 +210,8 @@ describe("patch workflow", () => {
         });
 
         assert.equal(revertResult.status, "permission_denied");
-        assert.equal(revertResult.backupDirectory, null);
         assert.equal(revertResult.reverted, false);
+        assert.equal(revertResult.backupDirectory, null);
       } finally {
         await chmod(repo.rootPath, 0o700).catch(() => undefined);
         await rm(repo.rootPath, { recursive: true, force: true });
