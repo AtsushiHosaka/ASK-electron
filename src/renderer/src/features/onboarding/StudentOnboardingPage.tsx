@@ -1,4 +1,9 @@
 import { useMemo, useState, type ReactElement } from "react";
+import type {
+  GitignoreApplyResponse,
+  GitignorePreviewResponse,
+  ProjectRootSelectionResponse
+} from "../../../../shared/ipc";
 
 type StepStatus = "pending" | "checking" | "success" | "warning" | "error";
 
@@ -45,8 +50,15 @@ const steps: OnboardingStep[] = [
     id: "project-root",
     title: "プロジェクトフォルダ",
     goal: "質問したいローカルプロジェクトを選びます。",
-    nextAction: "`.git` があるプロジェクトフォルダを選択します。",
-    errorText: "選択したフォルダに `.git` がありません。Git 管理されたフォルダを選んでください。"
+    nextAction: "質問したいコードが入っているプロジェクトフォルダを選択します。",
+    errorText: "プロジェクトフォルダを選択できませんでした。もう一度選択してください。"
+  },
+  {
+    id: "gitignore",
+    title: ".gitignore",
+    goal: "プロジェクトに必要な除外設定を確認します。",
+    nextAction: "推奨差分を確認し、問題なければ `.gitignore` に追記します。",
+    errorText: ".gitignore の確認または更新に失敗しました。手動コピー用の内容を使ってください。"
   },
   {
     id: "repository",
@@ -102,6 +114,14 @@ export const StudentOnboardingPage = (): ReactElement => {
   const [activeStepId, setActiveStepId] = useState(() => {
     return steps.find((step) => readStoredStatuses()[step.id] !== "success")?.id ?? steps[0].id;
   });
+  const [selectedProjectRoot, setSelectedProjectRoot] =
+    useState<ProjectRootSelectionResponse | null>(null);
+  const [gitignorePreview, setGitignorePreview] = useState<GitignorePreviewResponse | null>(null);
+  const [gitignoreApplyResult, setGitignoreApplyResult] = useState<GitignoreApplyResponse | null>(
+    null
+  );
+  const [gitignoreBusy, setGitignoreBusy] = useState(false);
+  const [gitignoreError, setGitignoreError] = useState<string | null>(null);
 
   const activeStep = steps.find((step) => step.id === activeStepId) ?? steps[0];
   const completedCount = steps.filter((step) => statuses[step.id] === "success").length;
@@ -141,6 +161,10 @@ export const StudentOnboardingPage = (): ReactElement => {
     const nextStatuses = createInitialStatuses();
     updateStatuses(nextStatuses);
     setActiveStepId(steps[0].id);
+    setSelectedProjectRoot(null);
+    setGitignorePreview(null);
+    setGitignoreApplyResult(null);
+    setGitignoreError(null);
   };
 
   const moveNext = (): void => {
@@ -151,6 +175,121 @@ export const StudentOnboardingPage = (): ReactElement => {
       setActiveStepId(nextStep.id);
     }
   };
+
+  const selectProjectFolder = async (): Promise<void> => {
+    setStepStatus("project-root", "checking");
+    setGitignorePreview(null);
+    setGitignoreApplyResult(null);
+    setGitignoreError(null);
+
+    const result = await window.ask.project.selectRoot();
+
+    if (!result.ok) {
+      setStepStatus("project-root", "error");
+      setGitignoreError(result.error.message);
+      return;
+    }
+
+    setSelectedProjectRoot(result.data);
+
+    if (!result.data.selected || !result.data.projectRootId) {
+      setStepStatus("project-root", "pending");
+      return;
+    }
+
+    setStepStatus("project-root", "success");
+    setActiveStepId("gitignore");
+  };
+
+  const previewGitignore = async (): Promise<void> => {
+    if (!selectedProjectRoot?.projectRootId) {
+      setStepStatus("gitignore", "error");
+      setGitignoreError("先にプロジェクトフォルダを選択してください。");
+      return;
+    }
+
+    setGitignoreBusy(true);
+    setGitignoreError(null);
+    setGitignoreApplyResult(null);
+    setStepStatus("gitignore", "checking");
+
+    const result = await window.ask.gitignore.preview({
+      projectRootId: selectedProjectRoot.projectRootId
+    });
+
+    setGitignoreBusy(false);
+
+    if (!result.ok) {
+      setStepStatus("gitignore", "error");
+      setGitignoreError(result.error.message);
+      return;
+    }
+
+    setGitignorePreview(result.data);
+    setStepStatus("gitignore", result.data.canApply ? "warning" : "success");
+  };
+
+  const applyGitignore = async (): Promise<void> => {
+    if (!selectedProjectRoot?.projectRootId || !gitignorePreview) {
+      setStepStatus("gitignore", "error");
+      setGitignoreError("適用前に.gitignoreの推奨差分を確認してください。");
+      return;
+    }
+
+    setGitignoreBusy(true);
+    setGitignoreError(null);
+    setStepStatus("gitignore", "checking");
+
+    const result = await window.ask.gitignore.apply({
+      projectRootId: selectedProjectRoot.projectRootId,
+      recommendationHash: gitignorePreview.recommendationHash
+    });
+
+    setGitignoreBusy(false);
+
+    if (!result.ok) {
+      setStepStatus("gitignore", "error");
+      setGitignoreError(result.error.message);
+      return;
+    }
+
+    setGitignoreApplyResult(result.data);
+
+    if (result.data.status === "applied" || result.data.status === "unchanged") {
+      setStepStatus("gitignore", "success");
+    } else if (result.data.status === "stale") {
+      setStepStatus("gitignore", "warning");
+      setGitignoreError(result.data.message);
+    } else {
+      setStepStatus("gitignore", "error");
+      setGitignoreError(result.data.message);
+    }
+  };
+
+  const runPrimaryAction = (): void => {
+    if (activeStep.id === "project-root") {
+      void selectProjectFolder();
+      return;
+    }
+
+    if (activeStep.id === "gitignore") {
+      void previewGitignore();
+      return;
+    }
+
+    simulateCheck(activeStep.id);
+  };
+
+  const primaryActionLabel =
+    activeStep.id === "project-root"
+      ? "フォルダを選択"
+      : activeStep.id === "gitignore"
+        ? gitignoreBusy
+          ? "確認中..."
+          : "推奨差分を確認"
+        : statuses[activeStep.id] === "checking"
+          ? "確認中..."
+          : "接続確認";
 
   return (
     <section className="onboarding-page">
@@ -219,14 +358,104 @@ export const StudentOnboardingPage = (): ReactElement => {
             </p>
           )}
 
+          {activeStep.id === "project-root" && selectedProjectRoot?.selected && (
+            <div className="instruction-block">
+              <h3>選択中のフォルダ</h3>
+              <p>{selectedProjectRoot.displayName}</p>
+            </div>
+          )}
+
+          {activeStep.id === "gitignore" && (
+            <div className="gitignore-workflow">
+              {!selectedProjectRoot?.projectRootId && (
+                <p className="message warning">
+                  `.gitignore` の確認前にプロジェクトフォルダを選択してください。
+                </p>
+              )}
+
+              {gitignoreError && (
+                <p className="message error" role="alert">
+                  {gitignoreError}
+                </p>
+              )}
+
+              {gitignorePreview && (
+                <>
+                  <div className="gitignore-summary">
+                    <span>対象: {gitignorePreview.displayName}</span>
+                    <span>
+                      種別:{" "}
+                      {gitignorePreview.detectedKinds
+                        .filter((kind) => kind !== "generic")
+                        .join(", ") || "generic"}
+                    </span>
+                    <span>追加候補: {gitignorePreview.missingPatterns.length} 件</span>
+                  </div>
+
+                  <div className="gitignore-entry-list" aria-label=".gitignore 推奨候補">
+                    {gitignorePreview.entries.map((entry) => (
+                      <div key={entry.pattern} className="gitignore-entry">
+                        <strong>{entry.pattern}</strong>
+                        <span>{entry.alreadyPresent ? "設定済み" : "追加候補"}</span>
+                        <p>{entry.reason}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  <label className="preview-field">
+                    追記前の確認差分
+                    <pre className="code-preview">{gitignorePreview.previewDiff}</pre>
+                  </label>
+
+                  {gitignorePreview.manualCopyText && (
+                    <label className="preview-field">
+                      手動コピー用
+                      <textarea readOnly value={gitignorePreview.manualCopyText} />
+                    </label>
+                  )}
+
+                  <div className="control-row">
+                    <button
+                      className="primary-button"
+                      disabled={
+                        !gitignorePreview.canApply ||
+                        gitignoreBusy ||
+                        gitignoreApplyResult?.status === "applied" ||
+                        gitignoreApplyResult?.status === "unchanged"
+                      }
+                      type="button"
+                      onClick={() => void applyGitignore()}
+                    >
+                      {gitignoreBusy ? "更新中..." : ".gitignore に追記"}
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {gitignoreApplyResult && (
+                <p
+                  className={
+                    gitignoreApplyResult.status === "applied" ||
+                    gitignoreApplyResult.status === "unchanged"
+                      ? "message success"
+                      : "message warning"
+                  }
+                  role="status"
+                >
+                  {gitignoreApplyResult.message}
+                </p>
+              )}
+            </div>
+          )}
+
           <div className="control-row">
             <button
               className="primary-button"
-              disabled={statuses[activeStep.id] === "checking"}
+              disabled={statuses[activeStep.id] === "checking" || gitignoreBusy}
               type="button"
-              onClick={() => simulateCheck(activeStep.id)}
+              onClick={runPrimaryAction}
             >
-              {statuses[activeStep.id] === "checking" ? "確認中..." : "接続確認"}
+              {primaryActionLabel}
             </button>
             <button className="secondary-button" type="button" onClick={moveNext}>
               次へ

@@ -26,7 +26,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -161,6 +162,11 @@ select:focus {
 .message.warning {
   color: #7a4c00;
   background: #fff8e7;
+}
+
+.message.success {
+  color: #14543c;
+  background: #e5f7ee;
 }
 
 .app-shell {
@@ -385,6 +391,84 @@ select:focus {
 
 .status-editor {
   max-width: 260px;
+}
+
+.gitignore-workflow {
+  display: grid;
+  gap: 16px;
+  border-top: 1px solid #e5e9f2;
+  padding-top: 16px;
+}
+
+.gitignore-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.gitignore-summary span {
+  border-radius: 6px;
+  padding: 6px 10px;
+  color: #344054;
+  background: #eef2f7;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.gitignore-entry-list {
+  display: grid;
+  gap: 8px;
+}
+
+.gitignore-entry {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) auto;
+  gap: 4px 12px;
+  border: 1px solid #e1e7ef;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.gitignore-entry strong {
+  color: #172033;
+}
+
+.gitignore-entry span {
+  color: #5b6475;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.gitignore-entry p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #667085;
+  line-height: 1.6;
+}
+
+.preview-field {
+  display: grid;
+  gap: 8px;
+}
+
+.code-preview,
+textarea {
+  width: 100%;
+  min-height: 140px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 12px;
+  color: #152033;
+  background: #f8fafc;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.86rem;
+  line-height: 1.55;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+textarea {
+  resize: vertical;
 }
 
 .placeholder-grid {
