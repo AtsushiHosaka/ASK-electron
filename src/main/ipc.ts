@@ -2,6 +2,7 @@ import { app, ipcMain } from "electron";
 import { randomUUID } from "node:crypto";
 import {
   IpcChannel,
+  type AppRuntimeInfoResponse,
   type IpcAuditMetadata,
   type IpcChannelName,
   type IpcResult
@@ -37,7 +38,7 @@ export const registerIpcHandlers = (): void => {
         appVersion: app.getVersion(),
         platform: process.platform,
         isPackaged: app.isPackaged
-      });
+      } satisfies AppRuntimeInfoResponse);
     } catch {
       return fail(
         IpcChannel.AppGetRuntimeInfo,

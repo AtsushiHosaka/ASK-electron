@@ -57,6 +57,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }): ReactElemen
         return;
       }
 
+      if (!data) {
+        setAuthError("ユーザープロフィールが見つかりませんでした。");
+        setProfile(null);
+        return;
+      }
+
       setAuthError(null);
       setProfile(data);
     },
@@ -70,19 +76,40 @@ export const AuthProvider = ({ children }: { children: ReactNode }): ReactElemen
 
     let mounted = true;
 
-    supabase.auth.getSession().then(async ({ data }) => {
-      if (!mounted) {
-        return;
-      }
+    const restoreSession = async (): Promise<void> => {
+      try {
+        const { data } = await supabase.auth.getSession();
 
-      setSession(data.session);
-      await loadProfile(data.session);
-      setLoading(false);
-    });
+        if (!mounted) {
+          return;
+        }
+
+        setSession(data.session);
+        await loadProfile(data.session);
+      } catch (error) {
+        console.error("Failed to restore Supabase session", error);
+
+        if (mounted) {
+          setSession(null);
+          setProfile(null);
+          setAuthError("セッションを確認できませんでした。もう一度ログインしてください。");
+        }
+      } finally {
+        if (mounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void restoreSession();
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession);
-      void loadProfile(nextSession);
+      void loadProfile(nextSession).catch((error: unknown) => {
+        console.error("Failed to load Supabase profile", error);
+        setAuthError("プロフィールを取得できませんでした。");
+        setProfile(null);
+      });
     });
 
     return () => {
@@ -117,7 +144,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }): ReactElemen
 
       setAuthError(null);
       const displayName = email.split("@")[0] || "ASK user";
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
@@ -129,6 +156,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }): ReactElemen
 
       if (error) {
         setAuthError("アカウントを作成できませんでした。入力内容を確認してください。");
+        return;
+      }
+
+      if (data.user && !data.session) {
+        setAuthError("確認メールを送信しました。メールを確認してからログインしてください。");
       }
     },
     [configError, supabase]

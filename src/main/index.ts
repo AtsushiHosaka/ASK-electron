@@ -4,7 +4,38 @@ import { registerIpcHandlers } from "./ipc";
 
 let mainWindow: BrowserWindow | null = null;
 
+const externalUrlHosts = new Set(["github.com", "docs.github.com", "supabase.com"]);
+
+const isAllowedExternalUrl = (url: string): boolean => {
+  try {
+    const parsedUrl = new URL(url);
+    return parsedUrl.protocol === "https:" && externalUrlHosts.has(parsedUrl.hostname);
+  } catch {
+    return false;
+  }
+};
+
+const isAllowedAppNavigation = (url: string, rendererUrl: string | undefined): boolean => {
+  try {
+    const parsedUrl = new URL(url);
+
+    if (app.isPackaged) {
+      return parsedUrl.protocol === "file:";
+    }
+
+    if (!rendererUrl) {
+      return false;
+    }
+
+    return parsedUrl.origin === new URL(rendererUrl).origin;
+  } catch {
+    return false;
+  }
+};
+
 const createWindow = (): void => {
+  const rendererUrl = process.env.ELECTRON_RENDERER_URL;
+
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 820,
@@ -25,15 +56,25 @@ const createWindow = (): void => {
     mainWindow?.show();
   });
 
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    if (!isAllowedAppNavigation(url, rendererUrl)) {
+      event.preventDefault();
+    }
+  });
+
+  mainWindow.webContents.on("will-redirect", (event, url) => {
+    if (!isAllowedAppNavigation(url, rendererUrl)) {
+      event.preventDefault();
+    }
+  });
+
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith("https://")) {
+    if (isAllowedExternalUrl(url)) {
       void shell.openExternal(url);
     }
 
     return { action: "deny" };
   });
-
-  const rendererUrl = process.env.ELECTRON_RENDERER_URL;
 
   if (!app.isPackaged && rendererUrl) {
     void mainWindow.loadURL(rendererUrl);
@@ -42,16 +83,22 @@ const createWindow = (): void => {
   }
 };
 
-app.whenReady().then(() => {
-  registerIpcHandlers();
-  createWindow();
+app
+  .whenReady()
+  .then(() => {
+    registerIpcHandlers();
+    createWindow();
 
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    }
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow();
+      }
+    });
+  })
+  .catch((error: unknown) => {
+    console.error("Failed to start ASK Electron app", error);
+    app.exit(1);
   });
-});
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {

@@ -300,6 +300,10 @@ as $$
 declare
   profile_display_name text;
 begin
+  if new.email is null or length(btrim(new.email)) = 0 then
+    return new;
+  end if;
+
   profile_display_name := nullif(
     btrim(
       coalesce(
@@ -314,7 +318,7 @@ begin
   insert into public.users (id, email, display_name, role)
   values (
     new.id,
-    coalesce(new.email, ''),
+    new.email,
     coalesce(profile_display_name, 'ASK User'),
     'student'
   )
