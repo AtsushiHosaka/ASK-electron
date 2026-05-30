@@ -14,12 +14,6 @@ import type {
   PatchValidationStatus
 } from "../../../../shared/ipc";
 import { scanSecrets } from "../../../../shared/secretScanner";
-import type {
-  PatchApplyResponse,
-  PatchApplyStatus,
-  PatchValidateResponse,
-  PatchValidationStatus
-} from "../../../../shared/ipc";
 import { CodeContextViewer } from "../../components/CodeContextViewer";
 import { useAuth } from "../auth/AuthProvider";
 import { getSupabaseClient } from "../../lib/supabase";
@@ -104,28 +98,6 @@ const patchApplyLabels: Record<PatchApplyStatus, string> = {
 
 const THREAD_AI_MESSAGE_CHAR_LIMIT = 1_000;
 
-const patchValidationLabels: Record<PatchValidationStatus, string> = {
-  ready: "適用可能",
-  root_missing: "ローカル未設定",
-  invalid_patch: "パッチ不正",
-  denied_path: "保護対象",
-  git_missing: "Git未検出",
-  git_timeout: "Gitタイムアウト",
-  base_mismatch: "ベース不一致",
-  dirty: "未コミット変更あり",
-  conflict: "競合",
-  permission_denied: "権限エラー"
-};
-
-const patchApplyLabels: Record<PatchApplyStatus, string> = {
-  applied: "適用済み",
-  stale: "再確認が必要",
-  dirty: "未コミット変更あり",
-  conflict: "競合",
-  permission_denied: "権限エラー",
-  failed: "失敗"
-};
-
 const unique = (values: Array<string | null>): string[] => [
   ...new Set(values.filter((value): value is string => Boolean(value)))
 ];
@@ -205,7 +177,6 @@ export const ThreadDetailPage = (): ReactElement => {
   const [patchReviews, setPatchReviews] = useState<Record<string, PatchReviewState>>({});
   const [aiGenerating, setAiGenerating] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
-  const [patchReviews, setPatchReviews] = useState<Record<string, PatchReviewState>>({});
 
   useEffect(() => {
     let mounted = true;
