@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, it } from "node:test";
 import { runLocalDiagnostics } from "../src/main/localDiagnostics.ts";
 import { inspectProjectGitWithDependencies } from "../src/main/projectGitInspector.ts";
+import { canonicalizePath, createLocalPathHash } from "../src/main/projectPathIdentity.ts";
+import {
+  findSelectedProjectRootByLocalPathHash,
+  rememberSelectedProjectRoot
+} from "../src/main/projectRootRegistry.ts";
 
 const completedCommand = ({ stdout = "", stderr = "", exitCode = 0 } = {}) => ({
   status: "completed",
@@ -50,7 +58,9 @@ const createLocalDiagnosticsDependencies = ({
       "Hi student! You've successfully authenticated, but GitHub does not provide shell access.",
     exitCode: 1
   }),
-  sshEntries = [dirent("id_ed25519"), dirent("id_ed25519.pub")]
+  sshEntries = [dirent("id_ed25519"), dirent("id_ed25519.pub")],
+  makeTempDir = async () => "/tmp/ask-ssh-test",
+  removeDirectory = async () => undefined
 } = {}) => ({
   runFixedCommand: async (executable, args) => {
     if (executable === "git") {
@@ -72,8 +82,8 @@ const createLocalDiagnosticsDependencies = ({
     return completedCommand();
   },
   readDirectory: async () => sshEntries,
-  makeTempDir: async () => "/tmp/ask-ssh-test",
-  removeDirectory: async () => undefined,
+  makeTempDir,
+  removeDirectory,
   homeDirectory: () => "/home/student",
   temporaryDirectory: () => "/tmp",
   now: () => new Date("2026-05-30T00:00:00.000Z")
@@ -114,9 +124,21 @@ describe("GitHub onboarding diagnostics", () => {
     assert.equal(result.git.status, "missing");
     assert.equal(result.githubCli.status, "missing");
     assert.equal(result.summary.ready, false);
-    assert.deepEqual(result.summary.blockingChecks.slice(0, 2), ["git", "githubCli"]);
+    assert.deepEqual(result.summary.blockingChecks, ["git"]);
     assert.match(result.git.message, /Git が見つかりません/);
     assert.match(result.githubCli.message, /GitHub CLI が見つかりません/);
+  });
+
+  it("continues with fallback guidance when GitHub CLI is missing", async () => {
+    const result = await runLocalDiagnostics(
+      createLocalDiagnosticsDependencies({
+        ghVersion: missingCommand()
+      })
+    );
+
+    assert.equal(result.githubCli.status, "missing");
+    assert.equal(result.summary.ready, true);
+    assert.deepEqual(result.summary.blockingChecks, []);
   });
 
   it("reports GitHub CLI unauthenticated without losing installed version", async () => {
@@ -165,6 +187,28 @@ describe("GitHub onboarding diagnostics", () => {
     assert.equal(authFailed.ssh.connection.status, "auth_failed");
     assert.equal(networkFailed.ssh.connection.status, "network_error");
     assert.equal(timedOut.ssh.connection.status, "timeout");
+  });
+
+  it("keeps SSH diagnostics structured when temp directory hooks fail", async () => {
+    const tempDirFailure = await runLocalDiagnostics(
+      createLocalDiagnosticsDependencies({
+        makeTempDir: async () => {
+          throw new Error("tmp unavailable");
+        }
+      })
+    );
+    const cleanupFailure = await runLocalDiagnostics(
+      createLocalDiagnosticsDependencies({
+        removeDirectory: async () => {
+          throw new Error("cleanup failed");
+        }
+      })
+    );
+
+    assert.equal(tempDirFailure.ssh.connection.status, "unknown");
+    assert.deepEqual(tempDirFailure.summary.blockingChecks, ["sshConnection"]);
+    assert.equal(cleanupFailure.ssh.connection.status, "ok");
+    assert.equal(cleanupFailure.summary.ready, true);
   });
 });
 
@@ -249,5 +293,35 @@ describe("Project Git inspection abnormal paths", () => {
     assert.equal(github.canRegister, true);
     assert.equal(github.normalizedGithubRepoUrl, "https://github.com/acme/app");
     assert.equal(github.localPathHash, "hash:/workspace/app");
+  });
+});
+
+describe("Project root registry", () => {
+  it("skips stale selected roots while matching by local path hash", async () => {
+    const liveRoot = await mkdtemp(join(tmpdir(), "ask-live-root-"));
+
+    try {
+      rememberSelectedProjectRoot({
+        id: "stale-root",
+        rootPath: join(liveRoot, "missing"),
+        displayName: "missing",
+        selectedAt: "2026-05-30T00:00:00.000Z"
+      });
+      rememberSelectedProjectRoot({
+        id: "live-root",
+        rootPath: liveRoot,
+        displayName: "live",
+        selectedAt: "2026-05-30T00:00:00.000Z"
+      });
+
+      const canonicalLiveRoot = await canonicalizePath(liveRoot);
+      const result = await findSelectedProjectRootByLocalPathHash(
+        createLocalPathHash(canonicalLiveRoot)
+      );
+
+      assert.equal(result?.id, "live-root");
+    } finally {
+      await rm(liveRoot, { recursive: true, force: true });
+    }
   });
 });

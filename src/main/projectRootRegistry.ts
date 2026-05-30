@@ -21,7 +21,13 @@ export const findSelectedProjectRootByLocalPathHash = async (
   localPathHash: string
 ): Promise<ProjectRootRecord | null> => {
   for (const record of selectedProjectRoots.values()) {
-    const canonicalRootPath = await canonicalizePath(record.rootPath);
+    let canonicalRootPath: string;
+
+    try {
+      canonicalRootPath = await canonicalizePath(record.rootPath);
+    } catch {
+      continue;
+    }
 
     if (createLocalPathHash(canonicalRootPath) === localPathHash) {
       return record;

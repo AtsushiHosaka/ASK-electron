@@ -449,12 +449,11 @@ const diagnoseSshKeys = async (
 const diagnoseSshConnection = async (
   dependencies: ResolvedLocalDiagnosticsDependencies
 ): Promise<SshConnectionDiagnostic> => {
-  const tempDir = await dependencies.makeTempDir(
-    join(dependencies.temporaryDirectory(), "ask-ssh-")
-  );
-  const knownHostsPath = join(tempDir, "known_hosts");
+  let tempDir: string | null = null;
 
   try {
+    tempDir = await dependencies.makeTempDir(join(dependencies.temporaryDirectory(), "ask-ssh-"));
+    const knownHostsPath = join(tempDir, "known_hosts");
     const result = await dependencies.runFixedCommand(
       "ssh",
       [
@@ -537,8 +536,17 @@ const diagnoseSshConnection = async (
       account: null,
       message: "GitHub SSH 接続状態を判定できませんでした。"
     };
+  } catch {
+    return {
+      status: "unknown",
+      authenticated: false,
+      account: null,
+      message: "GitHub SSH 接続状態を判定できませんでした。"
+    };
   } finally {
-    await dependencies.removeDirectory(tempDir);
+    if (tempDir) {
+      await dependencies.removeDirectory(tempDir).catch(() => undefined);
+    }
   }
 };
 
@@ -559,9 +567,7 @@ export const runLocalDiagnostics = async (
     blockingChecks.push("git");
   }
 
-  if (githubCli.status === "missing") {
-    blockingChecks.push("githubCli");
-  } else if (!githubCli.authenticated) {
+  if (githubCli.status !== "missing" && !githubCli.authenticated) {
     blockingChecks.push("githubAuth");
   }
 

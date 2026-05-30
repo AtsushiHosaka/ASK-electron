@@ -110,7 +110,7 @@ Abnormal-path coverage:
 | Failure state              | Expected result                               | macOS / Windows note                                      |
 | -------------------------- | --------------------------------------------- | --------------------------------------------------------- |
 | Git missing                | Git check blocks onboarding with next action  | Covers missing PATH entries on both OSes                  |
-| GitHub CLI missing         | CLI check blocks onboarding with next action  | Covers Homebrew/winget/manual install gaps                |
+| GitHub CLI missing         | Onboarding continues with fallback guidance   | Covers `gh` CLI not installed fallback                    |
 | GitHub CLI unauthenticated | Auth check blocks onboarding, version remains | Covers expired tokens and fresh devices                   |
 | SSH key missing            | SSH key check blocks onboarding               | Covers empty `~/.ssh` and Windows user profile migration  |
 | SSH public key not trusted | SSH connection reports auth failure           | Covers key not registered on GitHub                       |
