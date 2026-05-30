@@ -41,6 +41,8 @@ interface TeacherDashboardState {
   classes: ManagedClassSummary[];
 }
 
+type MessageStatus = "success" | "warning" | "error";
+
 const threadStatuses: ThreadStatus[] = [
   "open",
   "in_progress",
@@ -76,7 +78,7 @@ const buildJoinUrl = (token: string): string => {
   return `${getPublicAppBaseUrl()}#/join/${encodeURIComponent(token)}`;
 };
 
-const useTeacherDashboard = (): TeacherDashboardState => {
+const useTeacherDashboard = (reloadVersion = 0): TeacherDashboardState => {
   const { profile } = useAuth();
   const supabase = useMemo(() => getSupabaseClient(), []);
   const [state, setState] = useState<TeacherDashboardState>({
@@ -243,13 +245,16 @@ const useTeacherDashboard = (): TeacherDashboardState => {
     return () => {
       mounted = false;
     };
-  }, [profile, supabase]);
+  }, [profile, reloadVersion, supabase]);
 
   return state;
 };
 
 export const TeacherHomePage = (): ReactElement => {
-  const { loading, error, classes } = useTeacherDashboard();
+  const [reloadVersion, setReloadVersion] = useState(0);
+  const { loading, error, classes } = useTeacherDashboard(reloadVersion);
+
+  const reloadClasses = (): void => setReloadVersion((current) => current + 1);
 
   if (loading) {
     return <TeacherPageState title="読み込み中" body="担当クラスを確認しています。" />;
@@ -261,10 +266,25 @@ export const TeacherHomePage = (): ReactElement => {
 
   if (classes.length === 0) {
     return (
-      <TeacherPageState
-        title="担当クラスがありません"
-        body="先生またはメンターとして参加しているクラスが見つかりません。"
-      />
+      <section className="teacher-dashboard">
+        <div className="page-header">
+          <div>
+            <p className="eyebrow">Teacher</p>
+            <h1>担当クラス</h1>
+            <p className="muted">クラスを作成すると、生徒向け招待リンクを発行できます。</p>
+          </div>
+          <div className="progress-summary">
+            <strong>0 クラス</strong>
+            <span>まずクラスを作成してください</span>
+          </div>
+        </div>
+
+        <TeacherClassCreatePanel onCreated={reloadClasses} />
+
+        <article className="detail-panel">
+          <p className="muted">先生またはメンターとして参加しているクラスが見つかりません。</p>
+        </article>
+      </section>
     );
   }
 
@@ -281,6 +301,8 @@ export const TeacherHomePage = (): ReactElement => {
           <span>自分が担当するクラスのみ表示</span>
         </div>
       </div>
+
+      <TeacherClassCreatePanel onCreated={reloadClasses} />
 
       <div className="teacher-class-grid">
         {classes.map((classSummary) => (
@@ -303,6 +325,131 @@ export const TeacherHomePage = (): ReactElement => {
         ))}
       </div>
     </section>
+  );
+};
+
+const TeacherClassCreatePanel = ({ onCreated }: { onCreated: () => void }): ReactElement => {
+  const { profile } = useAuth();
+  const supabase = useMemo(() => getSupabaseClient(), []);
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [messageStatus, setMessageStatus] = useState<MessageStatus>("success");
+
+  const canCreateClass = profile?.role === "teacher" || profile?.role === "admin";
+
+  const createClass = async (): Promise<void> => {
+    if (!supabase || !profile) {
+      setMessageStatus("error");
+      setMessage("Supabase 設定またはプロフィールを確認できませんでした。");
+      return;
+    }
+
+    if (!canCreateClass) {
+      setMessageStatus("warning");
+      setMessage("先生または管理者アカウントのみクラスを作成できます。");
+      return;
+    }
+
+    const trimmedName = name.trim();
+    const trimmedDescription = description.trim();
+
+    if (!trimmedName) {
+      setMessageStatus("warning");
+      setMessage("クラス名を入力してください。");
+      return;
+    }
+
+    setCreating(true);
+    setMessage(null);
+
+    try {
+      const { error: createError } = await supabase.from("classes").insert({
+        organization_id: profile.id,
+        name: trimmedName,
+        description: trimmedDescription || null,
+        created_by: profile.id
+      });
+
+      if (createError) {
+        setMessageStatus("error");
+        setMessage(
+          createError.code === "23505"
+            ? "同じ名前のクラスが既にあります。"
+            : "クラスを作成できませんでした。権限と入力内容を確認してください。"
+        );
+        return;
+      }
+
+      setName("");
+      setDescription("");
+      setMessageStatus("success");
+      setMessage("クラスを作成しました。詳細画面から招待リンクをコピーできます。");
+      onCreated();
+    } catch (error) {
+      console.error("Failed to create class", error);
+      setMessageStatus("error");
+      setMessage("クラスを作成できませんでした。");
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  return (
+    <article className="detail-panel class-create-panel">
+      <div>
+        <p className="eyebrow">Create Class</p>
+        <h2>クラス作成</h2>
+      </div>
+
+      <div className="class-create-form">
+        <label>
+          クラス名
+          <input
+            maxLength={80}
+            placeholder="例: Intro Programming"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+          />
+        </label>
+
+        <label>
+          説明
+          <textarea
+            maxLength={240}
+            placeholder="任意の説明"
+            rows={3}
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+          />
+        </label>
+
+        <button
+          className="primary-button"
+          disabled={creating || !canCreateClass}
+          type="button"
+          onClick={() => void createClass()}
+        >
+          {creating ? "作成中..." : "クラスを作成"}
+        </button>
+      </div>
+
+      {!canCreateClass && (
+        <p className="message warning" role="status">
+          先生または管理者アカウントのみクラスを作成できます。
+        </p>
+      )}
+
+      {message && (
+        <p
+          className={`message ${messageStatus}`}
+          role={messageStatus === "error" ? "alert" : "status"}
+        >
+          {message}
+        </p>
+      )}
+    </article>
   );
 };
 
