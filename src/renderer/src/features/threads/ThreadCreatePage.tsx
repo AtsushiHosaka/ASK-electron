@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import type { Database, Json } from "../../../../shared/database.types";
+import type { AiAssistRequest, AiAssistTask, AiContextEntry } from "../../../../shared/aiPipeline";
 import type {
   EnvironmentSnapshotRequest,
   EnvironmentSnapshotResponse,
@@ -20,6 +21,8 @@ import { getSupabaseClient } from "../../lib/supabase";
 type ProjectRow = Database["public"]["Tables"]["projects"]["Row"];
 
 type MessageStatus = "success" | "warning" | "error";
+
+type ThreadCreateAiTask = Extract<AiAssistTask, "question_rewrite" | "error_summary">;
 
 interface ThreadCreateState {
   loading: boolean;
@@ -44,9 +47,15 @@ interface EnvironmentSnapshotUiState {
 interface SendReviewState {
   open: boolean;
   draftQuestion: string;
+  aiErrorSummary: string;
+  aiUsed: boolean;
   includeGitDiff: boolean;
   includeEnvironmentSnapshot: boolean;
   excludedRelatedFiles: string[];
+}
+
+interface AiAssistUiState {
+  loadingTask: ThreadCreateAiTask | null;
 }
 
 const initialState: ThreadCreateState = {
@@ -72,9 +81,15 @@ const initialEnvironmentSnapshotState: EnvironmentSnapshotUiState = {
 const initialSendReviewState: SendReviewState = {
   open: false,
   draftQuestion: "",
+  aiErrorSummary: "",
+  aiUsed: false,
   includeGitDiff: true,
   includeEnvironmentSnapshot: true,
   excludedRelatedFiles: []
+};
+
+const initialAiAssistState: AiAssistUiState = {
+  loadingTask: null
 };
 
 const splitRelatedFiles = (value: string): string[] => {
@@ -88,8 +103,59 @@ const findBlockedRelatedFiles = (relatedFiles: string[]): string[] => {
   return relatedFiles.filter((file) => scanSecrets({ filePaths: [file] }).blocked);
 };
 
+const getAiTaskLabel = (task: ThreadCreateAiTask): string => {
+  return task === "question_rewrite" ? "質問文整理" : "エラー要約";
+};
+
+const buildAiAssistContext = ({
+  title,
+  situation,
+  errorText,
+  commandText,
+  relatedFiles,
+  gitDiff,
+  environmentSnapshot
+}: {
+  title: string;
+  situation: string;
+  errorText: string;
+  commandText: string;
+  relatedFiles: string[];
+  gitDiff: GitDiffCollectionResponse | null;
+  environmentSnapshot: EnvironmentSnapshotResponse | null;
+}): AiContextEntry[] => {
+  const entries: AiContextEntry[] = [
+    { label: "タイトル", kind: "user_text", value: title },
+    { label: "状況説明", kind: "user_text", value: situation },
+    { label: "エラー文", kind: "error", value: errorText },
+    { label: "実行コマンド", kind: "command", value: commandText },
+    { label: "関連ファイル", kind: "file_path", value: relatedFiles.join("\n") },
+    { label: "Git差分", kind: "diff", value: gitDiff ? buildGitDiffMessage(gitDiff) : "" },
+    {
+      label: "環境情報",
+      kind: "environment",
+      value: environmentSnapshot ? buildEnvironmentSnapshotMessage(environmentSnapshot) : ""
+    }
+  ];
+
+  return entries.filter((entry) => entry.value.trim().length > 0);
+};
+
+const scanAiAssistContextForSecrets = (context: AiContextEntry[]): SecretScanResult => {
+  return scanSecrets({
+    textEntries: context
+      .filter((entry) => entry.kind !== "file_path")
+      .map((entry) => ({ label: entry.label, value: entry.value })),
+    filePaths: context
+      .filter((entry) => entry.kind === "file_path")
+      .flatMap((entry) => splitRelatedFiles(entry.value))
+  });
+};
+
 const buildInitialMessage = ({
   draftQuestion,
+  aiErrorSummary,
+  aiUsed,
   situation,
   errorText,
   commandText,
@@ -100,6 +166,8 @@ const buildInitialMessage = ({
   excludedItems
 }: {
   draftQuestion: string;
+  aiErrorSummary: string;
+  aiUsed: boolean;
   situation: string;
   errorText: string;
   commandText: string;
@@ -111,6 +179,10 @@ const buildInitialMessage = ({
 }): string => {
   const sections = [
     `## AI生成質問文\n${draftQuestion.trim() || "未入力"}`,
+    aiErrorSummary.trim() ? `## AIエラー要約\n${aiErrorSummary.trim()}` : null,
+    aiUsed
+      ? "## AI補助の注意\nAI 出力は補助情報です。確定回答ではなく、送信前に内容を確認・編集しています。"
+      : null,
     `## 状況説明\n${situation.trim()}`,
     `## エラー文\n${errorText.trim() || "未入力"}`,
     `## 実行コマンド\n${commandText.trim() || "未入力"}`,
@@ -119,7 +191,7 @@ const buildInitialMessage = ({
     buildEnvironmentSnapshotMessage(environmentSnapshot),
     `## 除外した項目\n${excludedItems.length > 0 ? excludedItems.join("\n") : "なし"}`,
     `## 秘密情報チェック\n${formatSecretScanMessage(secretScan)}`
-  ];
+  ].filter((section): section is string => Boolean(section));
 
   return sections.join("\n\n");
 };
@@ -291,6 +363,7 @@ export const ThreadCreatePage = (): ReactElement => {
   const [environmentSnapshotState, setEnvironmentSnapshotState] =
     useState<EnvironmentSnapshotUiState>(initialEnvironmentSnapshotState);
   const [sendReview, setSendReview] = useState<SendReviewState>(initialSendReviewState);
+  const [aiAssistState, setAiAssistState] = useState<AiAssistUiState>(initialAiAssistState);
   const [allowedSecretFindingIds, setAllowedSecretFindingIds] = useState<string[]>([]);
   const reviewModalRef = useRef<HTMLDivElement | null>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
@@ -368,6 +441,7 @@ export const ThreadCreatePage = (): ReactElement => {
   const secretScan = scanSecrets({
     textEntries: [
       { label: "AI生成質問文", value: sendReview.draftQuestion },
+      { label: "AIエラー要約", value: sendReview.aiErrorSummary },
       { label: "タイトル", value: title },
       { label: "状況説明", value: situation },
       { label: "エラー文", value: errorText },
@@ -757,6 +831,116 @@ export const ThreadCreatePage = (): ReactElement => {
     }
   };
 
+  const generateAiAssist = async (task: ThreadCreateAiTask): Promise<void> => {
+    if (!canReview || !selectedProject) {
+      setMessageStatus(editableSecretScan.blocked ? "error" : "warning");
+      setMessage(
+        editableSecretScan.blocked
+          ? "入力欄に秘密情報候補があります。AI には送信できません。"
+          : "タイトル、状況説明、プロジェクトを確認してください。"
+      );
+      return;
+    }
+
+    if (task === "error_summary" && !errorText.trim()) {
+      setMessageStatus("warning");
+      setMessage("エラー要約にはエラー文を入力してください。");
+      return;
+    }
+
+    setAiAssistState({ loadingTask: task });
+    setMessage(null);
+
+    try {
+      const [gitDiff, snapshot] = await Promise.all([
+        ensureGitDiffForSubmit(),
+        ensureEnvironmentSnapshotForSubmit()
+      ]);
+      const context = buildAiAssistContext({
+        title,
+        situation,
+        errorText,
+        commandText,
+        relatedFiles: includedRelatedFiles,
+        gitDiff,
+        environmentSnapshot: snapshot
+      });
+      const aiPayloadScan = scanAiAssistContextForSecrets(context);
+
+      if (aiPayloadScan.blocked) {
+        setMessageStatus("error");
+        setMessage("秘密情報の可能性がある内容を検出したため、AI には送信しません。");
+        return;
+      }
+
+      const request: AiAssistRequest = {
+        task,
+        projectId: selectedProject.id,
+        context,
+        options: {
+          locale: "ja",
+          maxOutputChars: task === "question_rewrite" ? 1_800 : 1_000,
+          streaming: false
+        }
+      };
+      const result = await window.ask.ai.generate(request);
+
+      if (!result.ok) {
+        setMessageStatus("warning");
+        setMessage(result.error.message);
+        return;
+      }
+
+      if (result.data.status === "blocked") {
+        setMessageStatus("error");
+        setMessage(result.data.fallback?.message ?? "AI 送信前の安全確認で停止しました。");
+        return;
+      }
+
+      if (result.data.status === "fallback") {
+        setMessageStatus("warning");
+        setMessage(result.data.fallback?.message ?? "AI 応答を取得できませんでした。");
+        return;
+      }
+
+      const outputText = result.data.output?.text.trim();
+
+      if (!outputText) {
+        setMessageStatus("warning");
+        setMessage("AI 応答が空でした。手入力で質問作成を続けてください。");
+        return;
+      }
+
+      setSendReview((current) => ({
+        ...current,
+        open: true,
+        draftQuestion:
+          task === "question_rewrite"
+            ? outputText
+            : current.draftQuestion.trim()
+              ? current.draftQuestion
+              : buildDefaultReviewDraft(),
+        aiErrorSummary: task === "error_summary" ? outputText : current.aiErrorSummary,
+        aiUsed: true,
+        includeGitDiff: current.open ? current.includeGitDiff : Boolean(gitDiff),
+        includeEnvironmentSnapshot: current.open
+          ? current.includeEnvironmentSnapshot
+          : Boolean(snapshot),
+        excludedRelatedFiles: current.excludedRelatedFiles.filter((file) =>
+          relatedFiles.includes(file)
+        )
+      }));
+      setMessageStatus("success");
+      setMessage(`${getAiTaskLabel(task)}を生成しました。送信前に内容を確認してください。`);
+    } catch (error) {
+      console.error("Failed to generate AI assist content", error);
+      setMessageStatus("warning");
+      setMessage("AI 補助を利用できませんでした。手入力で質問作成を続けてください。");
+    } finally {
+      setAiAssistState(initialAiAssistState);
+    }
+  };
+
   const gitDiffSummary = gitDiffState.loading
     ? "収集中"
     : gitDiffResponse
@@ -801,6 +985,8 @@ export const ThreadCreatePage = (): ReactElement => {
   ].filter((item): item is string => Boolean(item));
   const reviewPayloadPreview = buildInitialMessage({
     draftQuestion: sendReview.draftQuestion || buildDefaultReviewDraft(),
+    aiErrorSummary: sendReview.aiErrorSummary,
+    aiUsed: sendReview.aiUsed,
     situation,
     errorText,
     commandText,
@@ -869,6 +1055,12 @@ export const ThreadCreatePage = (): ReactElement => {
     : secretScan.hasWarnings
       ? "確認が必要"
       : "通過";
+  const aiAssistSummary = aiAssistState.loadingTask
+    ? `${getAiTaskLabel(aiAssistState.loadingTask)}中`
+    : sendReview.aiUsed
+      ? "生成済み"
+      : "未使用";
+  const canGenerateAiAssist = canReview && aiAssistState.loadingTask === null;
   const secretFindingsForPreview = [...secretScan.activeFindings, ...secretScan.allowedFindings];
 
   const setSecretFindingAllowed = (findingId: string, allowed: boolean): void => {
@@ -944,7 +1136,7 @@ export const ThreadCreatePage = (): ReactElement => {
           title: title.trim(),
           status: "open",
           priority: "normal",
-          ai_used: false
+          ai_used: sendReview.aiUsed
         })
         .select("id")
         .single();
@@ -957,6 +1149,8 @@ export const ThreadCreatePage = (): ReactElement => {
 
       const body = buildInitialMessage({
         draftQuestion: sendReview.draftQuestion,
+        aiErrorSummary: sendReview.aiErrorSummary,
+        aiUsed: sendReview.aiUsed,
         situation,
         errorText,
         commandText,
@@ -1170,6 +1364,8 @@ export const ThreadCreatePage = (): ReactElement => {
               </strong>
               <span>Node</span>
               <strong>{environmentSnapshot?.runtimes.node.version ?? "未取得"}</strong>
+              <span>AI補助</span>
+              <strong>{aiAssistSummary}</strong>
               <span>秘密情報チェック</span>
               <strong>{secretScanSummary}</strong>
               <span>関連ファイル</span>
@@ -1208,6 +1404,34 @@ export const ThreadCreatePage = (): ReactElement => {
               </button>
               <p className={`message ${environmentStatus}`} role="status">
                 {environmentStatusMessage}
+              </p>
+            </div>
+
+            <div className="git-diff-controls">
+              <div className="ai-assist-actions">
+                <button
+                  className="secondary-button"
+                  disabled={!canGenerateAiAssist}
+                  type="button"
+                  onClick={() => void generateAiAssist("question_rewrite")}
+                >
+                  {aiAssistState.loadingTask === "question_rewrite"
+                    ? "質問文を整理中..."
+                    : "AIで質問文を整理"}
+                </button>
+                <button
+                  className="secondary-button"
+                  disabled={!canGenerateAiAssist || !errorText.trim()}
+                  type="button"
+                  onClick={() => void generateAiAssist("error_summary")}
+                >
+                  {aiAssistState.loadingTask === "error_summary"
+                    ? "エラー要約を生成中..."
+                    : "AIでエラー要約"}
+                </button>
+              </div>
+              <p className="message warning" role="status">
+                AI 出力は補助情報です。送信前に編集してください。
               </p>
             </div>
 
@@ -1316,6 +1540,22 @@ export const ThreadCreatePage = (): ReactElement => {
                 }
               />
             </label>
+
+            {sendReview.aiErrorSummary.trim() ? (
+              <label>
+                AIエラー要約（編集可）
+                <textarea
+                  rows={4}
+                  value={sendReview.aiErrorSummary}
+                  onChange={(event) =>
+                    setSendReview((current) => ({
+                      ...current,
+                      aiErrorSummary: event.target.value
+                    }))
+                  }
+                />
+              </label>
+            ) : null}
 
             <div className="review-grid">
               <section className="review-section">
