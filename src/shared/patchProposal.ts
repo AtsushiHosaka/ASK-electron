@@ -84,14 +84,13 @@ const normalizePatchTargetPath = (rawPath: string): string | null => {
     .trim()
     .replace(/^"|"$/g, "")
     .replace(/^[ab]\//, "");
-  const windowsAbsolutePathPattern = /^[A-Za-z]:[/\\]/;
 
   if (
     !strippedPath ||
     strippedPath === "/dev/null" ||
     strippedPath.includes("\0") ||
     strippedPath.includes("\\") ||
-    windowsAbsolutePathPattern.test(strippedPath) ||
+    /^[A-Za-z]:[\\/]/.test(strippedPath) ||
     strippedPath.startsWith("/") ||
     strippedPath.startsWith("../")
   ) {

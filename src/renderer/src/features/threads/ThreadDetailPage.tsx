@@ -35,10 +35,10 @@ type PatchProposalSummary = Pick<
   PatchProposalRow,
   | "id"
   | "message_id"
+  | "status"
   | "target_file_path"
   | "base_commit_sha"
   | "explanation"
-  | "status"
   | "created_by_type"
 >;
 
@@ -276,9 +276,7 @@ export const ThreadDetailPage = (): ReactElement => {
 
         const messages = messagesResult.data ?? [];
         const senderIds = unique(messages.map((message) => message.sender_user_id));
-        const patchMessageIds = messages
-          .filter((message) => message.message_type === "patch")
-          .map((message) => message.id);
+        const messageIds = messages.map((message) => message.id);
         const [usersResult, projectResult, patchProposalsResult] = await Promise.all([
           senderIds.length > 0
             ? supabase.from("users").select("id,display_name,email,role").in("id", senderIds)
@@ -288,13 +286,13 @@ export const ThreadDetailPage = (): ReactElement => {
             .select("id,name,local_path_hash")
             .eq("id", threadResult.data.project_id)
             .single(),
-          patchMessageIds.length > 0
+          messageIds.length > 0
             ? supabase
                 .from("patch_proposals")
                 .select(
-                  "id,message_id,target_file_path,base_commit_sha,explanation,status,created_by_type"
+                  "id,message_id,status,target_file_path,base_commit_sha,explanation,created_by_type"
                 )
-                .in("message_id", patchMessageIds)
+                .in("message_id", messageIds)
             : Promise.resolve({ data: [], error: null })
         ]);
 
@@ -874,7 +872,7 @@ export const ThreadDetailPage = (): ReactElement => {
         .eq("id", message.id);
 
       if (rollbackError) {
-        console.error("Failed to rollback AI patch proposal message", rollbackError);
+        console.error("Failed to rollback orphaned AI patch message", rollbackError);
       }
 
       throw patchProposalError;

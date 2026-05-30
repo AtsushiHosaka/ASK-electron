@@ -1075,11 +1075,6 @@ select:focus,
   min-height: 36px;
 }
 
-.patch-review-result {
-  display: grid;
-  gap: 10px;
-}
-
 .patch-proposal-summary {
   display: grid;
   gap: 10px;
@@ -1094,6 +1089,11 @@ select:focus,
   color: #344054;
   line-height: 1.6;
   overflow-wrap: anywhere;
+}
+
+.patch-review-result {
+  display: grid;
+  gap: 10px;
 }
 
 .patch-manual-diff {

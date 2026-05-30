@@ -92,7 +92,7 @@ describe("AI patch proposal parsing", () => {
     assert.deepEqual(result.targetFiles, []);
   });
 
-  it("rejects Windows drive-letter absolute paths", () => {
+  it("rejects Windows drive-letter target paths", () => {
     const result = parsePatchTargetFiles(
       [
         "diff --git a/C:/Users/student/app.ts b/C:/Users/student/app.ts",
