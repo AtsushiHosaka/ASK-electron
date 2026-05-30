@@ -195,10 +195,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }): ReactElemen
     }
 
     await recordAuditEvent({
-      eventType: "auth_signout_succeeded",
+      eventType: "auth_signout_requested",
+      decision: "allowed",
       operation: "auth.sign_out"
     });
-    await supabase.auth.signOut();
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      setAuthError("ログアウトできませんでした。");
+      return;
+    }
+
     setSession(null);
     setProfile(null);
   }, [supabase]);

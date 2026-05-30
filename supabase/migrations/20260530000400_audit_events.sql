@@ -7,7 +7,7 @@ begin
     'auth_login_succeeded',
     'auth_login_failed',
     'auth_signup_succeeded',
-    'auth_signout_succeeded',
+    'auth_signout_requested',
     'class_created',
     'class_invite_created',
     'class_invite_redeemed',

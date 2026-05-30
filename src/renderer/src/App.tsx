@@ -9,6 +9,7 @@ import {
   ClassJoinPage,
   TeacherHomePage
 } from "./features/teacher/TeacherDashboard";
+import { ThreadCreatePage } from "./features/threads/ThreadCreatePage";
 import type { AppRole } from "@shared/domain";
 
 const roleHome: Record<AppRole, string> = {
@@ -122,15 +123,6 @@ const StudentHome = (): ReactElement => (
     title="質問の準備"
     body="GitHub 接続、プロジェクト登録、質問作成の導線をここに集約します。"
     items={["GitHub / SSH オンボーディング", "登録済みプロジェクト", "最近の質問スレッド"]}
-  />
-);
-
-const ThreadCreatePage = (): ReactElement => (
-  <WorkspacePage
-    eyebrow="Question"
-    title="質問を作成"
-    body="状況説明、エラー文、実行コマンド、関連ファイル、送信前プレビューを扱う画面です。"
-    items={["入力フォーム", "Git 差分", "環境情報", "秘密情報チェック"]}
   />
 );
 

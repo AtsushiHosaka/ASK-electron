@@ -29,6 +29,10 @@ Foundation migrations live in `supabase/migrations`:
 
 `auth.users` inserts and email/profile updates are mirrored into `public.users` by `public.handle_new_auth_user()`. New users default to the `student` role. Teacher/admin promotion is intentionally separate and should happen through trusted admin tooling or server-side operations.
 
+## Class Creation
+
+Teachers and admins can create classes from the Electron renderer with a user-scoped Supabase client. The MVP schema keeps `classes.organization_id` as a required UUID for future organization support, but there is no organizations table yet. Until that model lands, the renderer writes the class creator's user ID as the organization scope. The `add_class_creator_membership` trigger adds the creator to `class_members` as `teacher`, so the client should not separately insert the creator membership.
+
 ## RLS Model
 
 The MVP access model is class-centered:

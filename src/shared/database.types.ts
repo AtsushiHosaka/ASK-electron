@@ -13,12 +13,14 @@ export type ThreadStatus =
   | "resolved"
   | "reopened";
 export type ThreadPriority = "low" | "normal" | "high";
+export type MessageSenderType = "student" | "teacher" | "ai" | "system";
+export type MessageType = "text" | "code" | "patch" | "environment" | "ai_summary";
 export type ClassInviteRedeemStatus = "joined" | "already_member";
 export type AuditEventType =
   | "auth_login_succeeded"
   | "auth_login_failed"
   | "auth_signup_succeeded"
-  | "auth_signout_succeeded"
+  | "auth_signout_requested"
   | "class_created"
   | "class_invite_created"
   | "class_invite_redeemed"
@@ -236,6 +238,37 @@ export interface Database {
         };
         Relationships: [];
       };
+      messages: {
+        Row: {
+          id: string;
+          thread_id: string;
+          sender_user_id: string | null;
+          sender_type: MessageSenderType;
+          body: string;
+          message_type: MessageType;
+          reply_to_message_id: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          thread_id: string;
+          sender_user_id?: string | null;
+          sender_type: MessageSenderType;
+          body: string;
+          message_type?: MessageType;
+          reply_to_message_id?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          thread_id?: string;
+          sender_user_id?: string | null;
+          sender_type?: MessageSenderType;
+          body?: string;
+          message_type?: MessageType;
+          reply_to_message_id?: string | null;
+        };
+        Relationships: [];
+      };
       audit_events: {
         Row: {
           id: string;
@@ -358,6 +391,8 @@ export interface Database {
       github_ssh_status: GithubSshStatus;
       thread_status: ThreadStatus;
       thread_priority: ThreadPriority;
+      message_sender_type: MessageSenderType;
+      message_type: MessageType;
       audit_event_type: AuditEventType;
       audit_decision: AuditDecision;
     };
