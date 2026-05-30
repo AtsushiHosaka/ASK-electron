@@ -159,6 +159,14 @@ select pg_temp.assert_eq(
   1,
   'teacher creates patch proposal in assigned class'
 );
+update public.patch_proposals
+set status = 'applied'
+where id = '80000000-0000-4000-8000-000000000101';
+select pg_temp.assert_eq(
+  (select count(*) from public.patch_proposals where id = '80000000-0000-4000-8000-000000000101' and status = 'proposed'),
+  1,
+  'teacher cannot directly mark a student patch proposal as applied'
+);
 
 select pg_temp.assert_rejected(
   $statement$
@@ -351,8 +359,8 @@ select pg_temp.assert_rejected(
 select pg_temp.assert_rejected(
   $statement$
     update public.patch_proposals
-    set target_file_path = 'src/other.ts'
-    where id = '80000000-0000-4000-8000-000000000104'
+    set target_file_path = 'src/changed.ts'
+    where id = '80000000-0000-4000-8000-000000000001'
   $statement$,
   'student cannot mutate patch proposal metadata'
 );
