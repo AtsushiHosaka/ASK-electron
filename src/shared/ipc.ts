@@ -4,6 +4,8 @@ import type { AppRole } from "./domain";
 export const IpcChannel = {
   AppGetRuntimeInfo: "ask:v1:app:get-runtime-info",
   DiagnosticsRunLocal: "ask:v1:diagnostics:run-local",
+  GithubDeviceFlowStart: "ask:v1:github-device-flow:start",
+  GithubDeviceFlowPoll: "ask:v1:github-device-flow:poll",
   AiGenerate: "ask:v1:ai:generate",
   ProjectSelectRoot: "ask:v1:project:select-root",
   ProjectInspectGit: "ask:v1:project:inspect-git",
@@ -137,6 +139,38 @@ export interface LocalDiagnosticsResponse {
     ready: boolean;
     blockingChecks: Array<"git" | "githubCli" | "githubAuth" | "sshKeys" | "sshConnection">;
   };
+}
+
+export type GithubDeviceFlowStartStatus = "started" | "not_configured" | "error";
+export type GithubDeviceFlowPollStatus =
+  | "pending"
+  | "slow_down"
+  | "authorized"
+  | "expired"
+  | "access_denied"
+  | "error";
+
+export interface GithubDeviceFlowStartResponse {
+  contractVersion: "v1";
+  status: GithubDeviceFlowStartStatus;
+  flowId: string | null;
+  userCode: string | null;
+  verificationUri: string | null;
+  expiresAt: string | null;
+  intervalSeconds: number | null;
+  message: string;
+}
+
+export interface GithubDeviceFlowPollRequest {
+  flowId: string;
+}
+
+export interface GithubDeviceFlowPollResponse {
+  contractVersion: "v1";
+  status: GithubDeviceFlowPollStatus;
+  githubUsername: string | null;
+  retryAfterSeconds: number | null;
+  message: string;
 }
 
 export interface ProjectRootSelectionResponse {
@@ -505,6 +539,8 @@ export interface PatchRevertResponse {
 export interface IpcRequestMap {
   [IpcChannel.AppGetRuntimeInfo]: [];
   [IpcChannel.DiagnosticsRunLocal]: [];
+  [IpcChannel.GithubDeviceFlowStart]: [];
+  [IpcChannel.GithubDeviceFlowPoll]: [GithubDeviceFlowPollRequest];
   [IpcChannel.AiGenerate]: [AiAssistRequest];
   [IpcChannel.ProjectSelectRoot]: [];
   [IpcChannel.ProjectInspectGit]: [ProjectGitInspectionRequest];
@@ -522,6 +558,8 @@ export interface IpcRequestMap {
 export interface IpcResponseMap {
   [IpcChannel.AppGetRuntimeInfo]: IpcResult<AppRuntimeInfoResponse>;
   [IpcChannel.DiagnosticsRunLocal]: IpcResult<LocalDiagnosticsResponse>;
+  [IpcChannel.GithubDeviceFlowStart]: IpcResult<GithubDeviceFlowStartResponse>;
+  [IpcChannel.GithubDeviceFlowPoll]: IpcResult<GithubDeviceFlowPollResponse>;
   [IpcChannel.AiGenerate]: IpcResult<AiAssistResponse>;
   [IpcChannel.ProjectSelectRoot]: IpcResult<ProjectRootSelectionResponse>;
   [IpcChannel.ProjectInspectGit]: IpcResult<ProjectGitInspectionResponse>;
@@ -542,6 +580,12 @@ export interface RendererApi {
   };
   diagnostics: {
     runLocal: () => Promise<IpcResponseMap[typeof IpcChannel.DiagnosticsRunLocal]>;
+  };
+  github: {
+    startDeviceFlow: () => Promise<IpcResponseMap[typeof IpcChannel.GithubDeviceFlowStart]>;
+    pollDeviceFlow: (
+      input: GithubDeviceFlowPollRequest
+    ) => Promise<IpcResponseMap[typeof IpcChannel.GithubDeviceFlowPoll]>;
   };
   ai: {
     generate: (input: AiAssistRequest) => Promise<IpcResponseMap[typeof IpcChannel.AiGenerate]>;

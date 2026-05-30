@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
+import { pollGithubDeviceFlow, startGithubDeviceFlow } from "../src/main/githubDeviceFlow.ts";
 import { runLocalDiagnostics } from "../src/main/localDiagnostics.ts";
 import { inspectProjectGitWithDependencies } from "../src/main/projectGitInspector.ts";
 import { canonicalizePath, createLocalPathHash } from "../src/main/projectPathIdentity.ts";
@@ -209,6 +210,148 @@ describe("GitHub onboarding diagnostics", () => {
     assert.deepEqual(tempDirFailure.summary.blockingChecks, ["sshConnection"]);
     assert.equal(cleanupFailure.ssh.connection.status, "ok");
     assert.equal(cleanupFailure.summary.ready, true);
+  });
+});
+
+describe("GitHub Device Flow fallback", () => {
+  it("reports clear fallback guidance when no OAuth client is configured", async () => {
+    let called = false;
+    const result = await startGithubDeviceFlow({
+      env: {},
+      fetchImpl: async () => {
+        called = true;
+        throw new Error("should not call GitHub without client id");
+      }
+    });
+
+    assert.equal(called, false);
+    assert.equal(result.status, "not_configured");
+    assert.equal(result.flowId, null);
+    assert.match(result.message, /ASK_GITHUB_OAUTH_CLIENT_ID/);
+  });
+
+  it("starts without exposing the device code to the renderer response", async () => {
+    const result = await startGithubDeviceFlow({
+      env: { ASK_GITHUB_OAUTH_CLIENT_ID: "client-123" },
+      createId: () => "11111111-1111-4111-8111-111111111111",
+      now: () => new Date("2026-05-30T00:00:00.000Z"),
+      fetchImpl: async (_url, init) => {
+        const body = String(init.body);
+
+        assert.match(body, /client_id=client-123/);
+        assert.match(body, /scope=read%3Auser/);
+
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            device_code: "device-code-that-stays-main-only",
+            user_code: "ABCD-1234",
+            verification_uri: "https://github.com/login/device",
+            expires_in: 900,
+            interval: 5
+          })
+        };
+      }
+    });
+
+    assert.equal(result.status, "started");
+    assert.equal(result.flowId, "11111111-1111-4111-8111-111111111111");
+    assert.equal(result.userCode, "ABCD-1234");
+    assert.equal(result.verificationUri, "https://github.com/login/device");
+    assert.equal(JSON.stringify(result).includes("device-code-that-stays-main-only"), false);
+  });
+
+  it("polls to authorization, fetches the account name, and never returns tokens", async () => {
+    const flowId = "22222222-2222-4222-8222-222222222222";
+    await startGithubDeviceFlow({
+      env: { ASK_GITHUB_OAUTH_CLIENT_ID: "client-123" },
+      createId: () => flowId,
+      now: () => new Date("2026-05-30T00:00:00.000Z"),
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          device_code: "device-code-main-only",
+          user_code: "WXYZ-9999",
+          verification_uri: "https://github.com/login/device",
+          expires_in: 900,
+          interval: 5
+        })
+      })
+    });
+
+    const result = await pollGithubDeviceFlow(
+      { flowId },
+      {
+        now: () => new Date("2026-05-30T00:01:00.000Z"),
+        fetchImpl: async (url, init) => {
+          if (String(url).includes("/login/oauth/access_token")) {
+            assert.match(String(init.body), /device_code=device-code-main-only/);
+
+            return {
+              ok: true,
+              status: 200,
+              json: async () => ({
+                access_token: "gho_secret-token-that-must-not-return",
+                token_type: "bearer",
+                scope: "read:user"
+              })
+            };
+          }
+
+          assert.equal(String(url), "https://api.github.com/user");
+          assert.equal(init.headers.Authorization, "Bearer gho_secret-token-that-must-not-return");
+
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ login: "student" })
+          };
+        }
+      }
+    );
+
+    assert.equal(result.status, "authorized");
+    assert.equal(result.githubUsername, "student");
+    assert.equal(JSON.stringify(result).includes("gho_secret"), false);
+    assert.equal(JSON.stringify(result).includes("device-code-main-only"), false);
+  });
+
+  it("keeps polling authorization_pending without returning credentials", async () => {
+    const flowId = "33333333-3333-4333-8333-333333333333";
+    await startGithubDeviceFlow({
+      env: { ASK_GITHUB_OAUTH_CLIENT_ID: "client-123" },
+      createId: () => flowId,
+      now: () => new Date("2026-05-30T00:00:00.000Z"),
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          device_code: "pending-device-code",
+          user_code: "CODE-0000",
+          verification_uri: "https://github.com/login/device",
+          expires_in: 900,
+          interval: 5
+        })
+      })
+    });
+
+    const result = await pollGithubDeviceFlow(
+      { flowId },
+      {
+        now: () => new Date("2026-05-30T00:00:20.000Z"),
+        fetchImpl: async () => ({
+          ok: true,
+          status: 200,
+          json: async () => ({ error: "authorization_pending" })
+        })
+      }
+    );
+
+    assert.equal(result.status, "pending");
+    assert.equal(result.githubUsername, null);
+    assert.equal(result.retryAfterSeconds, 5);
   });
 });
 
