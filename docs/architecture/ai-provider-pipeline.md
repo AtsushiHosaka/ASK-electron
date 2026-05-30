@@ -15,10 +15,11 @@ Issue #25 introduces a main-process AI boundary that future AI features can call
 
 ## Provider
 
-The current provider is `mock-safe-local`. It is deterministic, does not use network access, and
-does not read provider keys from Electron environment variables. Remote providers should be added
-behind the `AiProvider` interface in `src/shared/aiPipeline.ts` and must keep the same minimization,
-secret-scan, fallback, and audit behavior.
+The production provider is an OpenAI-compatible HTTPS Chat Completions endpoint configured in the
+Electron main process only. Set `ASK_AI_PROVIDER_API_KEY`, `ASK_AI_PROVIDER_MODEL`, and optionally
+`ASK_AI_PROVIDER_URL` / `ASK_AI_PROVIDER_TIMEOUT_MS` in the main process environment. The renderer
+does not receive provider credentials, and provider failures return the existing fallback response
+so manual question creation can continue.
 
 ## Streaming Decision
 

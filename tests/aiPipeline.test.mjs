@@ -43,7 +43,7 @@ describe("AI request pipeline", () => {
     let called = false;
     const provider = {
       id: "test-provider",
-      mode: "mock",
+      mode: "remote",
       supportsStreaming: true,
       generate: async () => {
         called = true;
@@ -179,7 +179,7 @@ describe("AI request pipeline", () => {
   it("returns suggestion-only output on success", async () => {
     const provider = {
       id: "success-provider",
-      mode: "mock",
+      mode: "remote",
       supportsStreaming: false,
       generate: async () => ({
         text: "提案のみです。自動適用はしません。",

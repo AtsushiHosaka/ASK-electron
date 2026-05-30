@@ -21,7 +21,7 @@ export const aiContextKinds = [
 
 export type AiContextKind = (typeof aiContextKinds)[number];
 
-export type AiProviderMode = "mock" | "remote";
+export type AiProviderMode = "remote";
 export type AiAssistStatus = "completed" | "blocked" | "fallback";
 export type AiSecretSeverity = "block" | "warn";
 
