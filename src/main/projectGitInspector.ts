@@ -3,9 +3,29 @@ import type {
   ProjectGitInspectionResponse,
   ProjectGitInspectionStatus
 } from "../shared/ipc";
-import { runGit } from "./gitCommand";
-import { canonicalizePath, createLocalPathHash } from "./projectPathIdentity";
-import { getSelectedProjectRoot } from "./projectRoots";
+import { runGit as defaultRunGit, type GitCommandResult } from "./gitCommand";
+import {
+  canonicalizePath as defaultCanonicalizePath,
+  createLocalPathHash as defaultCreateLocalPathHash
+} from "./projectPathIdentity";
+import {
+  getSelectedProjectRoot as defaultGetSelectedProjectRoot,
+  type ProjectRootRecord
+} from "./projectRootRegistry";
+
+export interface ProjectGitInspectionDependencies {
+  getSelectedProjectRoot?: (projectRootId: string) => ProjectRootRecord | null;
+  runGit?: (rootPath: string, args: string[]) => Promise<GitCommandResult>;
+  canonicalizePath?: (path: string) => Promise<string>;
+  createLocalPathHash?: (path: string) => string;
+}
+
+interface ResolvedProjectGitInspectionDependencies {
+  getSelectedProjectRoot: (projectRootId: string) => ProjectRootRecord | null;
+  runGit: (rootPath: string, args: string[]) => Promise<GitCommandResult>;
+  canonicalizePath: (path: string) => Promise<string>;
+  createLocalPathHash: (path: string) => string;
+}
 
 const stripGitSuffix = (value: string): string => {
   return value.endsWith(".git") ? value.slice(0, -4) : value;
@@ -21,6 +41,15 @@ const redactRemoteUrl = (remoteUrl: string): string => {
     return remoteUrl;
   }
 };
+
+const resolveDependencies = (
+  dependencies: ProjectGitInspectionDependencies
+): ResolvedProjectGitInspectionDependencies => ({
+  getSelectedProjectRoot: dependencies.getSelectedProjectRoot ?? defaultGetSelectedProjectRoot,
+  runGit: dependencies.runGit ?? defaultRunGit,
+  canonicalizePath: dependencies.canonicalizePath ?? defaultCanonicalizePath,
+  createLocalPathHash: dependencies.createLocalPathHash ?? defaultCreateLocalPathHash
+});
 
 export const normalizeGithubRepoUrl = (remoteUrl: string): string | null => {
   const trimmedUrl = remoteUrl.trim();
@@ -81,14 +110,25 @@ const createResponse = (
 export const inspectProjectGit = async (
   input: ProjectGitInspectionRequest
 ): Promise<ProjectGitInspectionResponse> => {
-  const record = getSelectedProjectRoot(input.projectRootId);
+  return inspectProjectGitWithDependencies(input);
+};
+
+export const inspectProjectGitWithDependencies = async (
+  input: ProjectGitInspectionRequest,
+  dependenciesInput: ProjectGitInspectionDependencies = {}
+): Promise<ProjectGitInspectionResponse> => {
+  const dependencies = resolveDependencies(dependenciesInput);
+  const record = dependencies.getSelectedProjectRoot(input.projectRootId);
 
   if (!record) {
     throw new Error("PROJECT_ROOT_NOT_FOUND");
   }
 
-  const canonicalRootPath = await canonicalizePath(record.rootPath);
-  const insideWorkTree = await runGit(record.rootPath, ["rev-parse", "--is-inside-work-tree"]);
+  const canonicalRootPath = await dependencies.canonicalizePath(record.rootPath);
+  const insideWorkTree = await dependencies.runGit(record.rootPath, [
+    "rev-parse",
+    "--is-inside-work-tree"
+  ]);
 
   if (insideWorkTree.status === "missing") {
     return createResponse(input, record.displayName, "git_missing", "Git が見つかりません。");
@@ -112,8 +152,10 @@ export const inspectProjectGit = async (
     );
   }
 
-  const topLevel = await runGit(record.rootPath, ["rev-parse", "--show-toplevel"]);
-  const canonicalTopLevelPath = topLevel.stdout ? await canonicalizePath(topLevel.stdout) : null;
+  const topLevel = await dependencies.runGit(record.rootPath, ["rev-parse", "--show-toplevel"]);
+  const canonicalTopLevelPath = topLevel.stdout
+    ? await dependencies.canonicalizePath(topLevel.stdout)
+    : null;
 
   if (
     topLevel.status === "completed" &&
@@ -132,7 +174,7 @@ export const inspectProjectGit = async (
     );
   }
 
-  const remoteOrigin = await runGit(record.rootPath, ["remote", "get-url", "origin"]);
+  const remoteOrigin = await dependencies.runGit(record.rootPath, ["remote", "get-url", "origin"]);
 
   if (remoteOrigin.status === "timeout") {
     return createResponse(
@@ -173,7 +215,7 @@ export const inspectProjectGit = async (
     );
   }
 
-  const branch = await runGit(record.rootPath, ["symbolic-ref", "--short", "HEAD"]);
+  const branch = await dependencies.runGit(record.rootPath, ["symbolic-ref", "--short", "HEAD"]);
 
   return createResponse(
     input,
@@ -185,7 +227,7 @@ export const inspectProjectGit = async (
       remoteOriginUrl: redactRemoteUrl(remoteOrigin.stdout),
       normalizedGithubRepoUrl,
       defaultBranch: branch.status === "completed" && branch.exitCode === 0 ? branch.stdout : null,
-      localPathHash: createLocalPathHash(canonicalRootPath),
+      localPathHash: dependencies.createLocalPathHash(canonicalRootPath),
       canRegister: true
     }
   );

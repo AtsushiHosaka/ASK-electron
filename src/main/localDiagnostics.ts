@@ -32,6 +32,37 @@ type CommandResult =
       errorCode: string | null;
     };
 
+type FixedCommandRunner = (
+  executable: string,
+  args: string[],
+  timeoutMs?: number
+) => Promise<CommandResult>;
+
+export interface DirectoryEntryLike {
+  name: string;
+  isFile: () => boolean;
+}
+
+export interface LocalDiagnosticsDependencies {
+  runFixedCommand?: FixedCommandRunner;
+  readDirectory?: (path: string) => Promise<DirectoryEntryLike[]>;
+  makeTempDir?: (prefix: string) => Promise<string>;
+  removeDirectory?: (path: string) => Promise<void>;
+  homeDirectory?: () => string;
+  temporaryDirectory?: () => string;
+  now?: () => Date;
+}
+
+interface ResolvedLocalDiagnosticsDependencies {
+  runFixedCommand: FixedCommandRunner;
+  readDirectory: (path: string) => Promise<DirectoryEntryLike[]>;
+  makeTempDir: (prefix: string) => Promise<string>;
+  removeDirectory: (path: string) => Promise<void>;
+  homeDirectory: () => string;
+  temporaryDirectory: () => string;
+  now: () => Date;
+}
+
 const sanitizeOutput = (value: string): string => {
   return value
     .replace(ansiEscapePattern, "")
@@ -135,6 +166,20 @@ const runFixedCommand = (
   });
 };
 
+const resolveDependencies = (
+  dependencies: LocalDiagnosticsDependencies
+): ResolvedLocalDiagnosticsDependencies => ({
+  runFixedCommand: dependencies.runFixedCommand ?? runFixedCommand,
+  readDirectory: dependencies.readDirectory ?? ((path) => readdir(path, { withFileTypes: true })),
+  makeTempDir: dependencies.makeTempDir ?? mkdtemp,
+  removeDirectory:
+    dependencies.removeDirectory ??
+    ((path) => rm(path, { recursive: true, force: true }).then(() => undefined)),
+  homeDirectory: dependencies.homeDirectory ?? homedir,
+  temporaryDirectory: dependencies.temporaryDirectory ?? tmpdir,
+  now: dependencies.now ?? (() => new Date())
+});
+
 const commandOutput = (result: CommandResult): string => {
   return [result.stdout, result.stderr].filter(Boolean).join("\n");
 };
@@ -167,8 +212,10 @@ const detectKeyType = (name: string): SshKeyCandidate["keyType"] => {
 
 const standardPrivateKeyNames = new Set(["id_ed25519", "id_ecdsa", "id_rsa", "id_dsa"]);
 
-const diagnoseGit = async (): Promise<GitDiagnostic> => {
-  const result = await runFixedCommand("git", ["--version"]);
+const diagnoseGit = async (
+  dependencies: ResolvedLocalDiagnosticsDependencies
+): Promise<GitDiagnostic> => {
+  const result = await dependencies.runFixedCommand("git", ["--version"]);
 
   if (result.status === "missing") {
     return {
@@ -211,8 +258,10 @@ const parseGitHubAccount = (output: string): string | null => {
   return output.match(/Logged in to github\.com account ([^\s]+)/i)?.[1] ?? null;
 };
 
-const diagnoseGitHubCli = async (): Promise<GitHubCliDiagnostic> => {
-  const versionResult = await runFixedCommand("gh", ["--version"]);
+const diagnoseGitHubCli = async (
+  dependencies: ResolvedLocalDiagnosticsDependencies
+): Promise<GitHubCliDiagnostic> => {
+  const versionResult = await dependencies.runFixedCommand("gh", ["--version"]);
 
   if (versionResult.status === "missing") {
     return {
@@ -252,7 +301,12 @@ const diagnoseGitHubCli = async (): Promise<GitHubCliDiagnostic> => {
       .split("\n")[0]
       ?.replace(/^gh version\s+/i, "")
       .trim() || null;
-  const authResult = await runFixedCommand("gh", ["auth", "status", "--hostname", "github.com"]);
+  const authResult = await dependencies.runFixedCommand("gh", [
+    "auth",
+    "status",
+    "--hostname",
+    "github.com"
+  ]);
   const output = commandOutput(authResult);
 
   if (authResult.status === "timeout") {
@@ -324,9 +378,11 @@ const diagnoseGitHubCli = async (): Promise<GitHubCliDiagnostic> => {
   };
 };
 
-const diagnoseSshKeys = async (): Promise<SshKeyDiagnostic> => {
+const diagnoseSshKeys = async (
+  dependencies: ResolvedLocalDiagnosticsDependencies
+): Promise<SshKeyDiagnostic> => {
   try {
-    const entries = await readdir(join(homedir(), ".ssh"), { withFileTypes: true });
+    const entries = await dependencies.readDirectory(join(dependencies.homeDirectory(), ".ssh"));
     const fileNames = new Set(entries.filter((entry) => entry.isFile()).map((entry) => entry.name));
     const candidates = new Map<string, SshKeyCandidate>();
 
@@ -390,12 +446,16 @@ const diagnoseSshKeys = async (): Promise<SshKeyDiagnostic> => {
   }
 };
 
-const diagnoseSshConnection = async (): Promise<SshConnectionDiagnostic> => {
-  const tempDir = await mkdtemp(join(tmpdir(), "ask-ssh-"));
+const diagnoseSshConnection = async (
+  dependencies: ResolvedLocalDiagnosticsDependencies
+): Promise<SshConnectionDiagnostic> => {
+  const tempDir = await dependencies.makeTempDir(
+    join(dependencies.temporaryDirectory(), "ask-ssh-")
+  );
   const knownHostsPath = join(tempDir, "known_hosts");
 
   try {
-    const result = await runFixedCommand(
+    const result = await dependencies.runFixedCommand(
       "ssh",
       [
         "-T",
@@ -478,16 +538,19 @@ const diagnoseSshConnection = async (): Promise<SshConnectionDiagnostic> => {
       message: "GitHub SSH 接続状態を判定できませんでした。"
     };
   } finally {
-    await rm(tempDir, { recursive: true, force: true });
+    await dependencies.removeDirectory(tempDir);
   }
 };
 
-export const runLocalDiagnostics = async (): Promise<LocalDiagnosticsResponse> => {
+export const runLocalDiagnostics = async (
+  dependenciesInput: LocalDiagnosticsDependencies = {}
+): Promise<LocalDiagnosticsResponse> => {
+  const dependencies = resolveDependencies(dependenciesInput);
   const [git, githubCli, sshKeys, sshConnection] = await Promise.all([
-    diagnoseGit(),
-    diagnoseGitHubCli(),
-    diagnoseSshKeys(),
-    diagnoseSshConnection()
+    diagnoseGit(dependencies),
+    diagnoseGitHubCli(dependencies),
+    diagnoseSshKeys(dependencies),
+    diagnoseSshConnection(dependencies)
   ]);
 
   const blockingChecks: LocalDiagnosticsResponse["summary"]["blockingChecks"] = [];
@@ -512,7 +575,7 @@ export const runLocalDiagnostics = async (): Promise<LocalDiagnosticsResponse> =
 
   return {
     contractVersion: "v1",
-    checkedAt: new Date().toISOString(),
+    checkedAt: dependencies.now().toISOString(),
     timeoutMs: SSH_TIMEOUT_MS,
     git,
     githubCli,
