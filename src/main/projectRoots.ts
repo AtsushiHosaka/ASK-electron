@@ -6,7 +6,8 @@ import { rememberSelectedProjectRoot, type ProjectRootRecord } from "./projectRo
 
 export {
   findSelectedProjectRootByLocalPathHash,
-  getSelectedProjectRoot
+  getSelectedProjectRoot,
+  persistSelectedProjectRootMapping
 } from "./projectRootRegistry";
 export type { ProjectRootRecord } from "./projectRootRegistry";
 
