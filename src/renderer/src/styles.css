@@ -880,6 +880,24 @@ select:focus,
   overflow-wrap: anywhere;
 }
 
+.code-context-viewer {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.code-context-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  color: #667085;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.code-viewer,
+.diff-viewer,
 .chat-code-block {
   max-width: 100%;
   max-height: 440px;
@@ -894,8 +912,89 @@ select:focus,
   line-height: 1.6;
 }
 
+.diff-viewer {
+  display: grid;
+  gap: 0;
+  color: #172033;
+  background: #f8fafc;
+}
+
 .chat-code-block code {
   white-space: pre;
+}
+
+.code-viewer code {
+  display: grid;
+  min-width: max-content;
+}
+
+.code-line {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  min-height: 1.6em;
+}
+
+.line-number {
+  user-select: none;
+  color: #7f93b4;
+  text-align: right;
+}
+
+.line-code {
+  padding-left: 14px;
+  white-space: pre;
+}
+
+.diff-line {
+  display: grid;
+  grid-template-columns: 28px 52px minmax(0, 1fr);
+  min-width: max-content;
+  border-left: 4px solid transparent;
+}
+
+.diff-line code {
+  padding: 0 12px;
+  white-space: pre;
+}
+
+.diff-marker,
+.diff-label {
+  user-select: none;
+  text-align: center;
+  font-weight: 900;
+}
+
+.diff-marker {
+  color: #475467;
+}
+
+.diff-label {
+  color: #475467;
+  font-size: 0.72rem;
+}
+
+.diff-line.add {
+  border-left-color: #1f7a4d;
+  background: #e8f7ef;
+}
+
+.diff-line.delete {
+  border-left-color: #b42318;
+  background: #fff1f1;
+}
+
+.diff-line.hunk {
+  border-left-color: #4d65a1;
+  background: #eef2ff;
+}
+
+.diff-line.file {
+  border-left-color: #667085;
+  background: #edf1f7;
+}
+
+.code-context-toggle {
+  min-height: 28px;
 }
 
 .syntax-comment {
