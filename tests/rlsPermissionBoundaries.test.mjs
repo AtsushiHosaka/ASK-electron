@@ -55,7 +55,7 @@ const policyExpectations = [
   ["patch_proposals", "select", "patch_proposals_select_accessible_thread"],
   ["patch_proposals", "insert", "patch_proposals_insert_teacher_staff"],
   ["patch_proposals", "insert", "patch_proposals_insert_ai_thread_owner"],
-  ["patch_proposals", "update", "patch_proposals_update_thread_participant"]
+  ["patch_proposals", "update", "patch_proposals_update_student_owner_status"]
 ];
 
 describe("RLS SQL coverage", () => {
