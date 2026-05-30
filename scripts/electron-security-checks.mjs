@@ -1,7 +1,8 @@
 import { readFile, readdir } from "node:fs/promises";
 import { join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const rootDir = new URL("..", import.meta.url).pathname;
+const rootDir = fileURLToPath(new URL("..", import.meta.url));
 
 const failures = [];
 
@@ -66,7 +67,7 @@ const checkPreloadApi = async () => {
   expectIncludes(source, 'contextBridge.exposeInMainWorld("ask", api)', "Preload API");
   expectIncludes(source, "IpcChannel.", "Preload IPC whitelist");
 
-  expectNotMatch(source, /exposeInMainWorld\([^)]*ipcRenderer/s, "Preload API");
+  expectNotMatch(source, /exposeInMainWorld\([\s\S]*?ipcRenderer/, "Preload API");
   expectNotMatch(source, /ipcRenderer\.send\(/, "Preload API");
   expectNotMatch(source, /ipcRenderer\.on\(/, "Preload API");
   expectNotMatch(source, /process\.env/, "Preload secrets");
@@ -88,7 +89,7 @@ const checkRendererRestrictions = async () => {
     /\.(ts|tsx)$/.test(path)
   );
   const forbiddenImportPattern =
-    /(?:import\s+.*?\s+from\s+["'](?:electron|node:[^"']+|fs|path|child_process|os|crypto)["'])|(?:await\s+import\(["'](?:electron|node:[^"']+|fs|path|child_process|os|crypto)["']\))/s;
+    /(?:import\s+.*?\s+from\s+["'](?:electron|node:[^"']+|fs|path|child_process|os|crypto)["'])|(?:import\s*\(\s*["'](?:electron|node:[^"']+|fs|path|child_process|os|crypto)["']\s*\))/s;
 
   for (const file of rendererFiles) {
     const source = await readText(file);
