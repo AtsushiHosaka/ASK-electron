@@ -1,6 +1,9 @@
+import type { AiAssistRequest, AiAssistResponse } from "./aiPipeline";
+
 export const IpcChannel = {
   AppGetRuntimeInfo: "ask:v1:app:get-runtime-info",
   DiagnosticsRunLocal: "ask:v1:diagnostics:run-local",
+  AiGenerate: "ask:v1:ai:generate",
   ProjectSelectRoot: "ask:v1:project:select-root",
   ProjectInspectGit: "ask:v1:project:inspect-git",
   GitDiffCollect: "ask:v1:git-diff:collect",
@@ -339,6 +342,7 @@ export interface GitignoreApplyResponse {
 export interface IpcRequestMap {
   [IpcChannel.AppGetRuntimeInfo]: [];
   [IpcChannel.DiagnosticsRunLocal]: [];
+  [IpcChannel.AiGenerate]: [AiAssistRequest];
   [IpcChannel.ProjectSelectRoot]: [];
   [IpcChannel.ProjectInspectGit]: [ProjectGitInspectionRequest];
   [IpcChannel.GitDiffCollect]: [GitDiffCollectionRequest];
@@ -350,6 +354,7 @@ export interface IpcRequestMap {
 export interface IpcResponseMap {
   [IpcChannel.AppGetRuntimeInfo]: IpcResult<AppRuntimeInfoResponse>;
   [IpcChannel.DiagnosticsRunLocal]: IpcResult<LocalDiagnosticsResponse>;
+  [IpcChannel.AiGenerate]: IpcResult<AiAssistResponse>;
   [IpcChannel.ProjectSelectRoot]: IpcResult<ProjectRootSelectionResponse>;
   [IpcChannel.ProjectInspectGit]: IpcResult<ProjectGitInspectionResponse>;
   [IpcChannel.GitDiffCollect]: IpcResult<GitDiffCollectionResponse>;
@@ -364,6 +369,9 @@ export interface RendererApi {
   };
   diagnostics: {
     runLocal: () => Promise<IpcResponseMap[typeof IpcChannel.DiagnosticsRunLocal]>;
+  };
+  ai: {
+    generate: (input: AiAssistRequest) => Promise<IpcResponseMap[typeof IpcChannel.AiGenerate]>;
   };
   project: {
     selectRoot: () => Promise<IpcResponseMap[typeof IpcChannel.ProjectSelectRoot]>;
