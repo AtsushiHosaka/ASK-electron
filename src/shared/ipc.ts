@@ -1,6 +1,9 @@
 export const IpcChannel = {
   AppGetRuntimeInfo: "ask:v1:app:get-runtime-info",
-  DiagnosticsRunLocal: "ask:v1:diagnostics:run-local"
+  DiagnosticsRunLocal: "ask:v1:diagnostics:run-local",
+  ProjectSelectRoot: "ask:v1:project:select-root",
+  GitignorePreview: "ask:v1:gitignore:preview",
+  GitignoreApply: "ask:v1:gitignore:apply"
 } as const;
 
 export type IpcChannelName = (typeof IpcChannel)[keyof typeof IpcChannel];
@@ -124,14 +127,73 @@ export interface LocalDiagnosticsResponse {
   };
 }
 
+export interface ProjectRootSelectionResponse {
+  contractVersion: "v1";
+  selected: boolean;
+  projectRootId: string | null;
+  displayName: string | null;
+  selectedAt: string | null;
+}
+
+export type GitignoreProjectKind = "node" | "electron" | "python" | "generic";
+
+export interface GitignorePreviewRequest {
+  projectRootId: string;
+}
+
+export interface GitignoreApplyRequest {
+  projectRootId: string;
+  recommendationHash: string;
+}
+
+export interface GitignoreRecommendationEntry {
+  pattern: string;
+  reason: string;
+  required: boolean;
+  alreadyPresent: boolean;
+}
+
+export interface GitignorePreviewResponse {
+  contractVersion: "v1";
+  projectRootId: string;
+  displayName: string;
+  detectedKinds: GitignoreProjectKind[];
+  gitignoreExists: boolean;
+  existingLineCount: number;
+  recommendationHash: string;
+  entries: GitignoreRecommendationEntry[];
+  missingPatterns: string[];
+  appendBlock: string;
+  previewDiff: string;
+  manualCopyText: string;
+  canApply: boolean;
+}
+
+export interface GitignoreApplyResponse {
+  contractVersion: "v1";
+  projectRootId: string;
+  displayName: string;
+  status: "applied" | "unchanged" | "stale" | "failed";
+  recommendationHash: string;
+  appendedLineCount: number;
+  manualCopyText: string;
+  message: string;
+}
+
 export interface IpcRequestMap {
   [IpcChannel.AppGetRuntimeInfo]: [];
   [IpcChannel.DiagnosticsRunLocal]: [];
+  [IpcChannel.ProjectSelectRoot]: [];
+  [IpcChannel.GitignorePreview]: [GitignorePreviewRequest];
+  [IpcChannel.GitignoreApply]: [GitignoreApplyRequest];
 }
 
 export interface IpcResponseMap {
   [IpcChannel.AppGetRuntimeInfo]: IpcResult<AppRuntimeInfoResponse>;
   [IpcChannel.DiagnosticsRunLocal]: IpcResult<LocalDiagnosticsResponse>;
+  [IpcChannel.ProjectSelectRoot]: IpcResult<ProjectRootSelectionResponse>;
+  [IpcChannel.GitignorePreview]: IpcResult<GitignorePreviewResponse>;
+  [IpcChannel.GitignoreApply]: IpcResult<GitignoreApplyResponse>;
 }
 
 export interface RendererApi {
@@ -140,5 +202,16 @@ export interface RendererApi {
   };
   diagnostics: {
     runLocal: () => Promise<IpcResponseMap[typeof IpcChannel.DiagnosticsRunLocal]>;
+  };
+  project: {
+    selectRoot: () => Promise<IpcResponseMap[typeof IpcChannel.ProjectSelectRoot]>;
+  };
+  gitignore: {
+    preview: (
+      input: GitignorePreviewRequest
+    ) => Promise<IpcResponseMap[typeof IpcChannel.GitignorePreview]>;
+    apply: (
+      input: GitignoreApplyRequest
+    ) => Promise<IpcResponseMap[typeof IpcChannel.GitignoreApply]>;
   };
 }

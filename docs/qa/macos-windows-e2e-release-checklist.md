@@ -12,21 +12,21 @@ without knowing the implementation details.
 
 ## Test Matrix
 
-| Area | macOS | Windows | Automation target |
-| --- | --- | --- | --- |
-| App launch | Manual | Manual | Playwright or Spectron-style smoke test after harness exists |
-| Supabase login | Manual | Manual | Renderer integration test |
-| Class invite acceptance | Manual | Manual | Supabase integration test |
-| Git detection | Manual | Manual | Main-process IPC test |
-| GitHub CLI auth detection | Manual | Manual | Main-process IPC test with command fixtures |
-| SSH connectivity check | Manual | Manual | Main-process IPC test with mocked process output |
-| Project registration | Manual | Manual | Renderer + Supabase integration test |
-| Question creation | Manual | Manual | E2E test with seeded project |
-| Teacher queue | Manual | Manual | Supabase RLS + renderer integration test |
-| Chat realtime | Manual | Manual | Supabase Realtime integration test |
-| AI fallback | Manual | Manual | Provider mock integration test |
-| Patch proposal and apply | Manual | Manual | Main-process patch fixture test |
-| Secret blocking | Manual | Manual | Unit and integration tests |
+| Area                      | macOS  | Windows | Automation target                                            |
+| ------------------------- | ------ | ------- | ------------------------------------------------------------ |
+| App launch                | Manual | Manual  | Playwright or Spectron-style smoke test after harness exists |
+| Supabase login            | Manual | Manual  | Renderer integration test                                    |
+| Class invite acceptance   | Manual | Manual  | Supabase integration test                                    |
+| Git detection             | Manual | Manual  | Main-process IPC test                                        |
+| GitHub CLI auth detection | Manual | Manual  | Main-process IPC test with command fixtures                  |
+| SSH connectivity check    | Manual | Manual  | Main-process IPC test with mocked process output             |
+| Project registration      | Manual | Manual  | Renderer + Supabase integration test                         |
+| Question creation         | Manual | Manual  | E2E test with seeded project                                 |
+| Teacher queue             | Manual | Manual  | Supabase RLS + renderer integration test                     |
+| Chat realtime             | Manual | Manual  | Supabase Realtime integration test                           |
+| AI fallback               | Manual | Manual  | Provider mock integration test                               |
+| Patch proposal and apply  | Manual | Manual  | Main-process patch fixture test                              |
+| Secret blocking           | Manual | Manual  | Unit and integration tests                                   |
 
 ## Prerequisites
 
@@ -204,15 +204,15 @@ Automation target:
 
 Record the result for each OS:
 
-| Field | macOS | Windows |
-| --- | --- | --- |
-| App version |  |  |
-| Commit SHA |  |  |
-| Tester |  |  |
-| Test date |  |  |
-| Passed checklist sections |  |  |
-| Known blockers |  |  |
-| Known non-blocking issues |  |  |
+| Field                     | macOS | Windows |
+| ------------------------- | ----- | ------- |
+| App version               |       |         |
+| Commit SHA                |       |         |
+| Tester                    |       |         |
+| Test date                 |       |         |
+| Passed checklist sections |       |         |
+| Known blockers            |       |         |
+| Known non-blocking issues |       |         |
 
 Release is blocked if any of these fail:
 

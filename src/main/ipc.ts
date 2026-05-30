@@ -1,14 +1,21 @@
-import { app, ipcMain } from "electron";
+import { app, BrowserWindow, ipcMain } from "electron";
 import { randomUUID } from "node:crypto";
 import {
   IpcChannel,
   type AppRuntimeInfoResponse,
+  type GitignoreApplyRequest,
+  type GitignoreApplyResponse,
+  type GitignorePreviewRequest,
+  type GitignorePreviewResponse,
   type IpcAuditMetadata,
   type IpcChannelName,
   type IpcResult,
-  type LocalDiagnosticsResponse
+  type LocalDiagnosticsResponse,
+  type ProjectRootSelectionResponse
 } from "../shared/ipc";
+import { applyGitignore, previewGitignore } from "./gitignoreWorkflow";
 import { runLocalDiagnostics } from "./localDiagnostics";
+import { selectProjectRoot } from "./projectRoots";
 
 const createMetadata = (channel: IpcChannelName): IpcAuditMetadata => ({
   channel,
@@ -31,6 +38,25 @@ const fail = <T>(channel: IpcChannelName, code: string, message: string): IpcRes
   },
   meta: createMetadata(channel)
 });
+
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+  return typeof value === "object" && value !== null;
+};
+
+const isGitignorePreviewRequest = (value: unknown): value is GitignorePreviewRequest => {
+  return (
+    isRecord(value) && typeof value.projectRootId === "string" && value.projectRootId.length > 0
+  );
+};
+
+const isGitignoreApplyRequest = (value: unknown): value is GitignoreApplyRequest => {
+  return (
+    isRecord(value) &&
+    isGitignorePreviewRequest(value) &&
+    typeof value.recommendationHash === "string" &&
+    /^[a-f0-9]{64}$/.test(value.recommendationHash)
+  );
+};
 
 export const registerIpcHandlers = (): void => {
   ipcMain.handle(IpcChannel.AppGetRuntimeInfo, () => {
@@ -61,6 +87,75 @@ export const registerIpcHandlers = (): void => {
         IpcChannel.DiagnosticsRunLocal,
         "LOCAL_DIAGNOSTICS_FAILED",
         "ローカル開発環境の診断を実行できませんでした。"
+      );
+    }
+  });
+
+  ipcMain.handle(IpcChannel.ProjectSelectRoot, async (event) => {
+    try {
+      return ok(
+        IpcChannel.ProjectSelectRoot,
+        (await selectProjectRoot(
+          BrowserWindow.fromWebContents(event.sender)
+        )) satisfies ProjectRootSelectionResponse
+      );
+    } catch (error) {
+      console.error(`[${IpcChannel.ProjectSelectRoot}] project root selection failed`, error);
+
+      return fail(
+        IpcChannel.ProjectSelectRoot,
+        "PROJECT_ROOT_SELECT_FAILED",
+        "プロジェクトフォルダを選択できませんでした。"
+      );
+    }
+  });
+
+  ipcMain.handle(IpcChannel.GitignorePreview, async (_event, input) => {
+    try {
+      if (!isGitignorePreviewRequest(input)) {
+        return fail(
+          IpcChannel.GitignorePreview,
+          "VALIDATION_FAILED",
+          ".gitignore 確認リクエストが正しくありません。"
+        );
+      }
+
+      return ok(
+        IpcChannel.GitignorePreview,
+        (await previewGitignore(input)) satisfies GitignorePreviewResponse
+      );
+    } catch (error) {
+      console.error(`[${IpcChannel.GitignorePreview}] gitignore preview failed`, error);
+
+      return fail(
+        IpcChannel.GitignorePreview,
+        "GITIGNORE_PREVIEW_FAILED",
+        ".gitignore の推奨内容を確認できませんでした。"
+      );
+    }
+  });
+
+  ipcMain.handle(IpcChannel.GitignoreApply, async (_event, input) => {
+    try {
+      if (!isGitignoreApplyRequest(input)) {
+        return fail(
+          IpcChannel.GitignoreApply,
+          "VALIDATION_FAILED",
+          ".gitignore 更新リクエストが正しくありません。"
+        );
+      }
+
+      return ok(
+        IpcChannel.GitignoreApply,
+        (await applyGitignore(input)) satisfies GitignoreApplyResponse
+      );
+    } catch (error) {
+      console.error(`[${IpcChannel.GitignoreApply}] gitignore apply failed`, error);
+
+      return fail(
+        IpcChannel.GitignoreApply,
+        "GITIGNORE_APPLY_FAILED",
+        ".gitignore を更新できませんでした。"
       );
     }
   });

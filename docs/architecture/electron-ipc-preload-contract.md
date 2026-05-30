@@ -64,6 +64,10 @@ declare global {
       project: {
         selectRoot(): Promise<AskResult<ProjectRootSelection>>;
       };
+      gitignore: {
+        preview(input: GitignorePreviewRequest): Promise<AskResult<GitignorePreviewResponse>>;
+        apply(input: GitignoreApplyRequest): Promise<AskResult<GitignoreApplyResponse>>;
+      };
       git: {
         diagnose(input: ProjectScopedInput): Promise<AskResult<GitDiagnostic>>;
         getStatus(input: ProjectScopedInput): Promise<AskResult<GitStatus>>;
@@ -121,6 +125,8 @@ Rules:
 | `ask:v1:app:get-runtime-info`  | `app.getRuntimeInfo`   | Return app version, platform, and contract version.             | Must not include environment variables, absolute paths, tokens, or machine user names.                               |
 | `ask:v1:diagnostics:run-local` | `diagnostics.runLocal` | Check Git, GitHub CLI auth, SSH key candidates, and GitHub SSH. | Fixed command presets only. Returns machine-readable statuses, never tokens, private key contents, or raw paths.     |
 | `ask:v1:project:select-root`   | `project.selectRoot`   | Let the user choose a project root through an OS dialog.        | Main creates or resolves a trusted `projectId`; renderer must not provide arbitrary roots for privileged operations. |
+| `ask:v1:gitignore:preview`     | `gitignore.preview`    | Preview ASK `.gitignore` recommendations for a selected root.   | Accepts only a trusted `projectRootId`. Returns append-only diff and manual copy text, not raw absolute paths.       |
+| `ask:v1:gitignore:apply`       | `gitignore.apply`      | Append confirmed ASK `.gitignore` recommendations.              | Requires the preview hash from `gitignore.preview`; appends only missing patterns and never rewrites existing lines. |
 | `ask:v1:git:diagnose`          | `git.diagnose`         | Run a read-only Git health summary for a registered project.    | Uses only read-only Git presets. Redact absolute paths and remote credentials.                                       |
 | `ask:v1:git:get-status`        | `git.getStatus`        | Read branch, HEAD, dirty state, and tracked changes.            | Read-only. Output is size-limited.                                                                                   |
 | `ask:v1:git:get-diff-summary`  | `git.getDiffSummary`   | Read changed file names and diff stats for preview.             | Redact denied file names where secret rules require it.                                                              |
