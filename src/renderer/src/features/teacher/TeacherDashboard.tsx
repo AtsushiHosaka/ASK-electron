@@ -7,6 +7,7 @@ import type {
   ThreadStatus
 } from "../../../../shared/database.types";
 import { useAuth } from "../auth/AuthProvider";
+import { getPublicAppBaseUrl } from "../../lib/env";
 import { getSupabaseClient } from "../../lib/supabase";
 
 type ClassRow = Database["public"]["Tables"]["classes"]["Row"];
@@ -64,10 +65,16 @@ const sshStatusLabels: Record<GithubSshStatus, string> = {
   failed: "SSH要確認"
 };
 
+const inviteExpirySeconds = 60 * 60 * 24 * 14;
+
 const initialStatusCounts = (): Record<ThreadStatus, number> =>
   Object.fromEntries(threadStatuses.map((status) => [status, 0])) as Record<ThreadStatus, number>;
 
 const unique = (values: string[]): string[] => [...new Set(values)];
+
+const buildJoinUrl = (token: string): string => {
+  return `${getPublicAppBaseUrl()}#/join/${encodeURIComponent(token)}`;
+};
 
 const useTeacherDashboard = (): TeacherDashboardState => {
   const { profile } = useAuth();
@@ -302,7 +309,20 @@ export const TeacherHomePage = (): ReactElement => {
 export const ClassDetailPage = (): ReactElement => {
   const { classId } = useParams();
   const { loading, error, classes } = useTeacherDashboard();
+  const supabase = useMemo(() => getSupabaseClient(), []);
+  const [inviteState, setInviteState] = useState<{ classId: string; link: string } | null>(null);
   const [copyMessage, setCopyMessage] = useState<string | null>(null);
+  const [copyingInvite, setCopyingInvite] = useState(false);
+
+  useEffect(() => {
+    if (!copyMessage) {
+      return;
+    }
+
+    const timerId = window.setTimeout(() => setCopyMessage(null), 2000);
+
+    return () => window.clearTimeout(timerId);
+  }, [copyMessage]);
 
   if (loading) {
     return <TeacherPageState title="読み込み中" body="クラス詳細を確認しています。" />;
@@ -323,14 +343,42 @@ export const ClassDetailPage = (): ReactElement => {
     );
   }
 
-  const inviteLink = `${window.location.origin}${window.location.pathname}#/classes/${classSummary.classRow.id}`;
+  const inviteLink = inviteState?.classId === classSummary.classRow.id ? inviteState.link : "";
 
   const copyInviteLink = async (): Promise<void> => {
+    if (!supabase) {
+      setCopyMessage("Supabase 設定を確認できないため、招待リンクを作成できません。");
+      return;
+    }
+
+    setCopyingInvite(true);
+    setCopyMessage(null);
+
     try {
-      await navigator.clipboard.writeText(inviteLink);
+      const { data, error: inviteError } = await supabase.rpc("create_class_invite", {
+        p_class_id: classSummary.classRow.id,
+        p_role: "student",
+        p_expires_in_seconds: inviteExpirySeconds
+      });
+
+      if (inviteError) {
+        throw inviteError;
+      }
+
+      const invite = data?.[0];
+
+      if (!invite?.token) {
+        throw new Error("CLASS_INVITE_TOKEN_MISSING");
+      }
+
+      const nextInviteLink = buildJoinUrl(invite.token);
+      setInviteState({ classId: classSummary.classRow.id, link: nextInviteLink });
+      await navigator.clipboard.writeText(nextInviteLink);
       setCopyMessage("招待リンクをコピーしました。");
     } catch {
-      setCopyMessage("コピーできませんでした。リンクを手動で選択してください。");
+      setCopyMessage("招待リンクを作成またはコピーできませんでした。");
+    } finally {
+      setCopyingInvite(false);
     }
   };
 
@@ -351,11 +399,23 @@ export const ClassDetailPage = (): ReactElement => {
             <p className="eyebrow">Invite</p>
             <h2>招待リンク</h2>
           </div>
-          <input readOnly value={inviteLink} aria-label="招待リンク" />
-          <button className="primary-button" type="button" onClick={() => void copyInviteLink()}>
-            コピー
+          <input
+            readOnly
+            aria-label="招待リンク"
+            placeholder="コピーすると招待リンクを生成します"
+            value={inviteLink}
+          />
+          <button
+            className="primary-button"
+            disabled={copyingInvite}
+            type="button"
+            onClick={() => void copyInviteLink()}
+          >
+            {copyingInvite ? "作成中..." : "コピー"}
           </button>
-          {copyMessage && <p className="muted">{copyMessage}</p>}
+          <p className="muted invite-status" aria-live="polite" role="status">
+            {copyMessage ?? ""}
+          </p>
         </article>
 
         <MemberPanel title="生徒" members={studentMembers(classSummary)} />
@@ -385,6 +445,105 @@ export const ClassDetailPage = (): ReactElement => {
           )}
         </article>
       </div>
+    </section>
+  );
+};
+
+export const ClassJoinPage = (): ReactElement => {
+  const { token } = useParams();
+  const supabase = useMemo(() => getSupabaseClient(), []);
+  const [joinState, setJoinState] = useState<{
+    loading: boolean;
+    message: string;
+    error: string | null;
+  }>({
+    loading: true,
+    message: "招待を確認しています。",
+    error: null
+  });
+
+  useEffect(() => {
+    let mounted = true;
+
+    const redeemInvite = async (): Promise<void> => {
+      if (!token) {
+        setJoinState({
+          loading: false,
+          message: "",
+          error: "招待トークンが見つかりません。"
+        });
+        return;
+      }
+
+      if (!supabase) {
+        setJoinState({
+          loading: false,
+          message: "",
+          error: "Supabase 設定を確認できませんでした。"
+        });
+        return;
+      }
+
+      try {
+        const { data, error: redeemError } = await supabase.rpc("redeem_class_invite", {
+          p_token: token
+        });
+
+        if (redeemError) {
+          throw redeemError;
+        }
+
+        const result = data?.[0];
+
+        if (!result) {
+          throw new Error("CLASS_INVITE_REDEEM_RESULT_MISSING");
+        }
+
+        if (mounted) {
+          setJoinState({
+            loading: false,
+            message:
+              result.status === "already_member"
+                ? "すでにこのクラスに参加しています。"
+                : "クラスに参加しました。",
+            error: null
+          });
+        }
+      } catch (error) {
+        console.error("Failed to redeem class invite", error);
+
+        if (mounted) {
+          setJoinState({
+            loading: false,
+            message: "",
+            error: "招待を受け付けできませんでした。期限切れまたは権限不足の可能性があります。"
+          });
+        }
+      }
+    };
+
+    void redeemInvite();
+
+    return () => {
+      mounted = false;
+    };
+  }, [supabase, token]);
+
+  if (joinState.loading) {
+    return <TeacherPageState title="招待を確認中" body={joinState.message} />;
+  }
+
+  if (joinState.error) {
+    return <TeacherPageState title="クラスに参加できません" body={joinState.error} />;
+  }
+
+  return (
+    <section className="empty-state">
+      <h1>クラス参加が完了しました</h1>
+      <p>{joinState.message}</p>
+      <Link className="secondary-link" to="/student">
+        ホームへ戻る
+      </Link>
     </section>
   );
 };

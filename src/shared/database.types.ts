@@ -13,6 +13,7 @@ export type ThreadStatus =
   | "resolved"
   | "reopened";
 export type ThreadPriority = "low" | "normal" | "high";
+export type ClassInviteRedeemStatus = "joined" | "already_member";
 
 export interface Database {
   public: {
@@ -91,6 +92,35 @@ export interface Database {
           user_id?: string;
           role?: ClassMemberRole;
           joined_at?: string;
+        };
+        Relationships: [];
+      };
+      class_invites: {
+        Row: {
+          id: string;
+          class_id: string;
+          token: string;
+          role: "student";
+          expires_at: string;
+          created_by: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          class_id: string;
+          token: string;
+          role?: "student";
+          expires_at: string;
+          created_by: string;
+          created_at?: string;
+        };
+        Update: {
+          class_id?: string;
+          token?: string;
+          role?: "student";
+          expires_at?: string;
+          created_by?: string;
+          created_at?: string;
         };
         Relationships: [];
       };
@@ -188,7 +218,31 @@ export interface Database {
       };
     };
     Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Functions: {
+      create_class_invite: {
+        Args: {
+          p_class_id: string;
+          p_role?: "student";
+          p_expires_in_seconds?: number;
+        };
+        Returns: {
+          token: string;
+          class_id: string;
+          role: "student";
+          expires_at: string;
+        }[];
+      };
+      redeem_class_invite: {
+        Args: {
+          p_token: string;
+        };
+        Returns: {
+          class_id: string;
+          role: "student";
+          status: ClassInviteRedeemStatus;
+        }[];
+      };
+    };
     Enums: {
       app_user_role: AppRole;
       class_member_role: ClassMemberRole;

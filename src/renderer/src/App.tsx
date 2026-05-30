@@ -1,9 +1,13 @@
-import { Navigate, NavLink, Route, Routes } from "react-router-dom";
+import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import type { ReactElement } from "react";
 import { LoginPage } from "./features/auth/LoginPage";
 import { useAuth } from "./features/auth/AuthProvider";
 import { StudentOnboardingPage } from "./features/onboarding/StudentOnboardingPage";
-import { ClassDetailPage, TeacherHomePage } from "./features/teacher/TeacherDashboard";
+import {
+  ClassDetailPage,
+  ClassJoinPage,
+  TeacherHomePage
+} from "./features/teacher/TeacherDashboard";
 import type { AppRole } from "@shared/domain";
 
 const roleHome: Record<AppRole, string> = {
@@ -30,13 +34,14 @@ export const App = (): ReactElement => {
 
 const RequireAuth = ({ children }: { children: ReactElement }): ReactElement => {
   const { loading, session } = useAuth();
+  const location = useLocation();
 
   if (loading) {
     return <FullPageState title="読み込み中" body="セッションを確認しています。" />;
   }
 
   if (!session) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to="/login" replace state={{ from: location }} />;
   }
 
   return children;
@@ -90,6 +95,7 @@ const AppShell = (): ReactElement => {
           <Route path="/onboarding" element={<StudentOnboardingPage />} />
           <Route path="/classes" element={<TeacherHomePage />} />
           <Route path="/classes/:classId" element={<ClassDetailPage />} />
+          <Route path="/join/:token" element={<ClassJoinPage />} />
           <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/threads/new" element={<ThreadCreatePage />} />
           <Route path="/threads/:threadId" element={<ThreadDetailPage />} />

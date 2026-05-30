@@ -504,6 +504,10 @@ select:focus {
   align-content: start;
 }
 
+.invite-status {
+  min-height: 1.4em;
+}
+
 .thread-list-panel {
   grid-column: 1 / -1;
 }

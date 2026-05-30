@@ -1,6 +1,7 @@
 export interface PublicEnv {
   supabaseUrl: string;
   supabasePublishableKey: string;
+  appBaseUrl: string | null;
 }
 
 export type PublicEnvResult =
@@ -16,6 +17,7 @@ export type PublicEnvResult =
 export const getPublicEnv = (): PublicEnvResult => {
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim();
   const supabasePublishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim();
+  const appBaseUrl = import.meta.env.VITE_ASK_APP_BASE_URL?.trim() || null;
 
   if (!supabaseUrl || !supabasePublishableKey) {
     return {
@@ -37,7 +39,18 @@ export const getPublicEnv = (): PublicEnvResult => {
     ok: true,
     env: {
       supabaseUrl,
-      supabasePublishableKey
+      supabasePublishableKey,
+      appBaseUrl
     }
   };
+};
+
+export const getPublicAppBaseUrl = (): string => {
+  const result = getPublicEnv();
+
+  if (result.ok && result.env.appBaseUrl) {
+    return result.env.appBaseUrl.replace(/\/+$/, "");
+  }
+
+  return window.location.origin.replace(/\/+$/, "");
 };
