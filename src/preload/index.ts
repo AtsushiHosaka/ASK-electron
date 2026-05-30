@@ -22,7 +22,8 @@ const api: RendererApi = {
     runLocal: () => invoke(IpcChannel.DiagnosticsRunLocal)
   },
   project: {
-    selectRoot: () => invoke(IpcChannel.ProjectSelectRoot)
+    selectRoot: () => invoke(IpcChannel.ProjectSelectRoot),
+    inspectGit: (input) => invoke(IpcChannel.ProjectInspectGit, input)
   },
   gitignore: {
     preview: (input) => invoke(IpcChannel.GitignorePreview, input),

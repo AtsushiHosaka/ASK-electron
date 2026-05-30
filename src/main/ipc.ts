@@ -11,10 +11,13 @@ import {
   type IpcChannelName,
   type IpcResult,
   type LocalDiagnosticsResponse,
+  type ProjectGitInspectionRequest,
+  type ProjectGitInspectionResponse,
   type ProjectRootSelectionResponse
 } from "../shared/ipc";
 import { applyGitignore, previewGitignore } from "./gitignoreWorkflow";
 import { runLocalDiagnostics } from "./localDiagnostics";
+import { inspectProjectGit } from "./projectGitInspector";
 import { selectProjectRoot } from "./projectRoots";
 
 const createMetadata = (channel: IpcChannelName): IpcAuditMetadata => ({
@@ -46,6 +49,14 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
 const isGitignorePreviewRequest = (value: unknown): value is GitignorePreviewRequest => {
   return (
     isRecord(value) && typeof value.projectRootId === "string" && value.projectRootId.length > 0
+  );
+};
+
+const isProjectGitInspectionRequest = (value: unknown): value is ProjectGitInspectionRequest => {
+  return (
+    isRecord(value) &&
+    typeof value.projectRootId === "string" &&
+    value.projectRootId.trim().length > 0
   );
 };
 
@@ -106,6 +117,39 @@ export const registerIpcHandlers = (): void => {
         IpcChannel.ProjectSelectRoot,
         "PROJECT_ROOT_SELECT_FAILED",
         "プロジェクトフォルダを選択できませんでした。"
+      );
+    }
+  });
+
+  ipcMain.handle(IpcChannel.ProjectInspectGit, async (_event, input) => {
+    try {
+      if (!isProjectGitInspectionRequest(input)) {
+        return fail(
+          IpcChannel.ProjectInspectGit,
+          "VALIDATION_FAILED",
+          "プロジェクト検証リクエストが正しくありません。"
+        );
+      }
+
+      return ok(
+        IpcChannel.ProjectInspectGit,
+        (await inspectProjectGit(input)) satisfies ProjectGitInspectionResponse
+      );
+    } catch (error) {
+      console.error(`[${IpcChannel.ProjectInspectGit}] project git inspection failed`, error);
+
+      if (error instanceof Error && error.message === "PROJECT_ROOT_NOT_FOUND") {
+        return fail(
+          IpcChannel.ProjectInspectGit,
+          "PROJECT_ROOT_NOT_FOUND",
+          "プロジェクトフォルダを選択し直してください。"
+        );
+      }
+
+      return fail(
+        IpcChannel.ProjectInspectGit,
+        "PROJECT_GIT_INSPECTION_FAILED",
+        "プロジェクトフォルダを検証できませんでした。"
       );
     }
   });

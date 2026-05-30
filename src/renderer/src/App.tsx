@@ -3,6 +3,7 @@ import type { ReactElement } from "react";
 import { LoginPage } from "./features/auth/LoginPage";
 import { useAuth } from "./features/auth/AuthProvider";
 import { StudentOnboardingPage } from "./features/onboarding/StudentOnboardingPage";
+import { ProjectDetailPage, ProjectsPage } from "./features/projects/ProjectRegistrationPage";
 import {
   ClassDetailPage,
   ClassJoinPage,
@@ -97,6 +98,7 @@ const AppShell = (): ReactElement => {
           <Route path="/classes/:classId" element={<ClassDetailPage />} />
           <Route path="/join/:token" element={<ClassJoinPage />} />
           <Route path="/projects" element={<ProjectsPage />} />
+          <Route path="/projects/:projectId" element={<ProjectDetailPage />} />
           <Route path="/threads/new" element={<ThreadCreatePage />} />
           <Route path="/threads/:threadId" element={<ThreadDetailPage />} />
           <Route
@@ -120,15 +122,6 @@ const StudentHome = (): ReactElement => (
     title="質問の準備"
     body="GitHub 接続、プロジェクト登録、質問作成の導線をここに集約します。"
     items={["GitHub / SSH オンボーディング", "登録済みプロジェクト", "最近の質問スレッド"]}
-  />
-);
-
-const ProjectsPage = (): ReactElement => (
-  <WorkspacePage
-    eyebrow="Projects"
-    title="プロジェクト"
-    body="ローカルフォルダと GitHub repository の紐付け状態を表示します。"
-    items={["フォルダ選択", "Git 状態", ".gitignore 確認"]}
   />
 );
 
