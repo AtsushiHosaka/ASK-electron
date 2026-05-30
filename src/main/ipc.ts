@@ -17,6 +17,8 @@ import {
   type LocalDiagnosticsResponse,
   type PatchApplyRequest,
   type PatchApplyResponse,
+  type PatchRevertRequest,
+  type PatchRevertResponse,
   type PatchValidateRequest,
   type PatchValidateResponse,
   type ProjectGitInspectionRequest,
@@ -36,7 +38,7 @@ import { collectEnvironmentSnapshot } from "./environmentSnapshotCollector";
 import { collectGitDiff } from "./gitDiffCollector";
 import { applyGitignore, previewGitignore } from "./gitignoreWorkflow";
 import { runLocalDiagnostics } from "./localDiagnostics";
-import { applyPatch, validatePatch } from "./patchWorkflow";
+import { applyPatch, revertPatch, validatePatch } from "./patchWorkflow";
 import { inspectProjectGit } from "./projectGitInspector";
 import { selectProjectRoot } from "./projectRoots";
 
@@ -175,7 +177,10 @@ const isPatchValidateRequest = (value: unknown): value is PatchValidateRequest =
     (value.expectedBaseCommit === undefined ||
       value.expectedBaseCommit === null ||
       (typeof value.expectedBaseCommit === "string" &&
-        value.expectedBaseCommit.trim().length <= 64))
+        value.expectedBaseCommit.trim().length <= 64)) &&
+    (value.patchProposalId === undefined ||
+      value.patchProposalId === null ||
+      (typeof value.patchProposalId === "string" && /^[0-9a-f-]{36}$/i.test(value.patchProposalId)))
   );
 };
 
@@ -187,6 +192,17 @@ const isPatchApplyRequest = (value: unknown): value is PatchApplyRequest => {
     /^[0-9a-f-]{36}$/i.test(value.patchId) &&
     typeof value.confirmationToken === "string" &&
     /^[0-9a-f-]{36}$/i.test(value.confirmationToken)
+  );
+};
+
+const isPatchRevertRequest = (value: unknown): value is PatchRevertRequest => {
+  return (
+    isRecord(value) &&
+    isAppRole(value.requesterRole) &&
+    (typeof value.localPathHash === "string" || value.localPathHash === null) &&
+    typeof value.patchId === "string" &&
+    /^[0-9a-f-]{36}$/i.test(value.patchId) &&
+    (typeof value.backupDirectory === "string" || value.backupDirectory === null)
   );
 };
 
@@ -427,6 +443,35 @@ export const registerIpcHandlers = (): void => {
       });
 
       return fail(IpcChannel.PatchApply, "PATCH_APPLY_FAILED", "パッチを適用できませんでした。");
+    }
+  });
+
+  ipcMain.handle(IpcChannel.PatchRevert, async (_event, input) => {
+    try {
+      if (getPatchRequesterRole(input) !== "student") {
+        return fail(
+          IpcChannel.PatchRevert,
+          "UNAUTHORIZED",
+          "パッチの取り消しは生徒のローカル環境からのみ実行できます。"
+        );
+      }
+
+      if (!isPatchRevertRequest(input)) {
+        return fail(
+          IpcChannel.PatchRevert,
+          "VALIDATION_FAILED",
+          "パッチ取り消しリクエストが正しくありません。"
+        );
+      }
+
+      return ok(IpcChannel.PatchRevert, (await revertPatch(input)) satisfies PatchRevertResponse);
+    } catch (error) {
+      console.error(`[${IpcChannel.PatchRevert}] patch revert failed`, {
+        event: "patch_revert_failed",
+        ...getSafeErrorFields(error)
+      });
+
+      return fail(IpcChannel.PatchRevert, "PATCH_REVERT_FAILED", "パッチを取り消せませんでした。");
     }
   });
 

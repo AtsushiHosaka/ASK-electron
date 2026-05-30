@@ -9,6 +9,7 @@ to authenticated
 with check (
   created_by_type = 'ai'::public.patch_creator_type
   and created_by = auth.uid()
+  and status = 'proposed'::public.patch_status
   and public.owns_thread_project(thread_id)
   and public.message_thread_id(message_id) = thread_id
 );

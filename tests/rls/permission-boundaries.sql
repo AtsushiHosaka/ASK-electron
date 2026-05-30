@@ -258,6 +258,29 @@ select pg_temp.assert_eq(
   1,
   'student creates AI patch proposal for own thread'
 );
+select pg_temp.assert_rejected(
+  $statement$
+    insert into public.patch_proposals (
+      id,
+      thread_id,
+      message_id,
+      created_by,
+      created_by_type,
+      target_file_path,
+      patch_text
+    )
+    values (
+      '80000000-0000-4000-8000-000000000105',
+      '50000000-0000-4000-8000-000000000001',
+      '60000000-0000-4000-8000-000000000001',
+      '00000000-0000-4000-8000-000000000002',
+      'ai',
+      'src/calculator.ts',
+      'diff --git a/src/calculator.ts b/src/calculator.ts'
+    )
+  $statement$,
+  'student cannot forge created_by for AI patch proposal'
+);
 update public.patch_proposals
 set status = 'dismissed'
 where id = '80000000-0000-4000-8000-000000000001';

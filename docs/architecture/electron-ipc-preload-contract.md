@@ -275,9 +275,21 @@ Required flow:
 4. Main revalidates the patch against current file contents.
 5. Main creates backup metadata before writing.
 6. Main writes only the files listed in the validated patch.
-7. Main records audit metadata for success, failure, and revert.
+7. Main records post-apply file state hashes in local backup metadata.
+8. If apply fails after backup creation, Main restores the pre-apply backup before returning failure.
+9. `patch.revert` checks that HEAD and post-apply file hashes still match before restoring from backup.
+10. Main records audit metadata for success, failure, dismiss, and revert.
 
 Teachers and AI systems can propose patches, but only the student can trigger local apply on their machine.
+
+Destructive-case checks for this flow:
+
+- Dirty target files must stop validation or apply before any write.
+- Conflict, dirty target, timeout, missing Git, and permission denied results must use distinct statuses.
+- Apply failure after backup creation must leave target files equal to their pre-apply state or return an explicit restoration failure.
+- Revert must stop when the student edited a target file after apply.
+- Revert responses must return only relative backup paths and metadata status, not backed-up file contents.
+- Manual application must remain possible by showing the original diff in the renderer.
 
 ## Audit Metadata
 

@@ -354,6 +354,7 @@ export interface Database {
           patch_text?: string;
           explanation?: string | null;
           status?: PatchStatus;
+          created_at?: string;
         };
         Relationships: [];
       };
@@ -481,6 +482,8 @@ export interface Database {
       thread_priority: ThreadPriority;
       message_sender_type: MessageSenderType;
       message_type: MessageType;
+      patch_creator_type: PatchCreatorType;
+      patch_status: PatchStatus;
       audit_event_type: AuditEventType;
       audit_decision: AuditDecision;
     };

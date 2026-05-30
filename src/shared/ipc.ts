@@ -11,6 +11,7 @@ export const IpcChannel = {
   EnvironmentSnapshotCollect: "ask:v1:environment-snapshot:collect",
   PatchValidate: "ask:v1:patch:validate",
   PatchApply: "ask:v1:patch:apply",
+  PatchRevert: "ask:v1:patch:revert",
   GitignorePreview: "ask:v1:gitignore:preview",
   GitignoreApply: "ask:v1:gitignore:apply"
 } as const;
@@ -364,11 +365,23 @@ export type PatchApplyStatus =
   | "permission_denied"
   | "failed";
 
+export type PatchRevertStatus =
+  | "reverted"
+  | "root_missing"
+  | "stale"
+  | "dirty"
+  | "backup_missing"
+  | "git_missing"
+  | "git_timeout"
+  | "permission_denied"
+  | "failed";
+
 export interface PatchValidateRequest {
   requesterRole: AppRole;
   localPathHash: string | null;
   patchText: string;
   expectedBaseCommit?: string | null;
+  patchProposalId?: string | null;
 }
 
 export interface PatchValidateResponse {
@@ -399,6 +412,23 @@ export interface PatchApplyResponse {
   message: string;
 }
 
+export interface PatchRevertRequest {
+  requesterRole: AppRole;
+  localPathHash: string | null;
+  patchId: string;
+  backupDirectory: string | null;
+}
+
+export interface PatchRevertResponse {
+  contractVersion: "v1";
+  status: PatchRevertStatus;
+  reverted: boolean;
+  patchId: string;
+  targetFiles: string[];
+  backupDirectory: string | null;
+  message: string;
+}
+
 export interface IpcRequestMap {
   [IpcChannel.AppGetRuntimeInfo]: [];
   [IpcChannel.DiagnosticsRunLocal]: [];
@@ -409,6 +439,7 @@ export interface IpcRequestMap {
   [IpcChannel.EnvironmentSnapshotCollect]: [EnvironmentSnapshotRequest];
   [IpcChannel.PatchValidate]: [PatchValidateRequest];
   [IpcChannel.PatchApply]: [PatchApplyRequest];
+  [IpcChannel.PatchRevert]: [PatchRevertRequest];
   [IpcChannel.GitignorePreview]: [GitignorePreviewRequest];
   [IpcChannel.GitignoreApply]: [GitignoreApplyRequest];
 }
@@ -423,6 +454,7 @@ export interface IpcResponseMap {
   [IpcChannel.EnvironmentSnapshotCollect]: IpcResult<EnvironmentSnapshotResponse>;
   [IpcChannel.PatchValidate]: IpcResult<PatchValidateResponse>;
   [IpcChannel.PatchApply]: IpcResult<PatchApplyResponse>;
+  [IpcChannel.PatchRevert]: IpcResult<PatchRevertResponse>;
   [IpcChannel.GitignorePreview]: IpcResult<GitignorePreviewResponse>;
   [IpcChannel.GitignoreApply]: IpcResult<GitignoreApplyResponse>;
 }
@@ -458,6 +490,7 @@ export interface RendererApi {
       input: PatchValidateRequest
     ) => Promise<IpcResponseMap[typeof IpcChannel.PatchValidate]>;
     apply: (input: PatchApplyRequest) => Promise<IpcResponseMap[typeof IpcChannel.PatchApply]>;
+    revert: (input: PatchRevertRequest) => Promise<IpcResponseMap[typeof IpcChannel.PatchRevert]>;
   };
   gitignore: {
     preview: (

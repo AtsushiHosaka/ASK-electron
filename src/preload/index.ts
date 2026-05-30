@@ -36,7 +36,8 @@ const api: RendererApi = {
   },
   patch: {
     validate: (input) => invoke(IpcChannel.PatchValidate, input),
-    apply: (input) => invoke(IpcChannel.PatchApply, input)
+    apply: (input) => invoke(IpcChannel.PatchApply, input),
+    revert: (input) => invoke(IpcChannel.PatchRevert, input)
   },
   gitignore: {
     preview: (input) => invoke(IpcChannel.GitignorePreview, input),
