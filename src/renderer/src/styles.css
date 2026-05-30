@@ -25,7 +25,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -96,7 +97,18 @@ input {
   background: #ffffff;
 }
 
-input:focus {
+select {
+  width: 100%;
+  height: 44px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 0 12px;
+  color: #172033;
+  background: #ffffff;
+}
+
+input:focus,
+select:focus {
   border-color: #4d65a1;
   outline: 3px solid rgb(77 101 161 / 18%);
 }
@@ -144,6 +156,11 @@ input:focus {
 .message.error {
   color: #8f1d1d;
   background: #fff1f1;
+}
+
+.message.warning {
+  color: #7a4c00;
+  background: #fff8e7;
 }
 
 .app-shell {
@@ -216,6 +233,158 @@ input:focus {
   display: grid;
   gap: 24px;
   max-width: 1080px;
+}
+
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.progress-summary {
+  display: grid;
+  gap: 4px;
+  min-width: 180px;
+  border: 1px solid #d9deea;
+  border-radius: 8px;
+  padding: 14px 16px;
+  background: #ffffff;
+}
+
+.progress-summary span {
+  color: #667085;
+  font-size: 0.86rem;
+}
+
+.onboarding-page {
+  display: grid;
+  gap: 28px;
+  max-width: 1120px;
+}
+
+.onboarding-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  gap: 20px;
+}
+
+.step-list {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.step-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 54px;
+  border: 1px solid #d9deea;
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: #334155;
+  background: #ffffff;
+  text-align: left;
+}
+
+.step-button.active,
+.step-button:hover {
+  border-color: #a8c5ba;
+  background: #eef8f4;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 58px;
+  min-height: 26px;
+  border-radius: 999px;
+  padding: 0 10px;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.status-pill.pending {
+  color: #475467;
+  background: #eef2f7;
+}
+
+.status-pill.checking {
+  color: #4d3b00;
+  background: #fff4bf;
+}
+
+.status-pill.success {
+  color: #14543c;
+  background: #dff5eb;
+}
+
+.status-pill.warning {
+  color: #7a4c00;
+  background: #fff0c2;
+}
+
+.status-pill.error {
+  color: #8f1d1d;
+  background: #ffe2e2;
+}
+
+.onboarding-panel {
+  display: grid;
+  gap: 20px;
+  border: 1px solid #d9deea;
+  border-radius: 8px;
+  padding: 24px;
+  background: #ffffff;
+}
+
+.panel-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.panel-heading h2 {
+  margin: 0;
+  color: #101828;
+  font-size: 1.55rem;
+}
+
+.instruction-block {
+  display: grid;
+  gap: 6px;
+  border-top: 1px solid #e5e9f2;
+  padding-top: 16px;
+}
+
+.instruction-block h3 {
+  margin: 0;
+  color: #344054;
+  font-size: 0.96rem;
+}
+
+.instruction-block p {
+  margin: 0;
+  color: #5b6475;
+  line-height: 1.7;
+}
+
+.control-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.status-editor {
+  max-width: 260px;
 }
 
 .placeholder-grid {

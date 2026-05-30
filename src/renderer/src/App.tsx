@@ -2,6 +2,7 @@ import { Navigate, NavLink, Route, Routes } from "react-router-dom";
 import type { ReactElement } from "react";
 import { LoginPage } from "./features/auth/LoginPage";
 import { useAuth } from "./features/auth/AuthProvider";
+import { StudentOnboardingPage } from "./features/onboarding/StudentOnboardingPage";
 import type { AppRole } from "@shared/domain";
 
 const roleHome: Record<AppRole, string> = {
@@ -62,6 +63,7 @@ const AppShell = (): ReactElement => {
 
         <nav className="nav-list">
           <NavLink to={profile.role === "student" ? "/student" : "/teacher"}>ホーム</NavLink>
+          {profile.role === "student" && <NavLink to="/onboarding">初期設定</NavLink>}
           <NavLink to="/classes">クラス</NavLink>
           <NavLink to="/projects">プロジェクト</NavLink>
           <NavLink to="/threads/new">質問を作成</NavLink>
@@ -84,6 +86,7 @@ const AppShell = (): ReactElement => {
           <Route path="/" element={<Navigate to={roleHome[profile.role]} replace />} />
           <Route path="/student" element={<StudentHome />} />
           <Route path="/teacher" element={<TeacherHome />} />
+          <Route path="/onboarding" element={<StudentOnboardingPage />} />
           <Route path="/classes" element={<ClassDetail />} />
           <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/threads/new" element={<ThreadCreatePage />} />
