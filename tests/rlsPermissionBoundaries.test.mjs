@@ -13,6 +13,7 @@ const seedSql = readFileSync("supabase/seed.sql", "utf8");
 const fixtureIds = [
   "00000000-0000-4000-8000-000000000001",
   "00000000-0000-4000-8000-000000000002",
+  "00000000-0000-4000-8000-000000000003",
   "00000000-0000-4000-8000-000000000004",
   "00000000-0000-4000-8000-000000000005",
   "00000000-0000-4000-8000-000000000006",
@@ -95,6 +96,7 @@ describe("RLS fixture coverage", () => {
     for (const email of [
       "admin@example.test",
       "teacher@example.test",
+      "mentor@example.test",
       "student-a@example.test",
       "student-b@example.test",
       "outsider@example.test"
