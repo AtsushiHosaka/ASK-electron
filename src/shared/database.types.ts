@@ -13,6 +13,8 @@ export type ThreadStatus =
   | "resolved"
   | "reopened";
 export type ThreadPriority = "low" | "normal" | "high";
+export type MessageSenderType = "student" | "teacher" | "ai" | "system";
+export type MessageType = "text" | "code" | "patch" | "environment" | "ai_summary";
 export type ClassInviteRedeemStatus = "joined" | "already_member";
 
 export interface Database {
@@ -216,6 +218,37 @@ export interface Database {
         };
         Relationships: [];
       };
+      messages: {
+        Row: {
+          id: string;
+          thread_id: string;
+          sender_user_id: string | null;
+          sender_type: MessageSenderType;
+          body: string;
+          message_type: MessageType;
+          reply_to_message_id: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          thread_id: string;
+          sender_user_id?: string | null;
+          sender_type: MessageSenderType;
+          body: string;
+          message_type?: MessageType;
+          reply_to_message_id?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          thread_id?: string;
+          sender_user_id?: string | null;
+          sender_type?: MessageSenderType;
+          body?: string;
+          message_type?: MessageType;
+          reply_to_message_id?: string | null;
+        };
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -250,6 +283,8 @@ export interface Database {
       github_ssh_status: GithubSshStatus;
       thread_status: ThreadStatus;
       thread_priority: ThreadPriority;
+      message_sender_type: MessageSenderType;
+      message_type: MessageType;
     };
     CompositeTypes: Record<string, never>;
   };

@@ -486,14 +486,39 @@ textarea {
   max-width: 1120px;
 }
 
+.thread-create {
+  display: grid;
+  gap: 24px;
+  max-width: 1180px;
+}
+
 .project-registration-grid {
   display: grid;
   grid-template-columns: minmax(320px, 1fr) minmax(320px, 1fr);
   gap: 16px;
 }
 
+.thread-create-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.65fr);
+  gap: 16px;
+  align-items: start;
+}
+
 .project-registration-panel {
   align-content: start;
+}
+
+.thread-form-panel,
+.thread-preview-panel {
+  align-content: start;
+}
+
+.thread-form-panel textarea {
+  min-height: 96px;
+  color: #172033;
+  background: #ffffff;
+  font-family: inherit;
 }
 
 .project-summary-list {
