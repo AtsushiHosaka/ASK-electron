@@ -552,6 +552,13 @@ select:focus,
   align-content: start;
 }
 
+.thread-lifecycle-controls {
+  display: grid;
+  gap: 12px;
+  border-bottom: 1px solid #e5e9f2;
+  padding-bottom: 16px;
+}
+
 .thread-form-panel textarea,
 .composer-panel textarea {
   min-height: 96px;
