@@ -31,6 +31,22 @@ describe("scanSecrets", () => {
     assert.equal(result.blockedFindings[0]?.preview.includes("ghp_1234567890"), false);
   });
 
+  it("blocks private key bodies without exposing key material", () => {
+    const result = scanSecrets({
+      textEntries: [
+        {
+          label: "terminal",
+          value:
+            "-----BEGIN OPENSSH PRIVATE KEY-----\nabc123privatekeymaterial\n-----END OPENSSH PRIVATE KEY-----"
+        }
+      ]
+    });
+
+    assert.equal(result.blocked, true);
+    assert.equal(result.blockedFindings[0]?.kind, "private_key");
+    assert.equal(result.blockedFindings[0]?.preview, "[redacted private key]");
+  });
+
   it("blocks common API key values", () => {
     const result = scanSecrets({
       textEntries: [
@@ -45,6 +61,29 @@ describe("scanSecrets", () => {
     assert.equal(
       result.blockedFindings.some((finding) => finding.kind === "api_key"),
       true
+    );
+  });
+
+  it("redacts secret assignment previews", () => {
+    const result = scanSecrets({
+      textEntries: [
+        {
+          label: "env",
+          value: "PASSWORD=super-secret-password-12345"
+        }
+      ]
+    });
+
+    assert.equal(result.blocked, true);
+    assert.equal(
+      result.blockedFindings.some((finding) => finding.kind === "secret_assignment"),
+      true
+    );
+    assert.equal(
+      result.blockedFindings.some((finding) =>
+        finding.preview.includes("super-secret-password-12345")
+      ),
+      false
     );
   });
 

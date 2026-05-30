@@ -70,6 +70,7 @@ describe("AI request pipeline", () => {
     assert.equal(called, false);
     assert.equal(response.status, "blocked");
     assert.equal(response.fallback?.reason, "secret_detected");
+    assert.match(response.fallback?.message ?? "", /AI には送信していません/);
     assert.equal(response.safety.secretScan.blocked, true);
     assert.equal(response.safety.executableOutput, false);
   });
@@ -109,6 +110,7 @@ describe("AI request pipeline", () => {
   });
 
   it("falls back without stopping the caller when a provider fails", async () => {
+    let observedProviderId = "";
     const provider = {
       id: "failing-provider",
       mode: "remote",
@@ -123,15 +125,55 @@ describe("AI request pipeline", () => {
         task: "question_rewrite",
         context: [{ label: "situation", kind: "user_text", value: "Vite が起動しません。" }]
       },
-      provider
+      provider,
+      {
+        onProviderError: (_error, failedProvider) => {
+          observedProviderId = failedProvider.id;
+        }
+      }
     );
 
     assert.equal(response.status, "fallback");
     assert.equal(response.canContinue, true);
     assert.equal(response.fallback?.reason, "provider_failed");
+    assert.match(response.fallback?.message ?? "", /質問作成は継続できます/);
     assert.equal(response.output, null);
     assert.equal(response.audit.decision, "failed");
+    assert.equal(observedProviderId, "failing-provider");
   });
+
+  for (const scenario of [
+    { code: "ETIMEDOUT", message: "provider timed out" },
+    { code: "RATE_LIMITED", message: "rate limit exceeded" },
+    { code: "ENOTFOUND", message: "network lookup failed" }
+  ]) {
+    it(`falls back for AI provider ${scenario.code}`, async () => {
+      const provider = {
+        id: `provider-${scenario.code.toLowerCase()}`,
+        mode: "remote",
+        supportsStreaming: false,
+        generate: async () => {
+          const error = new Error(scenario.message);
+          error.code = scenario.code;
+          throw error;
+        }
+      };
+
+      const response = await runAiAssistPipelineWithProvider(
+        {
+          task: "error_summary",
+          context: [{ label: "error", kind: "error", value: "TypeError: failed to fetch" }]
+        },
+        provider
+      );
+
+      assert.equal(response.status, "fallback");
+      assert.equal(response.canContinue, true);
+      assert.equal(response.fallback?.reason, "provider_failed");
+      assert.equal(response.audit.decision, "failed");
+      assert.equal(response.audit.metadata.providerId, provider.id);
+    });
+  }
 
   it("returns suggestion-only output on success", async () => {
     const provider = {
