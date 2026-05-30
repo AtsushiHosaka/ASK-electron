@@ -269,6 +269,52 @@ export interface Database {
         };
         Relationships: [];
       };
+      environment_snapshots: {
+        Row: {
+          id: string;
+          thread_id: string;
+          project_id: string;
+          os_name: string | null;
+          os_version: string | null;
+          arch: string | null;
+          git_version: string | null;
+          editor_name: string | null;
+          editor_version: string | null;
+          runtimes: Json | null;
+          package_managers: Json | null;
+          dependencies_summary: Json | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          thread_id: string;
+          project_id: string;
+          os_name?: string | null;
+          os_version?: string | null;
+          arch?: string | null;
+          git_version?: string | null;
+          editor_name?: string | null;
+          editor_version?: string | null;
+          runtimes?: Json | null;
+          package_managers?: Json | null;
+          dependencies_summary?: Json | null;
+          created_at?: string;
+        };
+        Update: {
+          thread_id?: string;
+          project_id?: string;
+          os_name?: string | null;
+          os_version?: string | null;
+          arch?: string | null;
+          git_version?: string | null;
+          editor_name?: string | null;
+          editor_version?: string | null;
+          runtimes?: Json | null;
+          package_managers?: Json | null;
+          dependencies_summary?: Json | null;
+        };
+        Relationships: [];
+      };
       audit_events: {
         Row: {
           id: string;

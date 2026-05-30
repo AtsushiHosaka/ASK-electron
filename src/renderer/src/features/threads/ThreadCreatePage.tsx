@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import type { Database } from "../../../../shared/database.types";
+import type { Database, Json } from "../../../../shared/database.types";
 import type {
+  EnvironmentSnapshotRequest,
+  EnvironmentSnapshotResponse,
   GitDiffCollectionRequest,
   GitDiffCollectionResponse,
   ProjectGitInspectionResponse,
@@ -33,6 +35,12 @@ interface GitDiffUiState {
   inspection: ProjectGitInspectionResponse | null;
 }
 
+interface EnvironmentSnapshotUiState {
+  loading: boolean;
+  response: EnvironmentSnapshotResponse | null;
+  error: string | null;
+}
+
 const initialState: ThreadCreateState = {
   loading: true,
   error: null,
@@ -45,6 +53,12 @@ const initialGitDiffState: GitDiffUiState = {
   error: null,
   selectedRoot: null,
   inspection: null
+};
+
+const initialEnvironmentSnapshotState: EnvironmentSnapshotUiState = {
+  loading: false,
+  response: null,
+  error: null
 };
 
 const secretPatterns: Array<{ label: string; pattern: RegExp }> = [
@@ -79,7 +93,8 @@ const buildInitialMessage = ({
   commandText,
   relatedFiles,
   secretScan,
-  gitDiff
+  gitDiff,
+  environmentSnapshot
 }: {
   situation: string;
   errorText: string;
@@ -87,6 +102,7 @@ const buildInitialMessage = ({
   relatedFiles: string[];
   secretScan: SecretScanResult;
   gitDiff: GitDiffCollectionResponse | null;
+  environmentSnapshot: EnvironmentSnapshotResponse | null;
 }): string => {
   const sections = [
     `## 状況説明\n${situation.trim()}`,
@@ -94,7 +110,7 @@ const buildInitialMessage = ({
     `## 実行コマンド\n${commandText.trim() || "未入力"}`,
     `## 関連ファイル\n${relatedFiles.length > 0 ? relatedFiles.join("\n") : "未選択"}`,
     buildGitDiffMessage(gitDiff),
-    "## 環境情報\n未収集。環境スナップショット機能と連携予定です。",
+    buildEnvironmentSnapshotMessage(environmentSnapshot),
     `## 秘密情報チェック\n${secretScan.blocked ? `ブロック: ${secretScan.findings.join(", ")}` : "mock チェック通過"}`
   ];
 
@@ -173,6 +189,60 @@ const buildGitDiffMessage = (gitDiff: GitDiffCollectionResponse | null): string 
   ].join("\n");
 };
 
+const formatVersionProbe = (
+  label: string,
+  probe: { available: boolean; version: string | null }
+): string => {
+  return `- ${label}: ${probe.available ? (probe.version ?? "available") : "未検出"}`;
+};
+
+const formatManifestSummary = (snapshot: EnvironmentSnapshotResponse): string => {
+  if (snapshot.dependenciesSummary.manifests.length === 0) {
+    return "manifest 未検出";
+  }
+
+  return snapshot.dependenciesSummary.manifests
+    .map((manifest) => {
+      const parts = [
+        `${manifest.file}${manifest.name ? ` (${manifest.name})` : ""}`,
+        `dependencies ${manifest.dependencies.count}`,
+        `devDependencies ${manifest.devDependencies.count}`
+      ];
+      const samples = [...manifest.dependencies.sample, ...manifest.devDependencies.sample]
+        .slice(0, 10)
+        .join(", ");
+
+      return `- ${parts.join(" / ")}${samples ? `\n  sample: ${samples}` : ""}`;
+    })
+    .join("\n");
+};
+
+const buildEnvironmentSnapshotMessage = (snapshot: EnvironmentSnapshotResponse | null): string => {
+  if (!snapshot) {
+    return "## 環境情報\n未収集。収集できない場合も質問作成は継続できます。";
+  }
+
+  return [
+    "## 環境情報",
+    `状態: ${snapshot.message}`,
+    `OS: ${snapshot.os.name} ${snapshot.os.version} (${snapshot.os.arch})`,
+    `Git: ${snapshot.gitVersion ?? "未検出"}`,
+    `Editor: ${snapshot.editor.name ?? "未検出"}${snapshot.editor.version ? ` ${snapshot.editor.version}` : ""}`,
+    "### Runtimes",
+    formatVersionProbe("Node", snapshot.runtimes.node),
+    formatVersionProbe("Python", snapshot.runtimes.python),
+    "### Package managers",
+    formatVersionProbe("npm", snapshot.packageManagers.npm),
+    formatVersionProbe("pnpm", snapshot.packageManagers.pnpm),
+    formatVersionProbe("yarn", snapshot.packageManagers.yarn),
+    formatVersionProbe("pip", snapshot.packageManagers.pip),
+    "### Dependencies",
+    formatManifestSummary(snapshot),
+    `Lockfiles: ${snapshot.dependenciesSummary.lockfiles.length > 0 ? snapshot.dependenciesSummary.lockfiles.join(", ") : "なし"}`,
+    `Warnings: ${snapshot.warnings.length > 0 ? snapshot.warnings.join(" / ") : "なし"}`
+  ].join("\n");
+};
+
 export const ThreadCreatePage = (): ReactElement => {
   const { profile } = useAuth();
   const navigate = useNavigate();
@@ -188,6 +258,8 @@ export const ThreadCreatePage = (): ReactElement => {
   const [message, setMessage] = useState<string | null>(null);
   const [messageStatus, setMessageStatus] = useState<MessageStatus>("warning");
   const [gitDiffState, setGitDiffState] = useState<GitDiffUiState>(initialGitDiffState);
+  const [environmentSnapshotState, setEnvironmentSnapshotState] =
+    useState<EnvironmentSnapshotUiState>(initialEnvironmentSnapshotState);
 
   useEffect(() => {
     let mounted = true;
@@ -314,6 +386,60 @@ export const ThreadCreatePage = (): ReactElement => {
     []
   );
 
+  const collectEnvironmentSnapshot = useCallback(
+    async (
+      input: EnvironmentSnapshotRequest,
+      options: { silent?: boolean } = {}
+    ): Promise<EnvironmentSnapshotResponse | null> => {
+      setEnvironmentSnapshotState((current) => ({
+        ...current,
+        loading: true,
+        error: null
+      }));
+
+      try {
+        const result = await window.ask.environment.collectSnapshot(input);
+
+        if (!result.ok) {
+          if (!options.silent) {
+            setMessageStatus("warning");
+            setMessage(result.error.message);
+          }
+
+          setEnvironmentSnapshotState({
+            loading: false,
+            response: null,
+            error: result.error.message
+          });
+          return null;
+        }
+
+        setEnvironmentSnapshotState({
+          loading: false,
+          response: result.data,
+          error: null
+        });
+        return result.data;
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : "環境情報を収集できませんでした。";
+
+        if (!options.silent) {
+          setMessageStatus("warning");
+          setMessage(`${errorMessage} 質問作成は継続できます。`);
+        }
+
+        setEnvironmentSnapshotState({
+          loading: false,
+          response: null,
+          error: errorMessage
+        });
+        return null;
+      }
+    },
+    []
+  );
+
   const selectGitDiffRoot = async (): Promise<void> => {
     if (!selectedProject) {
       setMessageStatus("warning");
@@ -397,12 +523,19 @@ export const ThreadCreatePage = (): ReactElement => {
       const diff = await collectGitDiff({
         projectRootId: rootResult.data.projectRootId
       });
+      const environmentSnapshot = await collectEnvironmentSnapshot(
+        {
+          projectRootId: rootResult.data.projectRootId
+        },
+        { silent: true }
+      );
 
-      if (diff) {
-        setMessageStatus(
-          diff.status === "ready" || diff.status === "empty" ? "success" : "warning"
-        );
-        setMessage(diff.message);
+      if (diff || environmentSnapshot) {
+        const success =
+          (diff?.status === "ready" || diff?.status === "empty" || !diff) &&
+          (environmentSnapshot?.status === "ready" || !environmentSnapshot);
+        setMessageStatus(success ? "success" : "warning");
+        setMessage([diff?.message, environmentSnapshot?.message].filter(Boolean).join(" "));
       }
     } catch (error) {
       const errorMessage =
@@ -434,6 +567,31 @@ export const ThreadCreatePage = (): ReactElement => {
     );
   };
 
+  const ensureEnvironmentSnapshotForSubmit =
+    async (): Promise<EnvironmentSnapshotResponse | null> => {
+      if (environmentSnapshotState.response) {
+        return environmentSnapshotState.response;
+      }
+
+      return collectEnvironmentSnapshot(
+        {
+          localPathHash: selectedProject?.local_path_hash ?? null
+        },
+        { silent: true }
+      );
+    };
+
+  const collectEnvironmentForPreview = async (): Promise<void> => {
+    const snapshot = await collectEnvironmentSnapshot({
+      localPathHash: selectedProject?.local_path_hash ?? null
+    });
+
+    if (snapshot) {
+      setMessageStatus(snapshot.status === "ready" ? "success" : "warning");
+      setMessage(snapshot.message);
+    }
+  };
+
   const gitDiffResponse = gitDiffState.response;
   const gitDiffSummary = gitDiffState.loading
     ? "収集中"
@@ -451,6 +609,23 @@ export const ThreadCreatePage = (): ReactElement => {
   const gitDiffStatus = gitDiffState.error
     ? "warning"
     : gitDiffResponse?.status === "ready" || gitDiffResponse?.status === "empty"
+      ? "success"
+      : "warning";
+  const environmentSnapshot = environmentSnapshotState.response;
+  const environmentSummary = environmentSnapshotState.loading
+    ? "収集中"
+    : environmentSnapshot
+      ? environmentSnapshot.status === "ready"
+        ? "収集済み"
+        : "一部収集"
+      : "未収集";
+  const environmentStatusMessage =
+    environmentSnapshotState.error ??
+    environmentSnapshot?.message ??
+    "OS、runtime、package manager、依存関係概要を収集します。";
+  const environmentStatus = environmentSnapshotState.error
+    ? "warning"
+    : environmentSnapshot?.status === "ready"
       ? "success"
       : "warning";
 
@@ -491,7 +666,10 @@ export const ThreadCreatePage = (): ReactElement => {
     let createdThreadId: string | null = null;
 
     try {
-      const gitDiff = await ensureGitDiffForSubmit();
+      const [gitDiff, environmentSnapshotForSubmit] = await Promise.all([
+        ensureGitDiffForSubmit(),
+        ensureEnvironmentSnapshotForSubmit()
+      ]);
       const { data: thread, error: threadError } = await supabase
         .from("threads")
         .insert({
@@ -517,7 +695,8 @@ export const ThreadCreatePage = (): ReactElement => {
         commandText,
         relatedFiles,
         secretScan,
-        gitDiff
+        gitDiff,
+        environmentSnapshot: environmentSnapshotForSubmit
       });
 
       const { error: messageError } = await supabase.from("messages").insert({
@@ -539,6 +718,29 @@ export const ThreadCreatePage = (): ReactElement => {
           createdThreadId = null;
         }
         throw messageError;
+      }
+
+      if (environmentSnapshotForSubmit) {
+        const snapshotInsert: Database["public"]["Tables"]["environment_snapshots"]["Insert"] = {
+          thread_id: thread.id,
+          project_id: selectedProject.id,
+          os_name: environmentSnapshotForSubmit.os.name,
+          os_version: environmentSnapshotForSubmit.os.version,
+          arch: environmentSnapshotForSubmit.os.arch,
+          git_version: environmentSnapshotForSubmit.gitVersion,
+          editor_name: environmentSnapshotForSubmit.editor.name,
+          editor_version: environmentSnapshotForSubmit.editor.version,
+          runtimes: environmentSnapshotForSubmit.runtimes as unknown as Json,
+          package_managers: environmentSnapshotForSubmit.packageManagers as unknown as Json,
+          dependencies_summary: environmentSnapshotForSubmit.dependenciesSummary as unknown as Json
+        };
+        const { error: snapshotError } = await supabase
+          .from("environment_snapshots")
+          .insert(snapshotInsert);
+
+        if (snapshotError) {
+          console.error("Failed to save environment snapshot", snapshotError);
+        }
       }
 
       navigate(`/threads/${thread.id}`);
@@ -611,6 +813,7 @@ export const ThreadCreatePage = (): ReactElement => {
                 onChange={(event) => {
                   setSelectedProjectId(event.target.value);
                   setGitDiffState(initialGitDiffState);
+                  setEnvironmentSnapshotState(initialEnvironmentSnapshotState);
                 }}
               >
                 {state.projects.map((project) => (
@@ -688,7 +891,15 @@ export const ThreadCreatePage = (): ReactElement => {
               <span>HEAD</span>
               <strong>{gitDiffResponse?.headShortCommit ?? "未取得"}</strong>
               <span>環境情報</span>
-              <strong>未収集</strong>
+              <strong>{environmentSummary}</strong>
+              <span>OS</span>
+              <strong>
+                {environmentSnapshot
+                  ? `${environmentSnapshot.os.name} ${environmentSnapshot.os.version}`
+                  : "未取得"}
+              </strong>
+              <span>Node</span>
+              <strong>{environmentSnapshot?.runtimes.node.version ?? "未取得"}</strong>
               <span>秘密情報チェック</span>
               <strong>{secretScan.blocked ? "送信停止" : "通過"}</strong>
               <span>関連ファイル</span>
@@ -712,6 +923,20 @@ export const ThreadCreatePage = (): ReactElement => {
                   scanner 候補: {gitDiffResponse.sensitiveFilePaths.join(", ")}
                 </p>
               ) : null}
+            </div>
+
+            <div className="git-diff-controls">
+              <button
+                className="secondary-button"
+                disabled={environmentSnapshotState.loading}
+                type="button"
+                onClick={() => void collectEnvironmentForPreview()}
+              >
+                {environmentSnapshotState.loading ? "環境情報を確認中..." : "環境情報を確認"}
+              </button>
+              <p className={`message ${environmentStatus}`} role="status">
+                {environmentStatusMessage}
+              </p>
             </div>
 
             {secretScan.blocked && (
