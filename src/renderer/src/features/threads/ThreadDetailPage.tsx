@@ -275,8 +275,8 @@ export const ThreadDetailPage = (): ReactElement => {
         }
 
         const messages = messagesResult.data ?? [];
-        const senderIds = unique(messages.map((message) => message.sender_user_id));
         const messageIds = messages.map((message) => message.id);
+        const senderIds = unique(messages.map((message) => message.sender_user_id));
         const [usersResult, projectResult, patchProposalsResult] = await Promise.all([
           senderIds.length > 0
             ? supabase.from("users").select("id,display_name,email,role").in("id", senderIds)
@@ -872,7 +872,10 @@ export const ThreadDetailPage = (): ReactElement => {
         .eq("id", message.id);
 
       if (rollbackError) {
-        console.error("Failed to rollback orphaned AI patch message", rollbackError);
+        console.error("Failed to roll back AI patch message after proposal save failed", {
+          proposalError: patchProposalError,
+          rollbackError
+        });
       }
 
       throw patchProposalError;
@@ -1180,10 +1183,10 @@ const MessageBubble = ({
       {message.message_type === "patch" ? (
         <PatchReviewPanel
           canReviewPatch={canReviewPatch}
+          patchProposal={patchProposal}
           projectHasLocalRoot={projectHasLocalRoot}
           projectName={projectName}
           review={patchReview}
-          patchProposal={patchProposal}
           patchText={message.body}
           onApplyPatch={onApplyPatch}
           onDismissPatch={onDismissPatch}
@@ -1197,10 +1200,10 @@ const MessageBubble = ({
 
 const PatchReviewPanel = ({
   review,
+  patchProposal,
   canReviewPatch,
   projectHasLocalRoot,
   projectName,
-  patchProposal,
   patchText,
   onValidatePatch,
   onApplyPatch,
@@ -1208,10 +1211,10 @@ const PatchReviewPanel = ({
   onDismissPatch
 }: {
   review: PatchReviewState;
+  patchProposal: PatchProposalSummary | null;
   canReviewPatch: boolean;
   projectHasLocalRoot: boolean;
   projectName: string | null;
-  patchProposal: PatchProposalSummary | null;
   patchText: string;
   onValidatePatch: () => void;
   onApplyPatch: () => void;

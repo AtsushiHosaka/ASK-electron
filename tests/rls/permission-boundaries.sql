@@ -304,7 +304,7 @@ select pg_temp.assert_rejected(
       'applied'
     )
   $statement$,
-  'student cannot create AI patch proposal outside proposed status'
+  'student cannot create AI patch proposal with non-proposed status'
 );
 update public.patch_proposals
 set status = 'dismissed'
