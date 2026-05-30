@@ -17,6 +17,9 @@ const invoke = <TChannel extends IpcChannelName>(
 const api: RendererApi = {
   app: {
     getRuntimeInfo: () => invoke(IpcChannel.AppGetRuntimeInfo)
+  },
+  diagnostics: {
+    runLocal: () => invoke(IpcChannel.DiagnosticsRunLocal)
   }
 };
 
