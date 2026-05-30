@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import {
   IpcChannel,
   type AppRuntimeInfoResponse,
+  type EnvironmentSnapshotRequest,
+  type EnvironmentSnapshotResponse,
   type GitDiffCollectionRequest,
   type GitDiffCollectionResponse,
   type GitignoreApplyRequest,
@@ -17,6 +19,7 @@ import {
   type ProjectGitInspectionResponse,
   type ProjectRootSelectionResponse
 } from "../shared/ipc";
+import { collectEnvironmentSnapshot } from "./environmentSnapshotCollector";
 import { collectGitDiff } from "./gitDiffCollector";
 import { applyGitignore, previewGitignore } from "./gitignoreWorkflow";
 import { runLocalDiagnostics } from "./localDiagnostics";
@@ -64,6 +67,15 @@ const isProjectGitInspectionRequest = (value: unknown): value is ProjectGitInspe
 };
 
 const isGitDiffCollectionRequest = (value: unknown): value is GitDiffCollectionRequest => {
+  return (
+    isRecord(value) &&
+    (typeof value.projectRootId === "string" ||
+      typeof value.localPathHash === "string" ||
+      value.localPathHash === null)
+  );
+};
+
+const isEnvironmentSnapshotRequest = (value: unknown): value is EnvironmentSnapshotRequest => {
   return (
     isRecord(value) &&
     (typeof value.projectRootId === "string" ||
@@ -187,6 +199,34 @@ export const registerIpcHandlers = (): void => {
         IpcChannel.GitDiffCollect,
         "GIT_DIFF_COLLECT_FAILED",
         "Git差分を収集できませんでした。質問作成は継続できます。"
+      );
+    }
+  });
+
+  ipcMain.handle(IpcChannel.EnvironmentSnapshotCollect, async (_event, input) => {
+    try {
+      if (!isEnvironmentSnapshotRequest(input)) {
+        return fail(
+          IpcChannel.EnvironmentSnapshotCollect,
+          "VALIDATION_FAILED",
+          "環境情報収集リクエストが正しくありません。"
+        );
+      }
+
+      return ok(
+        IpcChannel.EnvironmentSnapshotCollect,
+        (await collectEnvironmentSnapshot(input)) satisfies EnvironmentSnapshotResponse
+      );
+    } catch (error) {
+      console.error(
+        `[${IpcChannel.EnvironmentSnapshotCollect}] environment snapshot collection failed`,
+        error
+      );
+
+      return fail(
+        IpcChannel.EnvironmentSnapshotCollect,
+        "ENVIRONMENT_SNAPSHOT_COLLECT_FAILED",
+        "環境情報を収集できませんでした。質問作成は継続できます。"
       );
     }
   });

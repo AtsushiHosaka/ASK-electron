@@ -4,6 +4,7 @@ export const IpcChannel = {
   ProjectSelectRoot: "ask:v1:project:select-root",
   ProjectInspectGit: "ask:v1:project:inspect-git",
   GitDiffCollect: "ask:v1:git-diff:collect",
+  EnvironmentSnapshotCollect: "ask:v1:environment-snapshot:collect",
   GitignorePreview: "ask:v1:gitignore:preview",
   GitignoreApply: "ask:v1:gitignore:apply"
 } as const;
@@ -224,6 +225,72 @@ export interface GitDiffCollectionResponse {
   message: string;
 }
 
+export type EnvironmentSnapshotStatus = "ready" | "partial";
+
+export interface EnvironmentSnapshotRequest {
+  projectRootId?: string;
+  localPathHash?: string | null;
+}
+
+export interface VersionProbe {
+  available: boolean;
+  version: string | null;
+}
+
+export interface DependencyGroupSummary {
+  count: number;
+  sample: string[];
+}
+
+export interface ManifestDependencySummary {
+  file: string;
+  kind: "node" | "python";
+  name: string | null;
+  dependencies: DependencyGroupSummary;
+  devDependencies: DependencyGroupSummary;
+}
+
+export interface EnvironmentSnapshotResponse {
+  contractVersion: "v1";
+  status: EnvironmentSnapshotStatus;
+  collectedAt: string;
+  canContinue: boolean;
+  projectRootId: string | null;
+  displayName: string | null;
+  os: {
+    name: string;
+    version: string;
+    arch: string;
+  };
+  gitVersion: string | null;
+  editor: {
+    name: string | null;
+    version: string | null;
+  };
+  runtimes: {
+    node: VersionProbe;
+    python: VersionProbe;
+  };
+  packageManagers: {
+    npm: VersionProbe;
+    pnpm: VersionProbe;
+    yarn: VersionProbe;
+    pip: VersionProbe;
+  };
+  dependenciesSummary: {
+    projectDetected: boolean;
+    manifests: ManifestDependencySummary[];
+    lockfiles: string[];
+    warnings: string[];
+  };
+  warnings: string[];
+  limits: {
+    timeoutMs: number;
+    dependencySampleLimit: number;
+  };
+  message: string;
+}
+
 export type GitignoreProjectKind = "node" | "electron" | "python" | "generic";
 
 export interface GitignorePreviewRequest {
@@ -275,6 +342,7 @@ export interface IpcRequestMap {
   [IpcChannel.ProjectSelectRoot]: [];
   [IpcChannel.ProjectInspectGit]: [ProjectGitInspectionRequest];
   [IpcChannel.GitDiffCollect]: [GitDiffCollectionRequest];
+  [IpcChannel.EnvironmentSnapshotCollect]: [EnvironmentSnapshotRequest];
   [IpcChannel.GitignorePreview]: [GitignorePreviewRequest];
   [IpcChannel.GitignoreApply]: [GitignoreApplyRequest];
 }
@@ -285,6 +353,7 @@ export interface IpcResponseMap {
   [IpcChannel.ProjectSelectRoot]: IpcResult<ProjectRootSelectionResponse>;
   [IpcChannel.ProjectInspectGit]: IpcResult<ProjectGitInspectionResponse>;
   [IpcChannel.GitDiffCollect]: IpcResult<GitDiffCollectionResponse>;
+  [IpcChannel.EnvironmentSnapshotCollect]: IpcResult<EnvironmentSnapshotResponse>;
   [IpcChannel.GitignorePreview]: IpcResult<GitignorePreviewResponse>;
   [IpcChannel.GitignoreApply]: IpcResult<GitignoreApplyResponse>;
 }
@@ -306,6 +375,11 @@ export interface RendererApi {
     collect: (
       input: GitDiffCollectionRequest
     ) => Promise<IpcResponseMap[typeof IpcChannel.GitDiffCollect]>;
+  };
+  environment: {
+    collectSnapshot: (
+      input: EnvironmentSnapshotRequest
+    ) => Promise<IpcResponseMap[typeof IpcChannel.EnvironmentSnapshotCollect]>;
   };
   gitignore: {
     preview: (
