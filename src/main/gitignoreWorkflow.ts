@@ -9,7 +9,7 @@ import type {
   GitignoreProjectKind,
   GitignoreRecommendationEntry
 } from "../shared/ipc";
-import { getSelectedProjectRoot } from "./projectRoots";
+import { getSelectedProjectRoot } from "./projectRootRegistry";
 
 interface RecommendationTemplate {
   pattern: string;
@@ -41,6 +41,48 @@ const recommendationTemplates: RecommendationTemplate[] = [
   {
     pattern: ".env.*",
     reason: ".env.local や .env.production などの派生ファイルを除外します。",
+    required: true,
+    kinds: ["generic"]
+  },
+  {
+    pattern: ".ssh/",
+    reason: "誤って置かれたSSH鍵ディレクトリをGit管理から外します。",
+    required: true,
+    kinds: ["generic"]
+  },
+  {
+    pattern: "id_rsa",
+    reason: "SSH秘密鍵をGit管理から外します。",
+    required: true,
+    kinds: ["generic"]
+  },
+  {
+    pattern: "id_dsa",
+    reason: "SSH秘密鍵をGit管理から外します。",
+    required: true,
+    kinds: ["generic"]
+  },
+  {
+    pattern: "id_ecdsa",
+    reason: "SSH秘密鍵をGit管理から外します。",
+    required: true,
+    kinds: ["generic"]
+  },
+  {
+    pattern: "id_ed25519",
+    reason: "SSH秘密鍵をGit管理から外します。",
+    required: true,
+    kinds: ["generic"]
+  },
+  {
+    pattern: "*.pem",
+    reason: "秘密鍵や証明書ファイルをGit管理から外します。",
+    required: true,
+    kinds: ["generic"]
+  },
+  {
+    pattern: "*.key",
+    reason: "秘密鍵ファイルをGit管理から外します。",
     required: true,
     kinds: ["generic"]
   },
