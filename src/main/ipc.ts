@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, type OpenDialogOptions } from "electron";
 import { randomUUID } from "node:crypto";
 import {
   IpcChannel,
@@ -25,7 +25,9 @@ import {
   type ProjectGitInspectionResponse,
   type ProjectRootReconnectRequest,
   type ProjectRootReconnectResponse,
-  type ProjectRootSelectionResponse
+  type ProjectRootSelectionResponse,
+  type RelatedFileSelectionRequest,
+  type RelatedFileSelectionResponse
 } from "../shared/ipc";
 import {
   AI_PIPELINE_LIMITS,
@@ -44,6 +46,11 @@ import { applyPatch, revertPatch, validatePatch } from "./patchWorkflow";
 import { inspectProjectGit } from "./projectGitInspector";
 import { reconnectProjectRoot } from "./projectRootReconnect";
 import { selectProjectRoot } from "./projectRoots";
+import {
+  collectRelatedFileSnippets,
+  createRelatedFileCanceledResponse,
+  resolveRelatedFileProjectRoot
+} from "./relatedFileSnippets";
 
 const createMetadata = (channel: IpcChannelName): IpcAuditMetadata => ({
   channel,
@@ -153,6 +160,14 @@ const isProjectRootReconnectRequest = (value: unknown): value is ProjectRootReco
     typeof value.expectedGithubRepoUrl === "string" &&
     value.expectedGithubRepoUrl.startsWith("https://github.com/") &&
     value.expectedGithubRepoUrl.length <= 300
+  );
+};
+
+const isRelatedFileSelectionRequest = (value: unknown): value is RelatedFileSelectionRequest => {
+  return (
+    isRecord(value) &&
+    (value.localPathHash === null ||
+      (typeof value.localPathHash === "string" && /^[a-f0-9]{64}$/i.test(value.localPathHash)))
   );
 };
 
@@ -365,6 +380,62 @@ export const registerIpcHandlers = (): void => {
         IpcChannel.ProjectReconnectRoot,
         "PROJECT_ROOT_RECONNECT_FAILED",
         "ローカルフォルダを再接続できませんでした。"
+      );
+    }
+  });
+
+  ipcMain.handle(IpcChannel.RelatedFilesSelect, async (event, input) => {
+    try {
+      if (!isRelatedFileSelectionRequest(input)) {
+        return fail(
+          IpcChannel.RelatedFilesSelect,
+          "VALIDATION_FAILED",
+          "関連ファイル選択リクエストが正しくありません。"
+        );
+      }
+
+      const root = await resolveRelatedFileProjectRoot(input);
+
+      if (!root) {
+        return ok(
+          IpcChannel.RelatedFilesSelect,
+          (await collectRelatedFileSnippets(input, [])) satisfies RelatedFileSelectionResponse
+        );
+      }
+
+      const dialogOptions: OpenDialogOptions = {
+        title: "ASK 関連ファイルを選択",
+        buttonLabel: "スニペット候補に追加",
+        defaultPath: root.rootPath,
+        properties: ["openFile", "multiSelections"]
+      };
+      const ownerWindow = BrowserWindow.fromWebContents(event.sender);
+      const result = ownerWindow
+        ? await dialog.showOpenDialog(ownerWindow, dialogOptions)
+        : await dialog.showOpenDialog(dialogOptions);
+
+      if (result.canceled || result.filePaths.length === 0) {
+        return ok(
+          IpcChannel.RelatedFilesSelect,
+          createRelatedFileCanceledResponse(root) satisfies RelatedFileSelectionResponse
+        );
+      }
+
+      return ok(
+        IpcChannel.RelatedFilesSelect,
+        (await collectRelatedFileSnippets(
+          input,
+          result.filePaths,
+          root
+        )) satisfies RelatedFileSelectionResponse
+      );
+    } catch (error) {
+      console.error(`[${IpcChannel.RelatedFilesSelect}] related file selection failed`, error);
+
+      return fail(
+        IpcChannel.RelatedFilesSelect,
+        "RELATED_FILES_SELECT_FAILED",
+        "関連ファイルを選択できませんでした。"
       );
     }
   });

@@ -29,6 +29,9 @@ const api: RendererApi = {
     inspectGit: (input) => invoke(IpcChannel.ProjectInspectGit, input),
     reconnectRoot: (input) => invoke(IpcChannel.ProjectReconnectRoot, input)
   },
+  relatedFiles: {
+    select: (input) => invoke(IpcChannel.RelatedFilesSelect, input)
+  },
   gitDiff: {
     collect: (input) => invoke(IpcChannel.GitDiffCollect, input)
   },

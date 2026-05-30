@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactElement } from "react";
+import { useEffect, useMemo, useState, type ReactElement, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import type { AiAssistRequest, AiContextEntry } from "../../../../shared/aiPipeline";
 import type {
@@ -141,6 +141,80 @@ const patchProposalStatusLabels: Record<PatchStatus, string> = {
   failed: "失敗",
   reverted: "取り消し済み",
   dismissed: "却下済み"
+};
+
+type TextMessagePart =
+  | { type: "text"; content: string }
+  | { type: "code"; content: string; language: string | null };
+
+const parseTextMessageParts = (body: string): TextMessagePart[] => {
+  const parts: TextMessagePart[] = [];
+  const fencePattern = /^(`{3,})([a-z0-9_+-]*)\s*$/gim;
+  let cursor = 0;
+  let openingMatch: RegExpExecArray | null;
+
+  while ((openingMatch = fencePattern.exec(body)) !== null) {
+    const openingFence = openingMatch[1];
+    const language = openingMatch[2]?.trim() || null;
+    const codeStart = fencePattern.lastIndex;
+    const closingPattern = new RegExp(`^${openingFence}\\s*$`, "gim");
+    closingPattern.lastIndex = codeStart;
+    const closingMatch = closingPattern.exec(body);
+
+    if (!closingMatch) {
+      break;
+    }
+
+    if (openingMatch.index > cursor) {
+      parts.push({ type: "text", content: body.slice(cursor, openingMatch.index) });
+    }
+
+    parts.push({
+      type: "code",
+      language,
+      content: body
+        .slice(codeStart, closingMatch.index)
+        .replace(/^\r?\n/, "")
+        .replace(/\r?\n$/, "")
+    });
+    cursor = closingPattern.lastIndex;
+    fencePattern.lastIndex = closingPattern.lastIndex;
+  }
+
+  if (cursor < body.length) {
+    parts.push({ type: "text", content: body.slice(cursor) });
+  }
+
+  return parts.length > 0 ? parts : [{ type: "text", content: body }];
+};
+
+const renderTextWithLineBreaks = (content: string): ReactNode[] =>
+  content.split(/\r?\n/).map((line, index, lines) => (
+    <span key={`${index}-${line}`}>
+      {line}
+      {index < lines.length - 1 ? <br /> : null}
+    </span>
+  ));
+
+const TextMessageBody = ({ body }: { body: string }): ReactElement => {
+  const parts = useMemo(() => parseTextMessageParts(body), [body]);
+
+  return (
+    <div className="text-message-body">
+      {parts.map((part, index) =>
+        part.type === "code" ? (
+          <CodeContextViewer
+            content={part.content}
+            kind="code"
+            key={`${index}-code`}
+            language={part.language}
+          />
+        ) : part.content.trim().length > 0 ? (
+          <p key={`${index}-text`}>{renderTextWithLineBreaks(part.content.trim())}</p>
+        ) : null
+      )}
+    </div>
+  );
 };
 
 const THREAD_AI_MESSAGE_CHAR_LIMIT = 1_000;
@@ -1433,7 +1507,7 @@ const MessageBubble = ({
       {isCodeLike ? (
         <CodeContextViewer content={message.body} kind={viewerKind} />
       ) : (
-        <p>{message.body}</p>
+        <TextMessageBody body={message.body} />
       )}
 
       {message.message_type === "patch" ? (
