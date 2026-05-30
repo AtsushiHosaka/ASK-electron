@@ -237,6 +237,47 @@ const sortMessages = (messages: MessageRow[]): MessageRow[] => {
   );
 };
 
+const upsertMessage = (messages: MessageRow[], nextMessage: MessageRow): MessageRow[] => {
+  const withoutCurrent = messages.filter((message) => message.id !== nextMessage.id);
+  return sortMessages([...withoutCurrent, nextMessage]);
+};
+
+const removeMessage = (messages: MessageRow[], messageId: string): MessageRow[] => {
+  return messages.filter((message) => message.id !== messageId);
+};
+
+const upsertPatchProposal = (
+  proposalsByMessageId: Map<string, PatchProposalSummary>,
+  proposal: PatchProposalSummary
+): Map<string, PatchProposalSummary> => {
+  const nextProposalsByMessageId = new Map(proposalsByMessageId);
+  nextProposalsByMessageId.set(proposal.message_id, proposal);
+  return nextProposalsByMessageId;
+};
+
+const removePatchProposal = (
+  proposalsByMessageId: Map<string, PatchProposalSummary>,
+  deletedProposal: Partial<PatchProposalRow>
+): Map<string, PatchProposalSummary> => {
+  const nextProposalsByMessageId = new Map(proposalsByMessageId);
+
+  if (deletedProposal.message_id) {
+    nextProposalsByMessageId.delete(deletedProposal.message_id);
+    return nextProposalsByMessageId;
+  }
+
+  if (deletedProposal.id) {
+    for (const [messageId, proposal] of nextProposalsByMessageId.entries()) {
+      if (proposal.id === deletedProposal.id) {
+        nextProposalsByMessageId.delete(messageId);
+        break;
+      }
+    }
+  }
+
+  return nextProposalsByMessageId;
+};
+
 const initialPatchReviewState: PatchReviewState = {
   validating: false,
   applying: false,
@@ -431,33 +472,150 @@ export const ThreadDetailPage = (): ReactElement => {
       return;
     }
 
+    let mounted = true;
+
+    const loadSender = async (senderUserId: string | null): Promise<void> => {
+      if (!senderUserId) {
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("users")
+        .select("id,display_name,email,role")
+        .eq("id", senderUserId)
+        .maybeSingle();
+
+      if (!mounted) {
+        return;
+      }
+
+      if (error || !data) {
+        if (error) {
+          console.warn("Failed to load realtime message sender", error);
+        }
+        return;
+      }
+
+      setState((current) => {
+        if (current.usersById.has(data.id)) {
+          return current;
+        }
+
+        const nextUsersById = new Map(current.usersById);
+        nextUsersById.set(data.id, data);
+
+        return {
+          ...current,
+          usersById: nextUsersById
+        };
+      });
+    };
+
     const channel = supabase
-      .channel(`thread-messages-${threadId}`)
+      .channel(`thread-detail-${threadId}`)
       .on(
         "postgres_changes",
         {
-          event: "INSERT",
+          event: "*",
           schema: "public",
           table: "messages",
           filter: `thread_id=eq.${threadId}`
         },
         (payload) => {
+          if (payload.eventType === "DELETE") {
+            const deletedMessage = payload.old as Partial<MessageRow>;
+
+            if (!deletedMessage.id) {
+              return;
+            }
+
+            const deletedMessageId = deletedMessage.id;
+            setState((current) => ({
+              ...current,
+              messages: removeMessage(current.messages, deletedMessageId),
+              patchProposalsByMessageId: removePatchProposal(current.patchProposalsByMessageId, {
+                message_id: deletedMessageId
+              })
+            }));
+            setPatchReviews((current) => {
+              const nextReviews = { ...current };
+              delete nextReviews[deletedMessageId];
+              return nextReviews;
+            });
+            return;
+          }
+
           const nextMessage = payload.new as MessageRow;
           setState((current) => {
-            if (current.messages.some((message) => message.id === nextMessage.id)) {
+            if (nextMessage.thread_id !== threadId) {
               return current;
             }
 
             return {
               ...current,
-              messages: sortMessages([...current.messages, nextMessage])
+              messages: upsertMessage(current.messages, nextMessage)
             };
           });
+          void loadSender(nextMessage.sender_user_id);
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "patch_proposals",
+          filter: `thread_id=eq.${threadId}`
+        },
+        (payload) => {
+          if (payload.eventType === "DELETE") {
+            const deletedProposal = payload.old as Partial<PatchProposalRow>;
+            setState((current) => ({
+              ...current,
+              patchProposalsByMessageId: removePatchProposal(
+                current.patchProposalsByMessageId,
+                deletedProposal
+              )
+            }));
+            return;
+          }
+
+          const nextProposal = payload.new as PatchProposalSummary & { thread_id?: string };
+          setState((current) => ({
+            ...current,
+            patchProposalsByMessageId: upsertPatchProposal(
+              current.patchProposalsByMessageId,
+              nextProposal
+            )
+          }));
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "threads",
+          filter: `id=eq.${threadId}`
+        },
+        (payload) => {
+          const nextThread = payload.new as ThreadRow;
+          setState((current) => ({
+            ...current,
+            thread:
+              current.thread && current.thread.id === nextThread.id
+                ? {
+                    ...current.thread,
+                    ...nextThread
+                  }
+                : current.thread
+          }));
         }
       )
       .subscribe();
 
     return () => {
+      mounted = false;
       void supabase.removeChannel(channel);
     };
   }, [supabase, threadId]);
