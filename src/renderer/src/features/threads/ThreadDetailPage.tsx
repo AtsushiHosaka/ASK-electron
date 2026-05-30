@@ -22,7 +22,7 @@ import {
   validatePatchProposalDraft,
   type PatchProposalDraft
 } from "../../../../shared/patchProposal";
-import { scanSecrets } from "../../../../shared/secretScanner";
+import { scanSecrets, type SecretScanFinding } from "../../../../shared/secretScanner";
 import { CodeContextViewer } from "../../components/CodeContextViewer";
 import { useAuth } from "../auth/AuthProvider";
 import { getSupabaseClient } from "../../lib/supabase";
@@ -154,6 +154,8 @@ const patchProposalStatusLabels: Record<PatchStatus, string> = {
   dismissed: "却下済み"
 };
 
+const AI_ESCALATION_MESSAGE_LIMIT = 8;
+
 type TextMessagePart =
   | { type: "text"; content: string }
   | { type: "code"; content: string; language: string | null };
@@ -227,6 +229,11 @@ const TextMessageBody = ({ body }: { body: string }): ReactElement => {
       )}
     </div>
   );
+};
+
+const formatSecretFindingForUi = (finding: SecretScanFinding): string => {
+  const line = finding.lineNumber ? `:${finding.lineNumber}` : "";
+  return `${finding.sourceLabel}${line} - ${finding.message}`;
 };
 
 const THREAD_AI_MESSAGE_CHAR_LIMIT = 1_000;
@@ -380,10 +387,19 @@ export const ThreadDetailPage = (): ReactElement => {
   const [lifecycleMessage, setLifecycleMessage] = useState<string | null>(null);
   const [lifecycleMessageStatus, setLifecycleMessageStatus] =
     useState<LifecycleMessageStatus>("success");
+  const [aiEscalationConfirmation, setAiEscalationConfirmation] = useState("");
+  const [aiEscalationReviewOpen, setAiEscalationReviewOpen] = useState(false);
+  const [aiEscalating, setAiEscalating] = useState(false);
+  const [aiEscalationMessage, setAiEscalationMessage] = useState<string | null>(null);
+  const [aiEscalationMessageStatus, setAiEscalationMessageStatus] =
+    useState<LifecycleMessageStatus>("success");
+  const [aiEscalationAllowedFindingIds, setAiEscalationAllowedFindingIds] = useState<string[]>([]);
   const canUseTeacherLifecycleControls = profile?.role === "teacher" || profile?.role === "admin";
   const canUseStudentLifecycleControls =
     profile?.role === "student" && state.thread?.created_by === profile.id;
   const canUseLifecycleControls = canUseTeacherLifecycleControls || canUseStudentLifecycleControls;
+  const canEscalateAiToTeacher =
+    profile?.role === "student" && state.thread?.created_by === profile.id;
 
   useEffect(() => {
     let mounted = true;
@@ -1080,6 +1096,220 @@ export const ThreadDetailPage = (): ReactElement => {
     return entries.filter((entry) => entry.value.trim().length > 0);
   };
 
+  const formatEscalationTranscriptMessage = (message: MessageRow): string => {
+    const sender =
+      message.sender_user_id !== null
+        ? (state.usersById.get(message.sender_user_id)?.display_name ??
+          senderLabels[message.sender_type])
+        : senderLabels[message.sender_type];
+    const patchProposal = state.patchProposalsByMessageId.get(message.id);
+    const proposalLabel =
+      patchProposal?.created_by_type === "ai"
+        ? " / AIパッチ提案"
+        : patchProposal
+          ? " / 先生パッチ提案"
+          : "";
+
+    return [
+      `### ${sender} / ${messageTypeLabels[message.message_type]}${proposalLabel}`,
+      clipThreadAiText(message.body)
+    ].join("\n");
+  };
+
+  const buildAiEscalationMessageBody = (): string => {
+    if (!state.thread) {
+      return "";
+    }
+
+    const aiMessages = state.messages.filter((message) => {
+      const patchProposal = state.patchProposalsByMessageId.get(message.id);
+      return (
+        message.sender_type === "ai" ||
+        message.message_type === "ai_summary" ||
+        patchProposal?.created_by_type === "ai"
+      );
+    });
+    const aiTranscript = aiMessages
+      .slice(-AI_ESCALATION_MESSAGE_LIMIT)
+      .map(formatEscalationTranscriptMessage)
+      .join("\n\n---\n\n");
+    const recentContext = state.messages
+      .slice(-AI_ESCALATION_MESSAGE_LIMIT)
+      .map(formatEscalationTranscriptMessage)
+      .join("\n\n---\n\n");
+    const aiFailureContext = [
+      aiError ? `- 原因候補: ${aiError}` : null,
+      aiPatchError ? `- パッチ案: ${aiPatchError}` : null
+    ]
+      .filter((entry): entry is string => Boolean(entry))
+      .join("\n");
+
+    return [
+      "## 先生へのエスカレーション",
+      aiEscalationConfirmation.trim(),
+      "",
+      "## 現在のスレッド",
+      `- タイトル: ${state.thread.title}`,
+      `- 状態: ${statusLabels[state.thread.status]}`,
+      `- メッセージ数: ${state.messages.length}`,
+      "",
+      "## AI補助コンテキスト",
+      aiTranscript || "保存済みの AI 補助メッセージはまだありません。",
+      "",
+      aiFailureContext ? `## 直近AIエラー\n${aiFailureContext}` : null,
+      "",
+      "## 直近スレッド文脈",
+      recentContext || "まだメッセージがありません。",
+      "",
+      "## 注意",
+      "AI 出力は補助情報です。確定回答ではなく、先生が確認してから判断してください。"
+    ]
+      .filter((section): section is string => section !== null)
+      .join("\n");
+  };
+
+  const getEscalatedThreadStatus = (status: ThreadStatus): ThreadStatus => {
+    if (status === "resolved" || status === "waiting_student" || status === "patch_proposed") {
+      return "reopened";
+    }
+
+    return status;
+  };
+
+  const openAiEscalationReview = (): void => {
+    if (!canEscalateAiToTeacher) {
+      setAiEscalationMessageStatus("warning");
+      setAiEscalationMessage("先生へのエスカレーションは生徒本人のスレッドで利用できます。");
+      return;
+    }
+
+    if (!aiEscalationConfirmation.trim()) {
+      setAiEscalationMessageStatus("warning");
+      setAiEscalationMessage("先生に確認してほしい内容を入力してください。");
+      return;
+    }
+
+    setAiEscalationAllowedFindingIds([]);
+    setAiEscalationMessage(null);
+    setAiEscalationReviewOpen(true);
+  };
+
+  const setAiEscalationFindingAllowed = (findingId: string, allowed: boolean): void => {
+    setAiEscalationAllowedFindingIds((current) => {
+      if (allowed) {
+        return current.includes(findingId) ? current : [...current, findingId];
+      }
+
+      return current.filter((id) => id !== findingId);
+    });
+  };
+
+  const submitAiEscalationToTeacher = async (): Promise<void> => {
+    if (!supabase || !profile || !state.thread) {
+      setAiEscalationMessageStatus("error");
+      setAiEscalationMessage("エスカレーションに必要な情報を確認できませんでした。");
+      return;
+    }
+
+    if (!canEscalateAiToTeacher) {
+      setAiEscalationMessageStatus("warning");
+      setAiEscalationMessage("先生へのエスカレーションは生徒本人のスレッドで利用できます。");
+      return;
+    }
+
+    if (!aiEscalationReviewOpen) {
+      setAiEscalationMessageStatus("warning");
+      setAiEscalationMessage("送信前プレビューで内容を確認してください。");
+      return;
+    }
+
+    if (aiEscalationSecretScan.blocked || aiEscalationSecretScan.hasWarnings) {
+      setAiEscalationMessageStatus(aiEscalationSecretScan.blocked ? "error" : "warning");
+      setAiEscalationMessage(
+        aiEscalationSecretScan.blocked
+          ? "秘密情報の可能性がある内容を検出したため送信を止めました。"
+          : "低リスクの秘密情報候補を確認し、送信する項目を許可してください。"
+      );
+      return;
+    }
+
+    const previousThread = state.thread;
+    const nextStatus = getEscalatedThreadStatus(previousThread.status);
+    const changedAt = new Date().toISOString();
+    const body = aiEscalationPreviewBody;
+
+    setAiEscalating(true);
+    setAiEscalationMessage(null);
+
+    try {
+      const { error: threadUpdateError } = await supabase
+        .from("threads")
+        .update({
+          status: nextStatus,
+          ai_used: true,
+          updated_at: changedAt
+        })
+        .eq("id", previousThread.id);
+
+      if (threadUpdateError) {
+        throw threadUpdateError;
+      }
+
+      const { data: escalationMessage, error: messageError } = await supabase
+        .from("messages")
+        .insert({
+          thread_id: previousThread.id,
+          sender_user_id: profile.id,
+          sender_type: "student",
+          body,
+          message_type: "ai_summary"
+        })
+        .select(
+          "id,thread_id,sender_user_id,sender_type,body,message_type,reply_to_message_id,created_at"
+        )
+        .single();
+
+      if (messageError) {
+        const { error: rollbackError } = await supabase
+          .from("threads")
+          .update({
+            status: previousThread.status,
+            ai_used: previousThread.ai_used,
+            updated_at: previousThread.updated_at
+          })
+          .eq("id", previousThread.id);
+
+        if (rollbackError) {
+          console.error("Failed to rollback AI escalation thread update", rollbackError);
+        }
+
+        throw messageError;
+      }
+
+      setState((current) => ({
+        ...current,
+        thread:
+          current.thread?.id === previousThread.id
+            ? { ...current.thread, status: nextStatus, ai_used: true, updated_at: changedAt }
+            : current.thread,
+        messages: escalationMessage
+          ? upsertMessage(current.messages, escalationMessage)
+          : current.messages
+      }));
+      setAiEscalationConfirmation("");
+      setAiEscalationAllowedFindingIds([]);
+      setAiEscalationReviewOpen(false);
+      setAiEscalationMessageStatus("success");
+      setAiEscalationMessage("AI補助の文脈を先生へ共有しました。");
+    } catch (error) {
+      console.error("Failed to escalate AI context to teacher", error);
+      setAiEscalationMessageStatus("error");
+      setAiEscalationMessage("先生へのエスカレーションを送信できませんでした。");
+    } finally {
+      setAiEscalating(false);
+    }
+  };
+
   const generateCauseCandidates = async (): Promise<void> => {
     if (!supabase || !profile || !state.thread) {
       setAiError("AI 補助に必要な情報を確認できませんでした。");
@@ -1524,6 +1754,16 @@ export const ThreadDetailPage = (): ReactElement => {
     }
   };
 
+  const aiEscalationPreviewBody = state.thread ? buildAiEscalationMessageBody() : "";
+  const aiEscalationSecretScan = scanSecrets({
+    textEntries: [{ label: "AIエスカレーション本文", value: aiEscalationPreviewBody }],
+    allowedFindingIds: aiEscalationAllowedFindingIds
+  });
+  const aiEscalationFindingsForPreview = [
+    ...aiEscalationSecretScan.activeFindings,
+    ...aiEscalationSecretScan.allowedFindings
+  ];
+
   if (state.loading) {
     return <ThreadStatePage title="読み込み中" body="スレッドを確認しています。" />;
   }
@@ -1791,6 +2031,34 @@ export const ThreadDetailPage = (): ReactElement => {
             <p className="message warning" role="status">
               AI 出力は提案です。パッチ案は proposed として保存し、承認なしに適用しません。
             </p>
+            {canEscalateAiToTeacher ? (
+              <div className="ai-escalation-panel">
+                <label>
+                  先生への確認メモ
+                  <textarea
+                    rows={4}
+                    value={aiEscalationConfirmation}
+                    onChange={(event) => setAiEscalationConfirmation(event.target.value)}
+                  />
+                </label>
+                <button
+                  className="secondary-button"
+                  disabled={aiEscalating || !aiEscalationConfirmation.trim()}
+                  type="button"
+                  onClick={openAiEscalationReview}
+                >
+                  先生にエスカレーション
+                </button>
+              </div>
+            ) : null}
+            {aiEscalationMessage ? (
+              <p
+                className={`message ${aiEscalationMessageStatus}`}
+                role={aiEscalationMessageStatus === "error" ? "alert" : "status"}
+              >
+                {aiEscalationMessage}
+              </p>
+            ) : null}
             {aiError ? (
               <p className="message error" role="alert">
                 {aiError}
@@ -1811,6 +2079,120 @@ export const ThreadDetailPage = (): ReactElement => {
           </Link>
         </aside>
       </div>
+
+      {aiEscalationReviewOpen ? (
+        <div className="review-modal-backdrop" role="presentation">
+          <div
+            aria-labelledby="ai-escalation-review-title"
+            aria-modal="true"
+            className="review-modal"
+            role="dialog"
+            tabIndex={-1}
+          >
+            <header>
+              <div>
+                <p className="eyebrow">Review</p>
+                <h2 id="ai-escalation-review-title">送信前プレビュー</h2>
+              </div>
+              <button
+                className="secondary-button"
+                disabled={aiEscalating}
+                type="button"
+                onClick={() => setAiEscalationReviewOpen(false)}
+              >
+                閉じる
+              </button>
+            </header>
+
+            <label>
+              先生への確認メモ（編集可）
+              <textarea
+                rows={4}
+                value={aiEscalationConfirmation}
+                onChange={(event) => setAiEscalationConfirmation(event.target.value)}
+              />
+            </label>
+
+            <section className="review-section">
+              <h3>秘密情報チェック</h3>
+              <p
+                className={`message ${
+                  aiEscalationSecretScan.blocked
+                    ? "error"
+                    : aiEscalationSecretScan.hasWarnings
+                      ? "warning"
+                      : "success"
+                }`}
+              >
+                {aiEscalationSecretScan.blocked
+                  ? `ブロック: ${aiEscalationSecretScan.blockedFindings.map((finding) => finding.message).join(", ")}`
+                  : aiEscalationSecretScan.hasWarnings
+                    ? "低リスクの秘密情報候補があります。送信する場合は許可してください。"
+                    : "送信対象に秘密情報候補はありません。"}
+              </p>
+              {aiEscalationFindingsForPreview.length > 0 ? (
+                <div
+                  className="secret-finding-list"
+                  role="group"
+                  aria-label="エスカレーション秘密情報チェック結果"
+                >
+                  {aiEscalationFindingsForPreview.map((finding) =>
+                    finding.canAllow ? (
+                      <label className="secret-finding-item warning" key={finding.id}>
+                        <input
+                          checked={aiEscalationAllowedFindingIds.includes(finding.id)}
+                          type="checkbox"
+                          onChange={(event) =>
+                            setAiEscalationFindingAllowed(finding.id, event.target.checked)
+                          }
+                        />
+                        <span>
+                          {formatSecretFindingForUi(finding)}
+                          <small>{finding.preview}</small>
+                        </span>
+                      </label>
+                    ) : (
+                      <div className="secret-finding-item error" key={finding.id}>
+                        <strong>{formatSecretFindingForUi(finding)}</strong>
+                        <small>{finding.preview}</small>
+                      </div>
+                    )
+                  )}
+                </div>
+              ) : null}
+            </section>
+
+            <section className="review-section">
+              <h3>先生に共有する内容</h3>
+              <pre className="review-payload-preview">{aiEscalationPreviewBody}</pre>
+            </section>
+
+            <footer>
+              <button
+                className="secondary-button"
+                disabled={aiEscalating}
+                type="button"
+                onClick={() => setAiEscalationReviewOpen(false)}
+              >
+                戻って編集
+              </button>
+              <button
+                className="primary-button"
+                disabled={
+                  aiEscalating ||
+                  aiEscalationSecretScan.blocked ||
+                  aiEscalationSecretScan.hasWarnings ||
+                  !aiEscalationConfirmation.trim()
+                }
+                type="button"
+                onClick={() => void submitAiEscalationToTeacher()}
+              >
+                {aiEscalating ? "送信中..." : "確認して送信"}
+              </button>
+            </footer>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 };

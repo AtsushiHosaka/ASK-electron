@@ -673,6 +673,15 @@ select:focus,
   gap: 8px;
 }
 
+.ai-escalation-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.ai-escalation-panel .secondary-button {
+  width: fit-content;
+}
+
 .review-modal-backdrop {
   position: fixed;
   inset: 0;
