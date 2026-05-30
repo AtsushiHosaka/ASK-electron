@@ -21,6 +21,9 @@ const api: RendererApi = {
   diagnostics: {
     runLocal: () => invoke(IpcChannel.DiagnosticsRunLocal)
   },
+  ai: {
+    generate: (input) => invoke(IpcChannel.AiGenerate, input)
+  },
   project: {
     selectRoot: () => invoke(IpcChannel.ProjectSelectRoot),
     inspectGit: (input) => invoke(IpcChannel.ProjectInspectGit, input)

@@ -134,6 +134,18 @@ Requirements:
 - Main must create backup metadata before writing.
 - Apply, failure, and revert events must be audited after redaction.
 
+## Secret Scanning
+
+ASK must run the shared secret scanner before content leaves the student workflow.
+
+Requirements:
+
+- Block `.env`, SSH private keys, GitHub tokens, private key material, and high-confidence API key values.
+- Treat low-confidence secret keywords and filenames as warnings that require explicit false-positive confirmation.
+- Show finding locations and redacted previews in the send-before preview.
+- Reuse the same scanner for question messages, Git diff context, environment summaries, and future AI request payloads.
+- Do not include raw matched secret values in UI copy, logs, audit metadata, or AI prompts.
+
 ## Development Checks
 
 Before merging Electron foundation work, verify:

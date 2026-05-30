@@ -19,6 +19,15 @@ import {
   type ProjectGitInspectionResponse,
   type ProjectRootSelectionResponse
 } from "../shared/ipc";
+import {
+  AI_PIPELINE_LIMITS,
+  getAiAssistRequestLimitViolation,
+  isAiAssistTask,
+  isAiContextKind,
+  type AiAssistRequest,
+  type AiAssistResponse
+} from "../shared/aiPipeline";
+import { runAiAssistPipeline } from "./aiPipeline";
 import { collectEnvironmentSnapshot } from "./environmentSnapshotCollector";
 import { collectGitDiff } from "./gitDiffCollector";
 import { applyGitignore, previewGitignore } from "./gitignoreWorkflow";
@@ -52,9 +61,67 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null;
 };
 
+const getSafeErrorFields = (error: unknown): { code?: string; message: string } => {
+  const code = isRecord(error) && typeof error.code === "string" ? error.code : undefined;
+  const message = error instanceof Error ? error.message : "Unknown error";
+
+  return code ? { code, message } : { message };
+};
+
 const isGitignorePreviewRequest = (value: unknown): value is GitignorePreviewRequest => {
   return (
     isRecord(value) && typeof value.projectRootId === "string" && value.projectRootId.length > 0
+  );
+};
+
+const isAiAssistRequest = (value: unknown): value is AiAssistRequest => {
+  if (!isRecord(value) || !isAiAssistTask(value.task) || !Array.isArray(value.context)) {
+    return false;
+  }
+
+  const options = value.options;
+  const hasValidOptions =
+    options === undefined ||
+    (isRecord(options) &&
+      (options.locale === undefined || options.locale === "ja" || options.locale === "en") &&
+      (options.maxOutputChars === undefined ||
+        (typeof options.maxOutputChars === "number" &&
+          Number.isFinite(options.maxOutputChars) &&
+          options.maxOutputChars > 0 &&
+          options.maxOutputChars <= AI_PIPELINE_LIMITS.maxOutputChars)) &&
+      (options.streaming === undefined || typeof options.streaming === "boolean"));
+  const hasValidIds =
+    (value.projectId === undefined ||
+      value.projectId === null ||
+      typeof value.projectId === "string") &&
+    (value.threadId === undefined || value.threadId === null || typeof value.threadId === "string");
+
+  if (!hasValidOptions || !hasValidIds) {
+    return false;
+  }
+
+  const hasValidContext = value.context.every((entry) => {
+    return (
+      isRecord(entry) &&
+      typeof entry.label === "string" &&
+      entry.label.trim().length > 0 &&
+      isAiContextKind(entry.kind) &&
+      typeof entry.value === "string"
+    );
+  });
+
+  if (!hasValidContext) {
+    return false;
+  }
+
+  return (
+    getAiAssistRequestLimitViolation({
+      task: value.task,
+      context: value.context as AiAssistRequest["context"],
+      options: value.options as AiAssistRequest["options"],
+      projectId: value.projectId as AiAssistRequest["projectId"],
+      threadId: value.threadId as AiAssistRequest["threadId"]
+    }) === null
   );
 };
 
@@ -122,6 +189,34 @@ export const registerIpcHandlers = (): void => {
         IpcChannel.DiagnosticsRunLocal,
         "LOCAL_DIAGNOSTICS_FAILED",
         "ローカル開発環境の診断を実行できませんでした。"
+      );
+    }
+  });
+
+  ipcMain.handle(IpcChannel.AiGenerate, async (_event, input) => {
+    try {
+      if (!isAiAssistRequest(input)) {
+        return fail(
+          IpcChannel.AiGenerate,
+          "VALIDATION_FAILED",
+          "AI リクエストが正しくありません。"
+        );
+      }
+
+      return ok(
+        IpcChannel.AiGenerate,
+        (await runAiAssistPipeline(input)) satisfies AiAssistResponse
+      );
+    } catch (error) {
+      console.error(`[${IpcChannel.AiGenerate}] AI pipeline failed`, {
+        event: "ai_pipeline_failed",
+        ...getSafeErrorFields(error)
+      });
+
+      return fail(
+        IpcChannel.AiGenerate,
+        "AI_PIPELINE_FAILED",
+        "AI 補助を利用できませんでした。質問作成は継続できます。"
       );
     }
   });
