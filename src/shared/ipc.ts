@@ -2,6 +2,7 @@ export const IpcChannel = {
   AppGetRuntimeInfo: "ask:v1:app:get-runtime-info",
   DiagnosticsRunLocal: "ask:v1:diagnostics:run-local",
   ProjectSelectRoot: "ask:v1:project:select-root",
+  ProjectInspectGit: "ask:v1:project:inspect-git",
   GitignorePreview: "ask:v1:gitignore:preview",
   GitignoreApply: "ask:v1:gitignore:apply"
 } as const;
@@ -135,6 +136,33 @@ export interface ProjectRootSelectionResponse {
   selectedAt: string | null;
 }
 
+export type ProjectGitInspectionStatus =
+  | "ready"
+  | "git_missing"
+  | "git_timeout"
+  | "not_git_repository"
+  | "not_git_root"
+  | "remote_missing"
+  | "remote_not_github";
+
+export interface ProjectGitInspectionRequest {
+  projectRootId: string;
+}
+
+export interface ProjectGitInspectionResponse {
+  contractVersion: "v1";
+  projectRootId: string;
+  displayName: string;
+  status: ProjectGitInspectionStatus;
+  isGitRepository: boolean;
+  remoteOriginUrl: string | null;
+  normalizedGithubRepoUrl: string | null;
+  defaultBranch: string | null;
+  localPathHash: string | null;
+  canRegister: boolean;
+  message: string;
+}
+
 export type GitignoreProjectKind = "node" | "electron" | "python" | "generic";
 
 export interface GitignorePreviewRequest {
@@ -184,6 +212,7 @@ export interface IpcRequestMap {
   [IpcChannel.AppGetRuntimeInfo]: [];
   [IpcChannel.DiagnosticsRunLocal]: [];
   [IpcChannel.ProjectSelectRoot]: [];
+  [IpcChannel.ProjectInspectGit]: [ProjectGitInspectionRequest];
   [IpcChannel.GitignorePreview]: [GitignorePreviewRequest];
   [IpcChannel.GitignoreApply]: [GitignoreApplyRequest];
 }
@@ -192,6 +221,7 @@ export interface IpcResponseMap {
   [IpcChannel.AppGetRuntimeInfo]: IpcResult<AppRuntimeInfoResponse>;
   [IpcChannel.DiagnosticsRunLocal]: IpcResult<LocalDiagnosticsResponse>;
   [IpcChannel.ProjectSelectRoot]: IpcResult<ProjectRootSelectionResponse>;
+  [IpcChannel.ProjectInspectGit]: IpcResult<ProjectGitInspectionResponse>;
   [IpcChannel.GitignorePreview]: IpcResult<GitignorePreviewResponse>;
   [IpcChannel.GitignoreApply]: IpcResult<GitignoreApplyResponse>;
 }
@@ -205,6 +235,9 @@ export interface RendererApi {
   };
   project: {
     selectRoot: () => Promise<IpcResponseMap[typeof IpcChannel.ProjectSelectRoot]>;
+    inspectGit: (
+      input: ProjectGitInspectionRequest
+    ) => Promise<IpcResponseMap[typeof IpcChannel.ProjectInspectGit]>;
   };
   gitignore: {
     preview: (

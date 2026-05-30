@@ -3,6 +3,7 @@ import type { ReactElement } from "react";
 import { LoginPage } from "./features/auth/LoginPage";
 import { useAuth } from "./features/auth/AuthProvider";
 import { StudentOnboardingPage } from "./features/onboarding/StudentOnboardingPage";
+import { ProjectDetailPage, ProjectsPage } from "./features/projects/ProjectRegistrationPage";
 import type { AppRole } from "@shared/domain";
 
 const roleHome: Record<AppRole, string> = {
@@ -89,6 +90,7 @@ const AppShell = (): ReactElement => {
           <Route path="/onboarding" element={<StudentOnboardingPage />} />
           <Route path="/classes" element={<ClassDetail />} />
           <Route path="/projects" element={<ProjectsPage />} />
+          <Route path="/projects/:projectId" element={<ProjectDetailPage />} />
           <Route path="/threads/new" element={<ThreadCreatePage />} />
           <Route path="/threads/:threadId" element={<ThreadDetailPage />} />
           <Route
@@ -130,15 +132,6 @@ const ClassDetail = (): ReactElement => (
     title="クラス管理"
     body="生徒一覧、メンター一覧、招待リンク、質問一覧を配置する画面です。"
     items={["招待リンク", "生徒一覧", "クラス内質問"]}
-  />
-);
-
-const ProjectsPage = (): ReactElement => (
-  <WorkspacePage
-    eyebrow="Projects"
-    title="プロジェクト"
-    body="ローカルフォルダと GitHub repository の紐付け状態を表示します。"
-    items={["フォルダ選択", "Git 状態", ".gitignore 確認"]}
   />
 );
 

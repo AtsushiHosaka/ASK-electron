@@ -2,6 +2,10 @@ import type { AppRole } from "./domain";
 
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
+export type ClassMemberRole = "student" | "teacher" | "mentor";
+export type GithubAuthMethod = "gh_cli" | "device_flow" | "oauth" | "pat";
+export type GithubSshStatus = "unknown" | "ok" | "failed";
+
 export interface Database {
   public: {
     Tables: {
@@ -31,12 +35,123 @@ export interface Database {
           github_username?: string | null;
           updated_at?: string;
         };
+        Relationships: [];
+      };
+      classes: {
+        Row: {
+          id: string;
+          organization_id: string;
+          name: string;
+          description: string | null;
+          created_by: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          name: string;
+          description?: string | null;
+          created_by: string;
+          created_at?: string;
+        };
+        Update: {
+          organization_id?: string;
+          name?: string;
+          description?: string | null;
+          created_by?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      class_members: {
+        Row: {
+          id: string;
+          class_id: string;
+          user_id: string;
+          role: ClassMemberRole;
+          joined_at: string;
+        };
+        Insert: {
+          id?: string;
+          class_id: string;
+          user_id: string;
+          role: ClassMemberRole;
+          joined_at?: string;
+        };
+        Update: {
+          class_id?: string;
+          user_id?: string;
+          role?: ClassMemberRole;
+          joined_at?: string;
+        };
+        Relationships: [];
+      };
+      github_connections: {
+        Row: {
+          id: string;
+          user_id: string;
+          github_username: string;
+          auth_method: GithubAuthMethod;
+          ssh_status: GithubSshStatus;
+          last_checked_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          github_username: string;
+          auth_method: GithubAuthMethod;
+          ssh_status?: GithubSshStatus;
+          last_checked_at?: string | null;
+        };
+        Update: {
+          user_id?: string;
+          github_username?: string;
+          auth_method?: GithubAuthMethod;
+          ssh_status?: GithubSshStatus;
+          last_checked_at?: string | null;
+        };
+        Relationships: [];
+      };
+      projects: {
+        Row: {
+          id: string;
+          owner_user_id: string;
+          class_id: string;
+          name: string;
+          local_path_hash: string | null;
+          github_repo_url: string;
+          default_branch: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          owner_user_id: string;
+          class_id: string;
+          name: string;
+          local_path_hash?: string | null;
+          github_repo_url: string;
+          default_branch?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          owner_user_id?: string;
+          class_id?: string;
+          name?: string;
+          local_path_hash?: string | null;
+          github_repo_url?: string;
+          default_branch?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
       };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;
     Enums: {
       app_user_role: AppRole;
+      class_member_role: ClassMemberRole;
+      github_auth_method: GithubAuthMethod;
+      github_ssh_status: GithubSshStatus;
     };
     CompositeTypes: Record<string, never>;
   };

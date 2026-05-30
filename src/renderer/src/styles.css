@@ -241,6 +241,15 @@ select:focus {
   max-width: 1080px;
 }
 
+.detail-panel {
+  display: grid;
+  gap: 16px;
+  border: 1px solid #d9deea;
+  border-radius: 8px;
+  padding: 20px;
+  background: #ffffff;
+}
+
 .page-header {
   display: flex;
   align-items: flex-start;
@@ -469,6 +478,41 @@ textarea {
 
 textarea {
   resize: vertical;
+}
+
+.project-registration {
+  display: grid;
+  gap: 24px;
+  max-width: 1120px;
+}
+
+.project-registration-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 1fr) minmax(320px, 1fr);
+  gap: 16px;
+}
+
+.project-registration-panel {
+  align-content: start;
+}
+
+.project-summary-list {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 8px 12px;
+  align-items: center;
+}
+
+.project-summary-list span {
+  color: #667085;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.project-summary-list strong {
+  min-width: 0;
+  color: #172033;
+  overflow-wrap: anywhere;
 }
 
 .placeholder-grid {
