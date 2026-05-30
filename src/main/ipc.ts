@@ -23,6 +23,8 @@ import {
   type PatchValidateResponse,
   type ProjectGitInspectionRequest,
   type ProjectGitInspectionResponse,
+  type ProjectRootReconnectRequest,
+  type ProjectRootReconnectResponse,
   type ProjectRootSelectionResponse
 } from "../shared/ipc";
 import {
@@ -40,6 +42,7 @@ import { applyGitignore, previewGitignore } from "./gitignoreWorkflow";
 import { runLocalDiagnostics } from "./localDiagnostics";
 import { applyPatch, revertPatch, validatePatch } from "./patchWorkflow";
 import { inspectProjectGit } from "./projectGitInspector";
+import { reconnectProjectRoot } from "./projectRootReconnect";
 import { selectProjectRoot } from "./projectRoots";
 
 const createMetadata = (channel: IpcChannelName): IpcAuditMetadata => ({
@@ -137,6 +140,20 @@ const isProjectGitInspectionRequest = (value: unknown): value is ProjectGitInspe
     isRecord(value) &&
     typeof value.projectRootId === "string" &&
     value.projectRootId.trim().length > 0
+  );
+};
+
+const isProjectRootReconnectRequest = (value: unknown): value is ProjectRootReconnectRequest => {
+  return (
+    isRecord(value) &&
+    typeof value.projectRootId === "string" &&
+    value.projectRootId.trim().length > 0 &&
+    typeof value.expectedLocalPathHash === "string" &&
+    value.expectedLocalPathHash.trim().length > 0 &&
+    value.expectedLocalPathHash.length <= 128 &&
+    typeof value.expectedGithubRepoUrl === "string" &&
+    value.expectedGithubRepoUrl.startsWith("https://github.com/") &&
+    value.expectedGithubRepoUrl.length <= 300
   );
 };
 
@@ -324,6 +341,31 @@ export const registerIpcHandlers = (): void => {
         IpcChannel.ProjectInspectGit,
         "PROJECT_GIT_INSPECTION_FAILED",
         "プロジェクトフォルダを検証できませんでした。"
+      );
+    }
+  });
+
+  ipcMain.handle(IpcChannel.ProjectReconnectRoot, async (_event, input) => {
+    try {
+      if (!isProjectRootReconnectRequest(input)) {
+        return fail(
+          IpcChannel.ProjectReconnectRoot,
+          "VALIDATION_FAILED",
+          "プロジェクト再接続リクエストが正しくありません。"
+        );
+      }
+
+      return ok(
+        IpcChannel.ProjectReconnectRoot,
+        (await reconnectProjectRoot(input)) satisfies ProjectRootReconnectResponse
+      );
+    } catch (error) {
+      console.error(`[${IpcChannel.ProjectReconnectRoot}] project root reconnect failed`, error);
+
+      return fail(
+        IpcChannel.ProjectReconnectRoot,
+        "PROJECT_ROOT_RECONNECT_FAILED",
+        "ローカルフォルダを再接続できませんでした。"
       );
     }
   });

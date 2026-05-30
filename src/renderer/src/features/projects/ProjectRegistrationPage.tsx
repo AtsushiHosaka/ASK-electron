@@ -4,6 +4,7 @@ import type {
   GitignoreApplyResponse,
   GitignorePreviewResponse,
   ProjectGitInspectionResponse,
+  ProjectRootReconnectResponse,
   ProjectRootSelectionResponse
 } from "../../../../shared/ipc";
 import type { Database } from "../../../../shared/database.types";
@@ -317,6 +318,12 @@ export const ProjectsPage = (): ReactElement => {
       return;
     }
 
+    if (!selectedRoot?.projectRootId) {
+      setMessageStatus("warning");
+      setMessage("登録前にローカルフォルダを選択してください。");
+      return;
+    }
+
     if (!gitignoreCheckedForSelectedRoot) {
       setMessageStatus("warning");
       setMessage("登録前に .gitignore の推奨内容を確認してください。");
@@ -349,6 +356,20 @@ export const ProjectsPage = (): ReactElement => {
     setMessage(null);
 
     try {
+      const reconnectResult = await window.ask.project.reconnectRoot({
+        projectRootId: selectedRoot.projectRootId,
+        expectedLocalPathHash: inspection.localPathHash,
+        expectedGithubRepoUrl: inspection.normalizedGithubRepoUrl
+      });
+
+      if (!reconnectResult.ok || !reconnectResult.data.persisted) {
+        setMessageStatus("warning");
+        setMessage(
+          reconnectResult.ok ? reconnectResult.data.message : reconnectResult.error.message
+        );
+        return;
+      }
+
       const { data, error } = await supabase
         .from("projects")
         .insert({
@@ -641,6 +662,12 @@ export const ProjectDetailPage = (): ReactElement => {
   const { projectId } = useParams();
   const supabase = useMemo(() => getSupabaseClient(), []);
   const [project, setProject] = useState<ProjectRow | null>(null);
+  const [reconnectResult, setReconnectResult] = useState<ProjectRootReconnectResponse | null>(null);
+  const [reconnectBusy, setReconnectBusy] = useState(false);
+  const [reconnectMessage, setReconnectMessage] = useState<string | null>(null);
+  const [reconnectStatus, setReconnectStatus] = useState<"success" | "warning" | "error">(
+    "warning"
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -684,6 +711,57 @@ export const ProjectDetailPage = (): ReactElement => {
     };
   }, [projectId, supabase]);
 
+  const reconnectLocalFolder = async (): Promise<void> => {
+    if (!project?.local_path_hash) {
+      setReconnectStatus("warning");
+      setReconnectMessage("local_path_hash が未設定のため、プロジェクトを再登録してください。");
+      return;
+    }
+
+    setReconnectBusy(true);
+    setReconnectResult(null);
+    setReconnectMessage(null);
+
+    try {
+      const rootResult = await window.ask.project.selectRoot();
+
+      if (!rootResult.ok) {
+        setReconnectStatus("error");
+        setReconnectMessage(rootResult.error.message);
+        return;
+      }
+
+      if (!rootResult.data.selected || !rootResult.data.projectRootId) {
+        setReconnectStatus("warning");
+        setReconnectMessage("フォルダ選択をキャンセルしました。");
+        return;
+      }
+
+      const result = await window.ask.project.reconnectRoot({
+        projectRootId: rootResult.data.projectRootId,
+        expectedLocalPathHash: project.local_path_hash,
+        expectedGithubRepoUrl: project.github_repo_url
+      });
+
+      if (!result.ok) {
+        setReconnectStatus("error");
+        setReconnectMessage(result.error.message);
+        return;
+      }
+
+      setReconnectResult(result.data);
+      setReconnectStatus(result.data.persisted ? "success" : "warning");
+      setReconnectMessage(result.data.message);
+    } catch (error) {
+      setReconnectStatus("error");
+      setReconnectMessage(
+        error instanceof Error ? error.message : "ローカルフォルダを再接続できませんでした。"
+      );
+    } finally {
+      setReconnectBusy(false);
+    }
+  };
+
   if (loading) {
     return <ProjectPageState title="読み込み中" body="プロジェクト詳細を確認しています。" />;
   }
@@ -707,6 +785,34 @@ export const ProjectDetailPage = (): ReactElement => {
         <span>created</span>
         <strong>{new Date(project.created_at).toLocaleString()}</strong>
       </div>
+      <div className="control-row">
+        <button
+          className="primary-button"
+          disabled={reconnectBusy || !project.local_path_hash}
+          type="button"
+          onClick={() => void reconnectLocalFolder()}
+        >
+          {reconnectBusy ? "再接続中..." : "ローカルフォルダを再接続"}
+        </button>
+      </div>
+      {reconnectResult ? (
+        <div className="project-summary-list detail-panel">
+          <span>再接続状態</span>
+          <strong>{reconnectResult.persisted ? "保存済み" : reconnectResult.status}</strong>
+          <span>GitHub repository</span>
+          <strong>{reconnectResult.normalizedGithubRepoUrl ?? "未検出"}</strong>
+          <span>local_path_hash</span>
+          <strong>{reconnectResult.localPathHash?.slice(0, 12) ?? "未検出"}</strong>
+        </div>
+      ) : null}
+      {reconnectMessage ? (
+        <p
+          className={`message ${reconnectStatus}`}
+          role={reconnectStatus === "error" ? "alert" : "status"}
+        >
+          {reconnectMessage}
+        </p>
+      ) : null}
       <Link className="secondary-link" to="/projects">
         プロジェクト一覧へ
       </Link>

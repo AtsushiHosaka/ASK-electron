@@ -1197,6 +1197,7 @@ export const ThreadDetailPage = (): ReactElement => {
                   patchReview={patchReviews[message.id] ?? initialPatchReviewState}
                   patchProposal={state.patchProposalsByMessageId.get(message.id) ?? null}
                   canReviewPatch={profile?.role === "student"}
+                  projectId={state.project?.id ?? null}
                   projectHasLocalRoot={Boolean(state.project?.local_path_hash)}
                   projectName={state.project?.name ?? null}
                   onValidatePatch={() => void validatePatchMessage(message)}
@@ -1397,6 +1398,7 @@ const MessageBubble = ({
   patchReview,
   patchProposal,
   canReviewPatch,
+  projectId,
   projectHasLocalRoot,
   projectName,
   onValidatePatch,
@@ -1409,6 +1411,7 @@ const MessageBubble = ({
   patchReview: PatchReviewState;
   patchProposal: PatchProposalSummary | null;
   canReviewPatch: boolean;
+  projectId: string | null;
   projectHasLocalRoot: boolean;
   projectName: string | null;
   onValidatePatch: () => void;
@@ -1436,6 +1439,7 @@ const MessageBubble = ({
       {message.message_type === "patch" ? (
         <PatchReviewPanel
           canReviewPatch={canReviewPatch}
+          projectId={projectId}
           projectHasLocalRoot={projectHasLocalRoot}
           projectName={projectName}
           review={patchReview}
@@ -1454,6 +1458,7 @@ const MessageBubble = ({
 const PatchReviewPanel = ({
   review,
   canReviewPatch,
+  projectId,
   projectHasLocalRoot,
   projectName,
   patchProposal,
@@ -1465,6 +1470,7 @@ const PatchReviewPanel = ({
 }: {
   review: PatchReviewState;
   canReviewPatch: boolean;
+  projectId: string | null;
   projectHasLocalRoot: boolean;
   projectName: string | null;
   patchProposal: PatchProposalSummary | null;
@@ -1493,6 +1499,13 @@ const PatchReviewPanel = ({
     !revertResult?.reverted
   );
   const canDismiss = patchProposal?.status === "proposed" || patchProposal?.status === "failed";
+  const shouldShowReconnectLink = Boolean(
+    canReviewPatch &&
+    projectId &&
+    (!projectHasLocalRoot ||
+      validation?.status === "root_missing" ||
+      revertResult?.status === "root_missing")
+  );
 
   return (
     <section className="patch-review-panel" aria-label="Patch review">
@@ -1526,6 +1539,12 @@ const PatchReviewPanel = ({
         <p className="message warning">
           ローカルフォルダが未登録です。プロジェクト設定からフォルダを選択してください。
         </p>
+      ) : null}
+
+      {shouldShowReconnectLink && projectId ? (
+        <Link className="secondary-link" to={`/projects/${projectId}`}>
+          プロジェクト詳細でローカルフォルダを再接続
+        </Link>
       ) : null}
 
       {validation ? (

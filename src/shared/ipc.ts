@@ -7,6 +7,7 @@ export const IpcChannel = {
   AiGenerate: "ask:v1:ai:generate",
   ProjectSelectRoot: "ask:v1:project:select-root",
   ProjectInspectGit: "ask:v1:project:inspect-git",
+  ProjectReconnectRoot: "ask:v1:project:reconnect-root",
   GitDiffCollect: "ask:v1:git-diff:collect",
   EnvironmentSnapshotCollect: "ask:v1:environment-snapshot:collect",
   PatchValidate: "ask:v1:patch:validate",
@@ -169,6 +170,31 @@ export interface ProjectGitInspectionResponse {
   defaultBranch: string | null;
   localPathHash: string | null;
   canRegister: boolean;
+  message: string;
+}
+
+export type ProjectRootReconnectStatus =
+  | "reconnected"
+  | "root_missing"
+  | "not_ready"
+  | "remote_mismatch"
+  | "hash_mismatch"
+  | "persist_failed";
+
+export interface ProjectRootReconnectRequest {
+  projectRootId: string;
+  expectedLocalPathHash: string;
+  expectedGithubRepoUrl: string;
+}
+
+export interface ProjectRootReconnectResponse {
+  contractVersion: "v1";
+  status: ProjectRootReconnectStatus;
+  persisted: boolean;
+  projectRootId: string;
+  displayName: string | null;
+  localPathHash: string | null;
+  normalizedGithubRepoUrl: string | null;
   message: string;
 }
 
@@ -435,6 +461,7 @@ export interface IpcRequestMap {
   [IpcChannel.AiGenerate]: [AiAssistRequest];
   [IpcChannel.ProjectSelectRoot]: [];
   [IpcChannel.ProjectInspectGit]: [ProjectGitInspectionRequest];
+  [IpcChannel.ProjectReconnectRoot]: [ProjectRootReconnectRequest];
   [IpcChannel.GitDiffCollect]: [GitDiffCollectionRequest];
   [IpcChannel.EnvironmentSnapshotCollect]: [EnvironmentSnapshotRequest];
   [IpcChannel.PatchValidate]: [PatchValidateRequest];
@@ -450,6 +477,7 @@ export interface IpcResponseMap {
   [IpcChannel.AiGenerate]: IpcResult<AiAssistResponse>;
   [IpcChannel.ProjectSelectRoot]: IpcResult<ProjectRootSelectionResponse>;
   [IpcChannel.ProjectInspectGit]: IpcResult<ProjectGitInspectionResponse>;
+  [IpcChannel.ProjectReconnectRoot]: IpcResult<ProjectRootReconnectResponse>;
   [IpcChannel.GitDiffCollect]: IpcResult<GitDiffCollectionResponse>;
   [IpcChannel.EnvironmentSnapshotCollect]: IpcResult<EnvironmentSnapshotResponse>;
   [IpcChannel.PatchValidate]: IpcResult<PatchValidateResponse>;
@@ -474,6 +502,9 @@ export interface RendererApi {
     inspectGit: (
       input: ProjectGitInspectionRequest
     ) => Promise<IpcResponseMap[typeof IpcChannel.ProjectInspectGit]>;
+    reconnectRoot: (
+      input: ProjectRootReconnectRequest
+    ) => Promise<IpcResponseMap[typeof IpcChannel.ProjectReconnectRoot]>;
   };
   gitDiff: {
     collect: (
