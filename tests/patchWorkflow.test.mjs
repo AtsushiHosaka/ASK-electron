@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import process from "node:process";
 import { describe, it } from "node:test";
 import { promisify } from "node:util";
 import { applyPatch, revertPatch, validatePatch } from "../src/main/patchWorkflow.ts";
@@ -11,6 +12,7 @@ import { canonicalizePath, createLocalPathHash } from "../src/main/projectPathId
 import { rememberSelectedProjectRoot } from "../src/main/projectRootRegistry.ts";
 
 const execFileAsync = promisify(execFile);
+const supportsPermissionDeniedTest = process.platform !== "win32" && process.getuid?.() !== 0;
 
 const git = async (cwd, args) => {
   const { stdout } = await execFileAsync("git", args, {
@@ -177,6 +179,45 @@ describe("patch workflow", () => {
       await rm(repo.rootPath, { recursive: true, force: true });
     }
   });
+
+  it(
+    "returns permission_denied when the project root is not writable during revert",
+    { skip: supportsPermissionDeniedTest ? false : "chmod write checks are platform-dependent" },
+    async () => {
+      const repo = await createRepo();
+
+      try {
+        const validation = await validatePatch({
+          localPathHash: repo.localPathHash,
+          patchText: replaceAppPatch(),
+          expectedBaseCommit: repo.currentHead,
+          patchProposalId: randomUUID()
+        });
+
+        const applyResult = await applyPatch({
+          patchId: validation.patchId,
+          confirmationToken: validation.confirmationToken
+        });
+
+        assert.equal(applyResult.status, "applied");
+
+        await chmod(repo.rootPath, 0o500);
+
+        const revertResult = await revertPatch({
+          localPathHash: repo.localPathHash,
+          patchId: validation.patchId,
+          backupDirectory: applyResult.backupDirectory
+        });
+
+        assert.equal(revertResult.status, "permission_denied");
+        assert.equal(revertResult.backupDirectory, null);
+        assert.equal(revertResult.reverted, false);
+      } finally {
+        await chmod(repo.rootPath, 0o700).catch(() => undefined);
+        await rm(repo.rootPath, { recursive: true, force: true });
+      }
+    }
+  );
 
   it("does not apply patches when target files are dirty", async () => {
     const repo = await createRepo();
