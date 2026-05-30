@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { parseAiPatchProposalOutput, parsePatchTargetFiles } from "../src/shared/patchProposal.ts";
+import {
+  parseAiPatchProposalOutput,
+  parsePatchTargetFiles,
+  validatePatchProposalDraft
+} from "../src/shared/patchProposal.ts";
 
 const validPatch = [
   "diff --git a/src/calculator.ts b/src/calculator.ts",
@@ -57,6 +61,25 @@ describe("AI patch proposal parsing", () => {
 
     assert.equal(result.ok, false);
     assert.equal(result.ok ? "" : result.error.code, "INVALID_PATCH");
+  });
+
+  it("validates a manually composed teacher patch proposal", () => {
+    const result = validatePatchProposalDraft({
+      targetFilePath: "src/calculator.ts",
+      baseCommitSha: "abcdef1",
+      explanation: "Normalize empty input before conversion.",
+      patchText: validPatch
+    });
+
+    assert.equal(result.ok, true);
+
+    if (!result.ok) {
+      return;
+    }
+
+    assert.equal(result.proposal.targetFilePath, "src/calculator.ts");
+    assert.equal(result.proposal.baseCommitSha, "abcdef1");
+    assert.match(result.proposal.patchText, /\n$/);
   });
 
   it("rejects multi-file patch proposals for the MVP schema", () => {

@@ -143,6 +143,29 @@ select pg_temp.assert_eq(
   1,
   'teacher creates patch proposal in assigned class'
 );
+insert into public.messages (
+  id,
+  thread_id,
+  sender_user_id,
+  sender_type,
+  body,
+  message_type
+)
+values (
+  '60000000-0000-4000-8000-000000000105',
+  '50000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+  'teacher',
+  'diff --git a/src/calculator.ts b/src/calculator.ts',
+  'patch'
+);
+delete from public.messages
+where id = '60000000-0000-4000-8000-000000000105';
+select pg_temp.assert_eq(
+  (select count(*) from public.messages where id = '60000000-0000-4000-8000-000000000105'),
+  0,
+  'teacher deletes own unlinked patch draft after proposal insert failure'
+);
 
 select pg_temp.assert_rejected(
   $statement$

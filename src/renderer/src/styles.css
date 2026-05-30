@@ -560,6 +560,7 @@ select:focus,
   gap: 10px;
 }
 
+.teacher-patch-composer,
 .ai-thread-assist {
   display: grid;
   gap: 12px;
