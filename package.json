@@ -9,6 +9,7 @@
     "build": "npm run typecheck && electron-vite build",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "test": "node --test --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON tests/*.test.mjs",
     "lint": "eslint . --max-warnings=0",
     "format": "prettier --check .",
     "security:electron": "node scripts/electron-security-checks.mjs"

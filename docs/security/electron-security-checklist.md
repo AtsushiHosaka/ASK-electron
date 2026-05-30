@@ -25,3 +25,5 @@ The check fails when:
 - Confirm renderer-visible environment variables are documented in `docs/security/renderer-env-and-secrets.md`.
 - Confirm external URLs are opened only through a reviewed allowlist and `https:` URLs.
 - Confirm no token, private key, service role key, database password, or raw local path is returned to renderer or written to logs.
+- Confirm question, Git diff, environment, and AI-bound payloads use the shared secret scanner before send.
+- Confirm low-risk scanner warnings require an explicit false-positive allow action and high-risk findings cannot be allowed.

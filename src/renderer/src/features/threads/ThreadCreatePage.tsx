@@ -9,6 +9,11 @@ import type {
   ProjectGitInspectionResponse,
   ProjectRootSelectionResponse
 } from "../../../../shared/ipc";
+import {
+  scanSecrets,
+  type SecretScanFinding,
+  type SecretScanResult
+} from "../../../../shared/secretScanner";
 import { useAuth } from "../auth/AuthProvider";
 import { getSupabaseClient } from "../../lib/supabase";
 
@@ -20,11 +25,6 @@ interface ThreadCreateState {
   loading: boolean;
   error: string | null;
   projects: ProjectRow[];
-}
-
-interface SecretScanResult {
-  blocked: boolean;
-  findings: string[];
 }
 
 interface GitDiffUiState {
@@ -77,27 +77,6 @@ const initialSendReviewState: SendReviewState = {
   excludedRelatedFiles: []
 };
 
-const secretPatterns: Array<{ label: string; pattern: RegExp }> = [
-  { label: ".env file", pattern: /(^|\s)\.env(\.|$|\s)/i },
-  { label: "private key", pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----/i },
-  { label: "API key style text", pattern: /\b(api[_-]?key|secret[_-]?key|access[_-]?token)\b/i },
-  { label: "password assignment", pattern: /\b(password|passwd|pwd)\s*[:=]/i }
-];
-
-const runMockSecretScan = (values: string[]): SecretScanResult => {
-  const source = values.join("\n");
-  const findings = secretPatterns
-    .filter((entry) => entry.pattern.test(source))
-    .map((entry) => entry.label);
-
-  return {
-    blocked: findings.length > 0,
-    findings
-  };
-};
-
-const isSecretCandidateText = (value: string): boolean => runMockSecretScan([value]).blocked;
-
 const splitRelatedFiles = (value: string): string[] => {
   return value
     .split(/\r?\n/)
@@ -135,10 +114,33 @@ const buildInitialMessage = ({
     buildGitDiffMessage(gitDiff),
     buildEnvironmentSnapshotMessage(environmentSnapshot),
     `## 除外した項目\n${excludedItems.length > 0 ? excludedItems.join("\n") : "なし"}`,
-    `## 秘密情報チェック\n${secretScan.blocked ? `ブロック: ${secretScan.findings.join(", ")}` : "mock チェック通過"}`
+    `## 秘密情報チェック\n${formatSecretScanMessage(secretScan)}`
   ];
 
   return sections.join("\n\n");
+};
+
+const formatSecretFinding = (finding: SecretScanResult["findings"][number]): string => {
+  const line = finding.lineNumber ? `:${finding.lineNumber}` : "";
+  return `${finding.severity === "block" ? "BLOCK" : "WARN"} ${finding.sourceLabel}${line} - ${finding.message} (${finding.preview})`;
+};
+
+const formatSecretScanMessage = (secretScan: SecretScanResult): string => {
+  if (secretScan.activeFindings.length === 0 && secretScan.allowedFindings.length === 0) {
+    return "チェック通過";
+  }
+
+  const activeLines = secretScan.activeFindings.map(formatSecretFinding);
+  const allowedLines = secretScan.allowedFindings.map(
+    (finding) => `ALLOW ${finding.sourceLabel} - ${finding.message} (${finding.preview})`
+  );
+
+  return [...activeLines, ...allowedLines].join("\n");
+};
+
+const formatSecretFindingForUi = (finding: SecretScanFinding): string => {
+  const line = finding.lineNumber ? `:${finding.lineNumber}` : "";
+  return `${finding.sourceLabel}${line} - ${finding.message}`;
 };
 
 const formatChangedFiles = (gitDiff: GitDiffCollectionResponse): string => {
@@ -285,6 +287,7 @@ export const ThreadCreatePage = (): ReactElement => {
   const [environmentSnapshotState, setEnvironmentSnapshotState] =
     useState<EnvironmentSnapshotUiState>(initialEnvironmentSnapshotState);
   const [sendReview, setSendReview] = useState<SendReviewState>(initialSendReviewState);
+  const [allowedSecretFindingIds, setAllowedSecretFindingIds] = useState<string[]>([]);
 
   useEffect(() => {
     let mounted = true;
@@ -337,22 +340,57 @@ export const ThreadCreatePage = (): ReactElement => {
     };
   }, [profile, supabase]);
 
+  const selectedProject = state.projects.find((project) => project.id === selectedProjectId);
   const relatedFiles = splitRelatedFiles(relatedFilesText);
-  const blockedRelatedFiles = relatedFiles.filter(isSecretCandidateText);
+  const gitDiffResponse = gitDiffState.response;
+  const environmentSnapshot = environmentSnapshotState.response;
+  const relatedFileScan = scanSecrets({ filePaths: relatedFiles });
+  const blockedRelatedFiles = relatedFileScan.blockedFindings.map((finding) => finding.sourceLabel);
   const excludedRelatedFileSet = new Set([
     ...blockedRelatedFiles,
     ...sendReview.excludedRelatedFiles
   ]);
   const includedRelatedFiles = relatedFiles.filter((file) => !excludedRelatedFileSet.has(file));
-  const editableSecretScan = runMockSecretScan([title, situation, errorText, commandText]);
-  const secretScan = runMockSecretScan([
-    title,
-    situation,
-    errorText,
-    commandText,
-    includedRelatedFiles.join("\n")
-  ]);
-  const selectedProject = state.projects.find((project) => project.id === selectedProjectId);
+  const editableSecretScan = scanSecrets({
+    textEntries: [
+      { label: "タイトル", value: title },
+      { label: "状況説明", value: situation },
+      { label: "エラー文", value: errorText },
+      { label: "実行コマンド", value: commandText }
+    ],
+    allowedFindingIds: allowedSecretFindingIds
+  });
+  const secretScan = scanSecrets({
+    textEntries: [
+      { label: "AI生成質問文", value: sendReview.draftQuestion },
+      { label: "タイトル", value: title },
+      { label: "状況説明", value: situation },
+      { label: "エラー文", value: errorText },
+      { label: "実行コマンド", value: commandText },
+      {
+        label: "staged diff",
+        value: sendReview.includeGitDiff ? (gitDiffResponse?.stagedDiff.text ?? "") : ""
+      },
+      {
+        label: "unstaged diff",
+        value: sendReview.includeGitDiff ? (gitDiffResponse?.unstagedDiff.text ?? "") : ""
+      },
+      {
+        label: "環境情報",
+        value:
+          sendReview.includeEnvironmentSnapshot && environmentSnapshot
+            ? buildEnvironmentSnapshotMessage(environmentSnapshot)
+            : ""
+      }
+    ],
+    filePaths: [
+      ...includedRelatedFiles,
+      ...(sendReview.includeGitDiff
+        ? (gitDiffResponse?.changedFiles.map((file) => file.path) ?? [])
+        : [])
+    ],
+    allowedFindingIds: allowedSecretFindingIds
+  });
   const missingRequiredFields = !selectedProject || !title.trim() || !situation.trim();
   const canReview =
     !submitting &&
@@ -628,7 +666,6 @@ export const ThreadCreatePage = (): ReactElement => {
     }
   };
 
-  const gitDiffResponse = gitDiffState.response;
   const gitDiffSummary = gitDiffState.loading
     ? "収集中"
     : gitDiffResponse
@@ -647,7 +684,6 @@ export const ThreadCreatePage = (): ReactElement => {
     : gitDiffResponse?.status === "ready" || gitDiffResponse?.status === "empty"
       ? "success"
       : "warning";
-  const environmentSnapshot = environmentSnapshotState.response;
   const environmentSummary = environmentSnapshotState.loading
     ? "収集中"
     : environmentSnapshot
@@ -735,6 +771,22 @@ export const ThreadCreatePage = (): ReactElement => {
       setSubmitting(false);
     }
   };
+  const secretScanSummary = secretScan.blocked
+    ? "送信停止"
+    : secretScan.hasWarnings
+      ? "確認が必要"
+      : "通過";
+  const secretFindingsForPreview = [...secretScan.activeFindings, ...secretScan.allowedFindings];
+
+  const setSecretFindingAllowed = (findingId: string, allowed: boolean): void => {
+    setAllowedSecretFindingIds((current) => {
+      if (allowed) {
+        return current.includes(findingId) ? current : [...current, findingId];
+      }
+
+      return current.filter((id) => id !== findingId);
+    });
+  };
 
   const submitThread = async (): Promise<void> => {
     if (!supabase || !profile) {
@@ -770,6 +822,12 @@ export const ThreadCreatePage = (): ReactElement => {
     if (!sendReview.open) {
       setMessageStatus("warning");
       setMessage("送信前レビューで内容を確認してください。");
+      return;
+    }
+
+    if (secretScan.hasWarnings) {
+      setMessageStatus("warning");
+      setMessage("低リスクの秘密情報候補を確認し、除外を許可してください。");
       return;
     }
 
@@ -931,6 +989,8 @@ export const ThreadCreatePage = (): ReactElement => {
                   setSelectedProjectId(event.target.value);
                   setGitDiffState(initialGitDiffState);
                   setEnvironmentSnapshotState(initialEnvironmentSnapshotState);
+                  setSendReview(initialSendReviewState);
+                  setAllowedSecretFindingIds([]);
                 }}
               >
                 {state.projects.map((project) => (
@@ -1018,7 +1078,7 @@ export const ThreadCreatePage = (): ReactElement => {
               <span>Node</span>
               <strong>{environmentSnapshot?.runtimes.node.version ?? "未取得"}</strong>
               <span>秘密情報チェック</span>
-              <strong>{editableSecretScan.blocked ? "送信停止" : "通過"}</strong>
+              <strong>{secretScanSummary}</strong>
               <span>関連ファイル</span>
               <strong>
                 {includedRelatedFiles.length} 件 / 除外 {excludedRelatedFileSet.size} 件
@@ -1060,7 +1120,7 @@ export const ThreadCreatePage = (): ReactElement => {
 
             {editableSecretScan.blocked && (
               <p className="message error" role="alert">
-                秘密情報候補: {editableSecretScan.findings.join(", ")}
+                送信不可: {secretScan.blockedFindings.map((finding) => finding.message).join(", ")}
               </p>
             )}
 
@@ -1068,6 +1128,33 @@ export const ThreadCreatePage = (): ReactElement => {
               <p className="message warning" role="status">
                 送信から除外する関連ファイル: {blockedRelatedFiles.join(", ")}
               </p>
+            )}
+
+            {secretFindingsForPreview.length > 0 && (
+              <div className="secret-finding-list" role="group" aria-label="秘密情報チェック結果">
+                {secretFindingsForPreview.map((finding) =>
+                  finding.canAllow ? (
+                    <label className="secret-finding-item warning" key={finding.id}>
+                      <input
+                        checked={allowedSecretFindingIds.includes(finding.id)}
+                        type="checkbox"
+                        onChange={(event) =>
+                          setSecretFindingAllowed(finding.id, event.target.checked)
+                        }
+                      />
+                      <span>
+                        {formatSecretFindingForUi(finding)}
+                        <small>{finding.preview}</small>
+                      </span>
+                    </label>
+                  ) : (
+                    <div className="secret-finding-item error" key={finding.id}>
+                      <strong>{formatSecretFindingForUi(finding)}</strong>
+                      <small>{finding.preview}</small>
+                    </div>
+                  )
+                )}
+              </div>
             )}
 
             {missingRequiredFields && (
@@ -1203,11 +1290,47 @@ export const ThreadCreatePage = (): ReactElement => {
 
               <section className="review-section">
                 <h3>秘密情報チェック</h3>
-                <p className={`message ${secretScan.blocked ? "error" : "success"}`}>
+                <p
+                  className={`message ${
+                    secretScan.blocked ? "error" : secretScan.hasWarnings ? "warning" : "success"
+                  }`}
+                >
                   {secretScan.blocked
-                    ? `ブロック: ${secretScan.findings.join(", ")}`
-                    : "送信対象に秘密情報候補はありません。"}
+                    ? `ブロック: ${secretScan.blockedFindings.map((finding) => finding.message).join(", ")}`
+                    : secretScan.hasWarnings
+                      ? "低リスクの秘密情報候補があります。送信する場合は許可してください。"
+                      : "送信対象に秘密情報候補はありません。"}
                 </p>
+                {secretFindingsForPreview.length > 0 && (
+                  <div
+                    className="secret-finding-list"
+                    role="group"
+                    aria-label="送信前秘密情報チェック結果"
+                  >
+                    {secretFindingsForPreview.map((finding) =>
+                      finding.canAllow ? (
+                        <label className="secret-finding-item warning" key={finding.id}>
+                          <input
+                            checked={allowedSecretFindingIds.includes(finding.id)}
+                            type="checkbox"
+                            onChange={(event) =>
+                              setSecretFindingAllowed(finding.id, event.target.checked)
+                            }
+                          />
+                          <span>
+                            {formatSecretFindingForUi(finding)}
+                            <small>{finding.preview}</small>
+                          </span>
+                        </label>
+                      ) : (
+                        <div className="secret-finding-item error" key={finding.id}>
+                          <strong>{formatSecretFindingForUi(finding)}</strong>
+                          <small>{finding.preview}</small>
+                        </div>
+                      )
+                    )}
+                  </div>
+                )}
               </section>
             </div>
 
@@ -1232,7 +1355,12 @@ export const ThreadCreatePage = (): ReactElement => {
               </button>
               <button
                 className="primary-button"
-                disabled={submitting || secretScan.blocked || !sendReview.draftQuestion.trim()}
+                disabled={
+                  submitting ||
+                  secretScan.blocked ||
+                  secretScan.hasWarnings ||
+                  !sendReview.draftQuestion.trim()
+                }
                 type="button"
                 onClick={() => void submitThread()}
               >
