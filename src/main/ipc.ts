@@ -54,7 +54,9 @@ const isGitignorePreviewRequest = (value: unknown): value is GitignorePreviewReq
 
 const isProjectGitInspectionRequest = (value: unknown): value is ProjectGitInspectionRequest => {
   return (
-    isRecord(value) && typeof value.projectRootId === "string" && value.projectRootId.length > 0
+    isRecord(value) &&
+    typeof value.projectRootId === "string" &&
+    value.projectRootId.trim().length > 0
   );
 };
 
@@ -135,6 +137,14 @@ export const registerIpcHandlers = (): void => {
       );
     } catch (error) {
       console.error(`[${IpcChannel.ProjectInspectGit}] project git inspection failed`, error);
+
+      if (error instanceof Error && error.message === "PROJECT_ROOT_NOT_FOUND") {
+        return fail(
+          IpcChannel.ProjectInspectGit,
+          "PROJECT_ROOT_NOT_FOUND",
+          "プロジェクトフォルダを選択し直してください。"
+        );
+      }
 
       return fail(
         IpcChannel.ProjectInspectGit,

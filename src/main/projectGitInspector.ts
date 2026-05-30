@@ -1,5 +1,7 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
+import { realpath } from "node:fs/promises";
+import { normalize, resolve } from "node:path";
 import type {
   ProjectGitInspectionRequest,
   ProjectGitInspectionResponse,
@@ -101,6 +103,12 @@ const createLocalPathHash = (rootPath: string): string => {
   return createHash("sha256").update(rootPath).digest("hex");
 };
 
+const canonicalizePath = async (path: string): Promise<string> => {
+  const resolvedPath = await realpath(path).catch(() => resolve(path));
+  const normalizedPath = normalize(resolvedPath);
+  return process.platform === "win32" ? normalizedPath.toLowerCase() : normalizedPath;
+};
+
 const stripGitSuffix = (value: string): string => {
   return value.endsWith(".git") ? value.slice(0, -4) : value;
 };
@@ -181,6 +189,7 @@ export const inspectProjectGit = async (
     throw new Error("PROJECT_ROOT_NOT_FOUND");
   }
 
+  const canonicalRootPath = await canonicalizePath(record.rootPath);
   const insideWorkTree = await runGit(record.rootPath, ["rev-parse", "--is-inside-work-tree"]);
 
   if (insideWorkTree.status === "missing") {
@@ -206,12 +215,13 @@ export const inspectProjectGit = async (
   }
 
   const topLevel = await runGit(record.rootPath, ["rev-parse", "--show-toplevel"]);
+  const canonicalTopLevelPath = topLevel.stdout ? await canonicalizePath(topLevel.stdout) : null;
 
   if (
     topLevel.status === "completed" &&
     topLevel.exitCode === 0 &&
-    topLevel.stdout &&
-    topLevel.stdout !== record.rootPath
+    canonicalTopLevelPath &&
+    canonicalTopLevelPath !== canonicalRootPath
   ) {
     return createResponse(
       input,
@@ -277,7 +287,7 @@ export const inspectProjectGit = async (
       remoteOriginUrl: redactRemoteUrl(remoteOrigin.stdout),
       normalizedGithubRepoUrl,
       defaultBranch: branch.status === "completed" && branch.exitCode === 0 ? branch.stdout : null,
-      localPathHash: createLocalPathHash(record.rootPath),
+      localPathHash: createLocalPathHash(canonicalRootPath),
       canRegister: true
     }
   );

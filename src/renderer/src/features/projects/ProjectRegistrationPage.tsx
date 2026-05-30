@@ -143,41 +143,46 @@ export const ProjectsPage = (): ReactElement => {
     setMessage(null);
     setInspection(null);
 
-    const result = await window.ask.project.selectRoot();
+    try {
+      const result = await window.ask.project.selectRoot();
 
-    if (!result.ok) {
-      setBusy(false);
+      if (!result.ok) {
+        setMessageStatus("error");
+        setMessage(result.error.message);
+        return;
+      }
+
+      if (!result.data.selected || !result.data.projectRootId) {
+        setSelectedRoot(null);
+        setMessageStatus("warning");
+        setMessage("フォルダ選択をキャンセルしました。");
+        return;
+      }
+
+      setSelectedRoot(result.data);
+      setProjectName((current) => current || result.data.displayName || "");
+
+      const inspectionResult = await window.ask.project.inspectGit({
+        projectRootId: result.data.projectRootId
+      });
+
+      if (!inspectionResult.ok) {
+        setMessageStatus("error");
+        setMessage(inspectionResult.error.message);
+        return;
+      }
+
+      setInspection(inspectionResult.data);
+      setMessageStatus(inspectionResult.data.canRegister ? "success" : "warning");
+      setMessage(inspectionResult.data.message);
+    } catch (error) {
       setMessageStatus("error");
-      setMessage(result.error.message);
-      return;
-    }
-
-    if (!result.data.selected || !result.data.projectRootId) {
+      setMessage(
+        error instanceof Error ? error.message : "プロジェクトフォルダを確認できませんでした。"
+      );
+    } finally {
       setBusy(false);
-      setSelectedRoot(null);
-      setMessageStatus("warning");
-      setMessage("フォルダ選択をキャンセルしました。");
-      return;
     }
-
-    setSelectedRoot(result.data);
-    setProjectName((current) => current || result.data.displayName || "");
-
-    const inspectionResult = await window.ask.project.inspectGit({
-      projectRootId: result.data.projectRootId
-    });
-
-    setBusy(false);
-
-    if (!inspectionResult.ok) {
-      setMessageStatus("error");
-      setMessage(inspectionResult.error.message);
-      return;
-    }
-
-    setInspection(inspectionResult.data);
-    setMessageStatus(inspectionResult.data.canRegister ? "success" : "warning");
-    setMessage(inspectionResult.data.message);
   };
 
   const registerProject = async (): Promise<void> => {
@@ -203,7 +208,9 @@ export const ProjectsPage = (): ReactElement => {
       return;
     }
 
-    if (!selectedClassId) {
+    const selectedClass = state.classes.find((option) => option.classRow.id === selectedClassId);
+
+    if (!selectedClass) {
       setMessageStatus("warning");
       setMessage("登録先クラスを選択してください。");
       return;
@@ -220,35 +227,44 @@ export const ProjectsPage = (): ReactElement => {
     setBusy(true);
     setMessage(null);
 
-    const { data, error } = await supabase
-      .from("projects")
-      .insert({
-        owner_user_id: profile.id,
-        class_id: selectedClassId,
-        name: trimmedProjectName,
-        local_path_hash: inspection.localPathHash,
-        github_repo_url: inspection.normalizedGithubRepoUrl,
-        default_branch: inspection.defaultBranch
-      })
-      .select("id")
-      .single();
+    try {
+      const { data, error } = await supabase
+        .from("projects")
+        .insert({
+          owner_user_id: profile.id,
+          class_id: selectedClass.classRow.id,
+          name: trimmedProjectName,
+          local_path_hash: inspection.localPathHash,
+          github_repo_url: inspection.normalizedGithubRepoUrl,
+          default_branch: inspection.defaultBranch
+        })
+        .select("id")
+        .single();
 
-    setBusy(false);
+      if (error) {
+        setMessageStatus("error");
+        setMessage(
+          "プロジェクトを登録できませんでした。GitHub連携とクラス参加状態を確認してください。"
+        );
+        return;
+      }
 
-    if (error) {
+      navigate(`/projects/${data.id}`);
+    } catch (error) {
       setMessageStatus("error");
       setMessage(
-        "プロジェクトを登録できませんでした。GitHub連携とクラス参加状態を確認してください。"
+        error instanceof Error
+          ? error.message
+          : "プロジェクトを登録できませんでした。GitHub連携とクラス参加状態を確認してください。"
       );
-      return;
+    } finally {
+      setBusy(false);
     }
-
-    navigate(`/projects/${data.id}`);
   };
 
   const canRegister =
     Boolean(state.githubConnection) &&
-    Boolean(selectedClassId) &&
+    state.classes.some((option) => option.classRow.id === selectedClassId) &&
     Boolean(projectName.trim()) &&
     Boolean(inspection?.canRegister);
 
@@ -355,7 +371,10 @@ export const ProjectsPage = (): ReactElement => {
       </div>
 
       {message && (
-        <p className={`message ${messageStatus}`} role="status">
+        <p
+          className={`message ${messageStatus}`}
+          role={messageStatus === "error" ? "alert" : "status"}
+        >
           {message}
         </p>
       )}
