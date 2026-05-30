@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactElement, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { Link, useParams } from "react-router-dom";
 import type {
   Database,
@@ -6,6 +6,7 @@ import type {
   MessageType,
   ThreadStatus
 } from "../../../../shared/database.types";
+import { CodeContextViewer } from "../../components/CodeContextViewer";
 import { useAuth } from "../auth/AuthProvider";
 import { getSupabaseClient } from "../../lib/supabase";
 
@@ -53,9 +54,6 @@ const statusLabels: Record<ThreadStatus, string> = {
   reopened: "再オープン"
 };
 
-const codeTokenPattern =
-  /(\/\/.*|\/\*[\s\S]*?\*\/|(["'`])(?:\\.|(?!\2).)*\2|\b(?:const|let|var|function|return|if|else|for|while|await|async|import|export|from|type|interface|class|extends|new|try|catch|throw)\b|\b\d+(?:\.\d+)?\b)/g;
-
 const unique = (values: Array<string | null>): string[] => [
   ...new Set(values.filter((value): value is string => Boolean(value)))
 ];
@@ -64,49 +62,6 @@ const sortMessages = (messages: MessageRow[]): MessageRow[] => {
   return [...messages].sort(
     (left, right) => new Date(left.created_at).getTime() - new Date(right.created_at).getTime()
   );
-};
-
-const tokenClassName = (token: string): string => {
-  if (token.startsWith("//") || token.startsWith("/*")) {
-    return "syntax-comment";
-  }
-
-  if (/^["'`]/.test(token)) {
-    return "syntax-string";
-  }
-
-  if (/^\d/.test(token)) {
-    return "syntax-number";
-  }
-
-  return "syntax-keyword";
-};
-
-const renderHighlightedCode = (source: string): ReactNode[] => {
-  const nodes: ReactNode[] = [];
-  let cursor = 0;
-
-  for (const match of source.matchAll(codeTokenPattern)) {
-    const token = match[0];
-    const index = match.index ?? 0;
-
-    if (index > cursor) {
-      nodes.push(source.slice(cursor, index));
-    }
-
-    nodes.push(
-      <span className={tokenClassName(token)} key={`${index}-${token}`}>
-        {token}
-      </span>
-    );
-    cursor = index + token.length;
-  }
-
-  if (cursor < source.length) {
-    nodes.push(source.slice(cursor));
-  }
-
-  return nodes;
 };
 
 export const ThreadDetailPage = (): ReactElement => {
@@ -380,6 +335,7 @@ const MessageBubble = ({
   senderName: string | null | undefined;
 }): ReactElement => {
   const isCodeLike = message.message_type === "code" || message.message_type === "patch";
+  const viewerKind = message.message_type === "patch" ? "diff" : "code";
 
   return (
     <article className={`chat-message ${message.sender_type}`}>
@@ -390,9 +346,7 @@ const MessageBubble = ({
       </header>
 
       {isCodeLike ? (
-        <pre className="chat-code-block">
-          <code>{renderHighlightedCode(message.body)}</code>
-        </pre>
+        <CodeContextViewer content={message.body} kind={viewerKind} />
       ) : (
         <p>{message.body}</p>
       )}
