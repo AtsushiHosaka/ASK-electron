@@ -29,6 +29,7 @@ Useful scripts:
 ```sh
 npm run typecheck
 npm run lint
+npm test
 npm run build
 ```
 

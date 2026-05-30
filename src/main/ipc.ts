@@ -19,6 +19,13 @@ import {
   type ProjectGitInspectionResponse,
   type ProjectRootSelectionResponse
 } from "../shared/ipc";
+import {
+  isAiAssistTask,
+  isAiContextKind,
+  type AiAssistRequest,
+  type AiAssistResponse
+} from "../shared/aiPipeline";
+import { runAiAssistPipeline } from "./aiPipeline";
 import { collectEnvironmentSnapshot } from "./environmentSnapshotCollector";
 import { collectGitDiff } from "./gitDiffCollector";
 import { applyGitignore, previewGitignore } from "./gitignoreWorkflow";
@@ -55,6 +62,39 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
 const isGitignorePreviewRequest = (value: unknown): value is GitignorePreviewRequest => {
   return (
     isRecord(value) && typeof value.projectRootId === "string" && value.projectRootId.length > 0
+  );
+};
+
+const isAiAssistRequest = (value: unknown): value is AiAssistRequest => {
+  if (!isRecord(value) || !isAiAssistTask(value.task) || !Array.isArray(value.context)) {
+    return false;
+  }
+
+  const options = value.options;
+  const hasValidOptions =
+    options === undefined ||
+    (isRecord(options) &&
+      (options.locale === undefined || options.locale === "ja" || options.locale === "en") &&
+      (options.maxOutputChars === undefined || typeof options.maxOutputChars === "number") &&
+      (options.streaming === undefined || typeof options.streaming === "boolean"));
+  const hasValidIds =
+    (value.projectId === undefined ||
+      value.projectId === null ||
+      typeof value.projectId === "string") &&
+    (value.threadId === undefined || value.threadId === null || typeof value.threadId === "string");
+
+  return (
+    hasValidOptions &&
+    hasValidIds &&
+    value.context.every((entry) => {
+      return (
+        isRecord(entry) &&
+        typeof entry.label === "string" &&
+        entry.label.trim().length > 0 &&
+        isAiContextKind(entry.kind) &&
+        typeof entry.value === "string"
+      );
+    })
   );
 };
 
@@ -122,6 +162,31 @@ export const registerIpcHandlers = (): void => {
         IpcChannel.DiagnosticsRunLocal,
         "LOCAL_DIAGNOSTICS_FAILED",
         "ローカル開発環境の診断を実行できませんでした。"
+      );
+    }
+  });
+
+  ipcMain.handle(IpcChannel.AiGenerate, async (_event, input) => {
+    try {
+      if (!isAiAssistRequest(input)) {
+        return fail(
+          IpcChannel.AiGenerate,
+          "VALIDATION_FAILED",
+          "AI リクエストが正しくありません。"
+        );
+      }
+
+      return ok(
+        IpcChannel.AiGenerate,
+        (await runAiAssistPipeline(input)) satisfies AiAssistResponse
+      );
+    } catch (error) {
+      console.error(`[${IpcChannel.AiGenerate}] AI pipeline failed`, error);
+
+      return fail(
+        IpcChannel.AiGenerate,
+        "AI_PIPELINE_FAILED",
+        "AI 補助を利用できませんでした。質問作成は継続できます。"
       );
     }
   });
