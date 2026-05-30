@@ -3,6 +3,7 @@ export const IpcChannel = {
   DiagnosticsRunLocal: "ask:v1:diagnostics:run-local",
   ProjectSelectRoot: "ask:v1:project:select-root",
   ProjectInspectGit: "ask:v1:project:inspect-git",
+  GitDiffCollect: "ask:v1:git-diff:collect",
   GitignorePreview: "ask:v1:gitignore:preview",
   GitignoreApply: "ask:v1:gitignore:apply"
 } as const;
@@ -163,6 +164,66 @@ export interface ProjectGitInspectionResponse {
   message: string;
 }
 
+export type GitDiffCollectionStatus =
+  | "ready"
+  | "empty"
+  | "root_missing"
+  | "git_missing"
+  | "git_timeout"
+  | "not_git_repository"
+  | "diff_failed";
+
+export type GitDiffOmissionReason = "binary" | "lockfile" | "secret_candidate" | "too_many_files";
+
+export interface GitDiffCollectionRequest {
+  projectRootId?: string;
+  localPathHash?: string | null;
+}
+
+export interface GitChangedFile {
+  path: string;
+  staged: boolean;
+  unstaged: boolean;
+  stagedStatus: string | null;
+  unstagedStatus: string | null;
+  isBinary: boolean;
+  isLockfile: boolean;
+  requiresSecretScan: boolean;
+  includedInDiff: boolean;
+  omissionReason: GitDiffOmissionReason | null;
+}
+
+export interface GitDiffTextSection {
+  text: string;
+  includedFileCount: number;
+  omittedFileCount: number;
+  truncated: boolean;
+}
+
+export interface GitDiffCollectionResponse {
+  contractVersion: "v1";
+  status: GitDiffCollectionStatus;
+  canContinue: boolean;
+  projectRootId: string | null;
+  displayName: string | null;
+  collectedAt: string;
+  branch: string | null;
+  headCommit: string | null;
+  headShortCommit: string | null;
+  changedFiles: GitChangedFile[];
+  stagedDiff: GitDiffTextSection;
+  unstagedDiff: GitDiffTextSection;
+  omittedFiles: Array<Pick<GitChangedFile, "path" | "omissionReason">>;
+  sensitiveFilePaths: string[];
+  limits: {
+    timeoutMs: number;
+    maxDiffChars: number;
+    maxDiffCharsPerSection: number;
+    maxIncludedFilesPerSection: number;
+  };
+  message: string;
+}
+
 export type GitignoreProjectKind = "node" | "electron" | "python" | "generic";
 
 export interface GitignorePreviewRequest {
@@ -213,6 +274,7 @@ export interface IpcRequestMap {
   [IpcChannel.DiagnosticsRunLocal]: [];
   [IpcChannel.ProjectSelectRoot]: [];
   [IpcChannel.ProjectInspectGit]: [ProjectGitInspectionRequest];
+  [IpcChannel.GitDiffCollect]: [GitDiffCollectionRequest];
   [IpcChannel.GitignorePreview]: [GitignorePreviewRequest];
   [IpcChannel.GitignoreApply]: [GitignoreApplyRequest];
 }
@@ -222,6 +284,7 @@ export interface IpcResponseMap {
   [IpcChannel.DiagnosticsRunLocal]: IpcResult<LocalDiagnosticsResponse>;
   [IpcChannel.ProjectSelectRoot]: IpcResult<ProjectRootSelectionResponse>;
   [IpcChannel.ProjectInspectGit]: IpcResult<ProjectGitInspectionResponse>;
+  [IpcChannel.GitDiffCollect]: IpcResult<GitDiffCollectionResponse>;
   [IpcChannel.GitignorePreview]: IpcResult<GitignorePreviewResponse>;
   [IpcChannel.GitignoreApply]: IpcResult<GitignoreApplyResponse>;
 }
@@ -238,6 +301,11 @@ export interface RendererApi {
     inspectGit: (
       input: ProjectGitInspectionRequest
     ) => Promise<IpcResponseMap[typeof IpcChannel.ProjectInspectGit]>;
+  };
+  gitDiff: {
+    collect: (
+      input: GitDiffCollectionRequest
+    ) => Promise<IpcResponseMap[typeof IpcChannel.GitDiffCollect]>;
   };
   gitignore: {
     preview: (

@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import {
   IpcChannel,
   type AppRuntimeInfoResponse,
+  type GitDiffCollectionRequest,
+  type GitDiffCollectionResponse,
   type GitignoreApplyRequest,
   type GitignoreApplyResponse,
   type GitignorePreviewRequest,
@@ -15,6 +17,7 @@ import {
   type ProjectGitInspectionResponse,
   type ProjectRootSelectionResponse
 } from "../shared/ipc";
+import { collectGitDiff } from "./gitDiffCollector";
 import { applyGitignore, previewGitignore } from "./gitignoreWorkflow";
 import { runLocalDiagnostics } from "./localDiagnostics";
 import { inspectProjectGit } from "./projectGitInspector";
@@ -57,6 +60,15 @@ const isProjectGitInspectionRequest = (value: unknown): value is ProjectGitInspe
     isRecord(value) &&
     typeof value.projectRootId === "string" &&
     value.projectRootId.trim().length > 0
+  );
+};
+
+const isGitDiffCollectionRequest = (value: unknown): value is GitDiffCollectionRequest => {
+  return (
+    isRecord(value) &&
+    (typeof value.projectRootId === "string" ||
+      typeof value.localPathHash === "string" ||
+      value.localPathHash === null)
   );
 };
 
@@ -150,6 +162,31 @@ export const registerIpcHandlers = (): void => {
         IpcChannel.ProjectInspectGit,
         "PROJECT_GIT_INSPECTION_FAILED",
         "プロジェクトフォルダを検証できませんでした。"
+      );
+    }
+  });
+
+  ipcMain.handle(IpcChannel.GitDiffCollect, async (_event, input) => {
+    try {
+      if (!isGitDiffCollectionRequest(input)) {
+        return fail(
+          IpcChannel.GitDiffCollect,
+          "VALIDATION_FAILED",
+          "Git差分収集リクエストが正しくありません。"
+        );
+      }
+
+      return ok(
+        IpcChannel.GitDiffCollect,
+        (await collectGitDiff(input)) satisfies GitDiffCollectionResponse
+      );
+    } catch (error) {
+      console.error(`[${IpcChannel.GitDiffCollect}] git diff collection failed`, error);
+
+      return fail(
+        IpcChannel.GitDiffCollect,
+        "GIT_DIFF_COLLECT_FAILED",
+        "Git差分を収集できませんでした。質問作成は継続できます。"
       );
     }
   });
