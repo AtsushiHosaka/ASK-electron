@@ -69,7 +69,7 @@ where id = '80000000-0000-4000-8000-000000000001';
 select pg_temp.assert_eq(
   (select count(*) from public.patch_proposals where id = '80000000-0000-4000-8000-000000000001' and status = 'proposed'),
   1,
-  'admin cannot mark student patch proposal applied'
+  'admin cannot directly update patch proposal status'
 );
 
 -- Assigned teacher can read only their class boundary.
@@ -187,6 +187,14 @@ select pg_temp.assert_eq(
   (select count(*) from public.patch_proposals where id = '80000000-0000-4000-8000-000000000101'),
   1,
   'teacher creates patch proposal in assigned class'
+);
+update public.patch_proposals
+set status = 'applied'
+where id = '80000000-0000-4000-8000-000000000101';
+select pg_temp.assert_eq(
+  (select count(*) from public.patch_proposals where id = '80000000-0000-4000-8000-000000000101' and status = 'proposed'),
+  1,
+  'teacher cannot directly mark a student patch proposal as applied'
 );
 
 select pg_temp.assert_rejected(
@@ -389,6 +397,35 @@ select pg_temp.assert_rejected(
   $statement$,
   'student cannot move reverted patch proposal back to applied'
 );
+insert into public.patch_proposals (
+  id,
+  thread_id,
+  message_id,
+  created_by,
+  created_by_type,
+  target_file_path,
+  patch_text
+)
+values (
+  '80000000-0000-4000-8000-000000000108',
+  '50000000-0000-4000-8000-000000000001',
+  '60000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000004',
+  'ai',
+  'src/calculator.ts',
+  'diff --git a/src/calculator.ts b/src/calculator.ts'
+);
+update public.patch_proposals
+set status = 'failed'
+where id = '80000000-0000-4000-8000-000000000108';
+update public.patch_proposals
+set status = 'applied'
+where id = '80000000-0000-4000-8000-000000000108';
+select pg_temp.assert_eq(
+  (select count(*) from public.patch_proposals where id = '80000000-0000-4000-8000-000000000108' and status = 'applied'),
+  1,
+  'student can retry and apply a failed own-thread patch proposal'
+);
 select pg_temp.assert_rejected(
   $statement$
     insert into public.patch_proposals (
@@ -437,6 +474,14 @@ select pg_temp.assert_rejected(
   $statement$,
   'student cannot create AI patch proposal outside proposed status'
 );
+select pg_temp.assert_rejected(
+  $statement$
+    update public.patch_proposals
+    set target_file_path = 'src/changed.ts'
+    where id = '80000000-0000-4000-8000-000000000001'
+  $statement$,
+  'student cannot mutate patch proposal metadata'
+);
 update public.patch_proposals
 set status = 'dismissed'
 where id = '80000000-0000-4000-8000-000000000001';
@@ -444,6 +489,14 @@ select pg_temp.assert_eq(
   (select count(*) from public.patch_proposals where id = '80000000-0000-4000-8000-000000000001' and status = 'dismissed'),
   1,
   'student updates own-thread patch proposal status'
+);
+select pg_temp.assert_rejected(
+  $statement$
+    update public.patch_proposals
+    set status = 'applied'
+    where id = '80000000-0000-4000-8000-000000000001'
+  $statement$,
+  'student cannot move dismissed patch proposal back to applied'
 );
 
 -- Student B and an outsider cannot cross into Student A's class/project/thread.

@@ -1,12 +1,9 @@
--- Patch proposal updates are limited to the student who owns the project.
--- Metadata is immutable after proposal creation; only controlled status
--- transitions are allowed through the student-side review/apply flow.
+-- Keep the immutable patch proposal guard from 20260530000700, but allow
+-- students to retry a proposal after a failed local apply and mark it applied.
 
-create or replace function public.enforce_patch_proposal_update_rules()
+create or replace function public.enforce_patch_proposal_update_guard()
 returns trigger
 language plpgsql
-security definer
-set search_path = public, pg_temp
 as $$
 begin
   if old.id is distinct from new.id
@@ -20,7 +17,8 @@ begin
     or old.explanation is distinct from new.explanation
     or old.created_at is distinct from new.created_at
   then
-    raise exception 'patch proposal metadata is immutable after creation';
+    raise exception 'patch proposal metadata is immutable after creation'
+      using errcode = '42501';
   end if;
 
   if old.status is not distinct from new.status then
@@ -39,27 +37,18 @@ begin
     ))
     or (old.status = 'applied'::public.patch_status and new.status = 'reverted'::public.patch_status)
   ) then
-    raise exception 'patch proposal status transition from % to % is not allowed', old.status, new.status;
+    raise exception 'invalid patch proposal status transition from % to %', old.status, new.status
+      using errcode = '42501';
   end if;
 
   return new;
 end;
 $$;
 
-drop trigger if exists enforce_patch_proposal_update_rules on public.patch_proposals;
-create trigger enforce_patch_proposal_update_rules
+revoke all on function public.enforce_patch_proposal_update_guard() from public;
+
+drop trigger if exists enforce_patch_proposal_update_guard on public.patch_proposals;
+create trigger enforce_patch_proposal_update_guard
 before update on public.patch_proposals
 for each row
-execute function public.enforce_patch_proposal_update_rules();
-
-drop policy if exists "patch_proposals_update_thread_participant" on public.patch_proposals;
-drop policy if exists "patch_proposals_update_student_owner_status" on public.patch_proposals;
-create policy "patch_proposals_update_student_owner_status"
-on public.patch_proposals
-for update
-to authenticated
-using (public.owns_thread_project(thread_id))
-with check (
-  public.owns_thread_project(thread_id)
-  and public.message_thread_id(message_id) = thread_id
-);
+execute function public.enforce_patch_proposal_update_guard();

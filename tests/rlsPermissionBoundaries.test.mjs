@@ -50,6 +50,7 @@ const policyExpectations = [
   ["threads", "insert", "threads_insert_student_or_teacher"],
   ["messages", "select", "messages_select_accessible_thread"],
   ["messages", "insert", "messages_insert_thread_participant"],
+  ["messages", "delete", "messages_delete_own_unlinked_patch_draft"],
   ["environment_snapshots", "select", "environment_snapshots_select_accessible_thread"],
   ["environment_snapshots", "insert", "environment_snapshots_insert_project_owner"],
   ["patch_proposals", "select", "patch_proposals_select_accessible_thread"],
@@ -73,7 +74,7 @@ describe("RLS SQL coverage", () => {
       );
     }
 
-    assert.match(rlsSql, /create trigger enforce_patch_proposal_update_rules/);
+    assert.match(rlsSql, /create trigger enforce_patch_proposal_update_guard/);
     assert.match(rlsSql, /patch proposal metadata is immutable after creation/);
   });
 
