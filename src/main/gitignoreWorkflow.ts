@@ -400,12 +400,51 @@ export const applyGitignore = async (
 
   try {
     const currentContent = await readTextIfExists(gitignorePath);
+    const currentExistingContent = currentContent ?? "";
+    const currentDetectedKinds = await detectProjectKinds(record.rootPath);
+    const currentEntries = buildEntries(currentDetectedKinds, currentExistingContent);
+    const currentMissingPatterns = currentEntries
+      .filter((entry) => !entry.alreadyPresent)
+      .map((entry) => entry.pattern);
+    const currentAppendBlock = buildAppendBlock(currentMissingPatterns);
+    const currentRecommendationHash = createRecommendationHash(
+      input.projectRootId,
+      currentExistingContent,
+      currentAppendBlock
+    );
+
+    if (!currentAppendBlock || currentContent?.includes(preview.appendBlock.trimEnd())) {
+      return {
+        contractVersion: "v1",
+        projectRootId: input.projectRootId,
+        displayName: preview.displayName,
+        status: "unchanged",
+        recommendationHash: currentRecommendationHash,
+        appendedLineCount: 0,
+        manualCopyText: "",
+        message: "追加が必要な.gitignore候補はありません。"
+      };
+    }
+
+    if (currentRecommendationHash !== preview.recommendationHash) {
+      return {
+        contractVersion: "v1",
+        projectRootId: input.projectRootId,
+        displayName: preview.displayName,
+        status: "stale",
+        recommendationHash: currentRecommendationHash,
+        appendedLineCount: 0,
+        manualCopyText: currentAppendBlock,
+        message: ".gitignore が変更されています。内容を再確認してください。"
+      };
+    }
+
     const prefix = currentContent ? (currentContent.endsWith("\n") ? "\n" : "\n\n") : "";
 
     if (currentContent !== null && currentContent.length > 0) {
-      await appendFile(gitignorePath, `${prefix}${preview.appendBlock}`, "utf8");
+      await appendFile(gitignorePath, `${prefix}${currentAppendBlock}`, "utf8");
     } else {
-      await writeFile(gitignorePath, preview.appendBlock, "utf8");
+      await writeFile(gitignorePath, currentAppendBlock, "utf8");
     }
 
     return {
@@ -413,9 +452,9 @@ export const applyGitignore = async (
       projectRootId: input.projectRootId,
       displayName: preview.displayName,
       status: "applied",
-      recommendationHash: preview.recommendationHash,
-      appendedLineCount: preview.appendBlock.trimEnd().split("\n").length,
-      manualCopyText: preview.manualCopyText,
+      recommendationHash: currentRecommendationHash,
+      appendedLineCount: currentAppendBlock.trimEnd().split("\n").length,
+      manualCopyText: currentAppendBlock,
       message: ".gitignore に推奨内容を追記しました。"
     };
   } catch {

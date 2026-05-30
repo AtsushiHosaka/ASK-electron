@@ -65,8 +65,8 @@ declare global {
         selectRoot(): Promise<AskResult<ProjectRootSelection>>;
       };
       gitignore: {
-        preview(input: GitignorePreviewInput): Promise<AskResult<GitignorePreview>>;
-        apply(input: GitignoreApplyInput): Promise<AskResult<GitignoreApplyResult>>;
+        preview(input: GitignorePreviewRequest): Promise<AskResult<GitignorePreviewResponse>>;
+        apply(input: GitignoreApplyRequest): Promise<AskResult<GitignoreApplyResponse>>;
       };
       git: {
         diagnose(input: ProjectScopedInput): Promise<AskResult<GitDiagnostic>>;

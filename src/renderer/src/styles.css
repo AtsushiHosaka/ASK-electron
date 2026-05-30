@@ -460,7 +460,7 @@ textarea {
   padding: 12px;
   color: #152033;
   background: #f8fafc;
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-family: SFMono-Regular, Consolas, "Liberation Mono", monospace;
   font-size: 0.86rem;
   line-height: 1.55;
   overflow: auto;

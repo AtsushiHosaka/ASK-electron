@@ -259,6 +259,8 @@ export const StudentOnboardingPage = (): ReactElement => {
       setStepStatus("gitignore", "success");
     } else if (result.data.status === "stale") {
       setStepStatus("gitignore", "warning");
+    } else if (result.data.status === "failed") {
+      setStepStatus("gitignore", "error");
       setGitignoreError(result.data.message);
     } else {
       setStepStatus("gitignore", "error");
@@ -438,7 +440,9 @@ export const StudentOnboardingPage = (): ReactElement => {
                     gitignoreApplyResult.status === "applied" ||
                     gitignoreApplyResult.status === "unchanged"
                       ? "message success"
-                      : "message warning"
+                      : gitignoreApplyResult.status === "stale"
+                        ? "message warning"
+                        : "message error"
                   }
                   role="status"
                 >

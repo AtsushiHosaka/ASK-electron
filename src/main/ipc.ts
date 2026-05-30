@@ -99,7 +99,9 @@ export const registerIpcHandlers = (): void => {
           BrowserWindow.fromWebContents(event.sender)
         )) satisfies ProjectRootSelectionResponse
       );
-    } catch {
+    } catch (error) {
+      console.error(`[${IpcChannel.ProjectSelectRoot}] project root selection failed`, error);
+
       return fail(
         IpcChannel.ProjectSelectRoot,
         "PROJECT_ROOT_SELECT_FAILED",
@@ -122,7 +124,9 @@ export const registerIpcHandlers = (): void => {
         IpcChannel.GitignorePreview,
         (await previewGitignore(input)) satisfies GitignorePreviewResponse
       );
-    } catch {
+    } catch (error) {
+      console.error(`[${IpcChannel.GitignorePreview}] gitignore preview failed`, error);
+
       return fail(
         IpcChannel.GitignorePreview,
         "GITIGNORE_PREVIEW_FAILED",
@@ -145,7 +149,9 @@ export const registerIpcHandlers = (): void => {
         IpcChannel.GitignoreApply,
         (await applyGitignore(input)) satisfies GitignoreApplyResponse
       );
-    } catch {
+    } catch (error) {
+      console.error(`[${IpcChannel.GitignoreApply}] gitignore apply failed`, error);
+
       return fail(
         IpcChannel.GitignoreApply,
         "GITIGNORE_APPLY_FAILED",
