@@ -119,6 +119,35 @@ select pg_temp.assert_eq(
   'teacher reads assigned class patch proposal'
 );
 
+insert into public.messages (
+  id,
+  thread_id,
+  sender_user_id,
+  sender_type,
+  body,
+  message_type
+)
+values (
+  '60000000-0000-4000-8000-000000000101',
+  '50000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+  'teacher',
+  'diff --git a/src/calculator.ts b/src/calculator.ts',
+  'patch'
+);
+delete from public.messages where id = '60000000-0000-4000-8000-000000000101';
+select pg_temp.assert_eq(
+  (select count(*) from public.messages where id = '60000000-0000-4000-8000-000000000101'),
+  0,
+  'teacher deletes own unlinked patch draft'
+);
+delete from public.messages where id = '60000000-0000-4000-8000-000000000003';
+select pg_temp.assert_eq(
+  (select count(*) from public.messages where id = '60000000-0000-4000-8000-000000000003'),
+  1,
+  'teacher cannot delete linked patch proposal message'
+);
+
 insert into public.patch_proposals (
   id,
   thread_id,
@@ -237,6 +266,34 @@ select pg_temp.assert_eq(
   (select count(*) from public.patch_proposals where id = '80000000-0000-4000-8000-000000000001'),
   1,
   'student reads own-thread patch proposal'
+);
+insert into public.messages (
+  id,
+  thread_id,
+  sender_user_id,
+  sender_type,
+  body,
+  message_type
+)
+values (
+  '60000000-0000-4000-8000-000000000102',
+  '50000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000004',
+  'student',
+  'diff --git a/src/calculator.ts b/src/calculator.ts',
+  'patch'
+);
+delete from public.messages where id = '60000000-0000-4000-8000-000000000102';
+select pg_temp.assert_eq(
+  (select count(*) from public.messages where id = '60000000-0000-4000-8000-000000000102'),
+  0,
+  'student deletes own unlinked AI patch draft'
+);
+delete from public.messages where id = '60000000-0000-4000-8000-000000000001';
+select pg_temp.assert_eq(
+  (select count(*) from public.messages where id = '60000000-0000-4000-8000-000000000001'),
+  1,
+  'student cannot delete non-patch messages'
 );
 select pg_temp.assert_rejected(
   $statement$
