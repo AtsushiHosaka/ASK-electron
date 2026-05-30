@@ -19,6 +19,7 @@ const PATCH_WORKFLOW_TIMEOUT_MS = 8_000;
 const PATCH_WORKFLOW_MAX_PATCH_CHARS = 500_000;
 const PATCH_WORKFLOW_MAX_TARGET_FILES = 50;
 const PATCH_PENDING_TTL_MS = 10 * 60 * 1_000;
+const MAX_PENDING_PATCHES = 25;
 const BACKUP_ROOT_DIRECTORY = ".ask/backups";
 
 const deniedPathSegments = new Set([
@@ -56,6 +57,11 @@ interface BackupEntry {
 }
 
 const pendingPatches = new Map<string, PendingPatch>();
+
+type PatchApplyCheckFailureStatus = Extract<
+  PatchValidationStatus,
+  "conflict" | "git_missing" | "git_timeout" | "permission_denied"
+>;
 
 const trimCommit = (value: string | null | undefined): string | null => {
   const trimmed = value?.trim();
@@ -123,6 +129,18 @@ const pruneExpiredPatches = (): void => {
     if (patch.expiresAt <= now) {
       pendingPatches.delete(patchId);
     }
+  }
+};
+
+const evictOldestPendingPatches = (): void => {
+  while (pendingPatches.size >= MAX_PENDING_PATCHES) {
+    const oldestPatchId = pendingPatches.keys().next().value;
+
+    if (!oldestPatchId) {
+      return;
+    }
+
+    pendingPatches.delete(oldestPatchId);
   }
 };
 
@@ -298,7 +316,7 @@ const hasPermissionDeniedOutput = (result: GitCommandResult): boolean => {
 const checkPatchApplies = async (
   rootPath: string,
   patchText: string
-): Promise<{ ok: true } | { ok: false; status: PatchValidationStatus; message: string }> => {
+): Promise<{ ok: true } | { ok: false; status: PatchApplyCheckFailureStatus; message: string }> => {
   return withPatchFile(patchText, async (patchPath) => {
     const result = await runGit(rootPath, ["apply", "--check", "--whitespace=nowarn", patchPath], {
       timeoutMs: PATCH_WORKFLOW_TIMEOUT_MS,
@@ -661,6 +679,7 @@ export const validatePatch = async (
 
   const patchId = randomUUID();
   const confirmationToken = randomUUID();
+  evictOldestPendingPatches();
   pendingPatches.set(patchId, {
     ...validation.context,
     patchId,
@@ -732,7 +751,7 @@ export const applyPatch = async (input: PatchApplyRequest): Promise<PatchApplyRe
   if (!applyCheck.ok) {
     return createApplyResponse({
       request: input,
-      status: applyCheck.status === "permission_denied" ? "permission_denied" : "conflict",
+      status: applyCheck.status,
       targetFiles: pendingPatch.targetFiles,
       message: applyCheck.message
     });

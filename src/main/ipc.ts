@@ -156,9 +156,18 @@ const isEnvironmentSnapshotRequest = (value: unknown): value is EnvironmentSnaps
   );
 };
 
+const isAppRole = (value: unknown): value is PatchValidateRequest["requesterRole"] => {
+  return value === "student" || value === "teacher" || value === "admin";
+};
+
+const getPatchRequesterRole = (value: unknown): PatchValidateRequest["requesterRole"] | null => {
+  return isRecord(value) && isAppRole(value.requesterRole) ? value.requesterRole : null;
+};
+
 const isPatchValidateRequest = (value: unknown): value is PatchValidateRequest => {
   return (
     isRecord(value) &&
+    isAppRole(value.requesterRole) &&
     (typeof value.localPathHash === "string" || value.localPathHash === null) &&
     typeof value.patchText === "string" &&
     value.patchText.length > 0 &&
@@ -173,6 +182,7 @@ const isPatchValidateRequest = (value: unknown): value is PatchValidateRequest =
 const isPatchApplyRequest = (value: unknown): value is PatchApplyRequest => {
   return (
     isRecord(value) &&
+    isAppRole(value.requesterRole) &&
     typeof value.patchId === "string" &&
     /^[0-9a-f-]{36}$/i.test(value.patchId) &&
     typeof value.confirmationToken === "string" &&
@@ -357,6 +367,14 @@ export const registerIpcHandlers = (): void => {
 
   ipcMain.handle(IpcChannel.PatchValidate, async (_event, input) => {
     try {
+      if (getPatchRequesterRole(input) !== "student") {
+        return fail(
+          IpcChannel.PatchValidate,
+          "UNAUTHORIZED",
+          "パッチ確認は生徒のローカル環境からのみ実行できます。"
+        );
+      }
+
       if (!isPatchValidateRequest(input)) {
         return fail(
           IpcChannel.PatchValidate,
@@ -385,6 +403,14 @@ export const registerIpcHandlers = (): void => {
 
   ipcMain.handle(IpcChannel.PatchApply, async (_event, input) => {
     try {
+      if (getPatchRequesterRole(input) !== "student") {
+        return fail(
+          IpcChannel.PatchApply,
+          "UNAUTHORIZED",
+          "パッチ適用は生徒のローカル環境からのみ実行できます。"
+        );
+      }
+
       if (!isPatchApplyRequest(input)) {
         return fail(
           IpcChannel.PatchApply,

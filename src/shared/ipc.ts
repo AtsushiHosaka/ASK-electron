@@ -1,4 +1,5 @@
 import type { AiAssistRequest, AiAssistResponse } from "./aiPipeline";
+import type { AppRole } from "./domain";
 
 export const IpcChannel = {
   AppGetRuntimeInfo: "ask:v1:app:get-runtime-info",
@@ -358,10 +359,13 @@ export type PatchApplyStatus =
   | "stale"
   | "dirty"
   | "conflict"
+  | "git_missing"
+  | "git_timeout"
   | "permission_denied"
   | "failed";
 
 export interface PatchValidateRequest {
+  requesterRole: AppRole;
   localPathHash: string | null;
   patchText: string;
   expectedBaseCommit?: string | null;
@@ -380,6 +384,7 @@ export interface PatchValidateResponse {
 }
 
 export interface PatchApplyRequest {
+  requesterRole: AppRole;
   patchId: string;
   confirmationToken: string;
 }

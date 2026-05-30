@@ -92,6 +92,8 @@ const patchApplyLabels: Record<PatchApplyStatus, string> = {
   stale: "再確認が必要",
   dirty: "未コミット変更あり",
   conflict: "競合",
+  git_missing: "Git未検出",
+  git_timeout: "Gitタイムアウト",
   permission_denied: "権限エラー",
   failed: "失敗"
 };
@@ -160,7 +162,8 @@ const applyMessageClass = (applyResult: PatchApplyResponse): "error" | "success"
 
   return applyResult.status === "dirty" ||
     applyResult.status === "conflict" ||
-    applyResult.status === "stale"
+    applyResult.status === "stale" ||
+    applyResult.status === "git_timeout"
     ? "warning"
     : "error";
 };
@@ -224,8 +227,12 @@ export const ThreadDetailPage = (): ReactElement => {
             .single()
         ]);
 
-        if (usersResult.error || projectResult.error) {
-          throw usersResult.error ?? projectResult.error;
+        if (usersResult.error) {
+          throw usersResult.error;
+        }
+
+        if (projectResult.error) {
+          console.warn("Failed to load thread project summary", projectResult.error);
         }
 
         if (mounted) {
@@ -233,7 +240,7 @@ export const ThreadDetailPage = (): ReactElement => {
             loading: false,
             error: null,
             thread: threadResult.data,
-            project: projectResult.data,
+            project: projectResult.error ? null : projectResult.data,
             messages,
             usersById: new Map((usersResult.data ?? []).map((user) => [user.id, user]))
           });
@@ -328,6 +335,7 @@ export const ThreadDetailPage = (): ReactElement => {
 
     try {
       const result = await window.ask.patch.validate({
+        requesterRole: profile.role,
         localPathHash,
         patchText: message.body,
         expectedBaseCommit: extractExpectedBaseCommit(message.body)
@@ -376,6 +384,7 @@ export const ThreadDetailPage = (): ReactElement => {
 
     try {
       const result = await window.ask.patch.apply({
+        requesterRole: profile.role,
         patchId: validation.patchId,
         confirmationToken: validation.confirmationToken
       });
@@ -772,10 +781,7 @@ const PatchReviewPanel = ({
   const validation = review.validation;
   const applyResult = review.applyResult;
   const canApply = Boolean(
-    validation?.canApply &&
-    validation.patchId &&
-    validation.confirmationToken &&
-    !applyResult?.applied
+    validation?.canApply && validation.patchId && validation.confirmationToken && !applyResult
   );
 
   return (
