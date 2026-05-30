@@ -1,5 +1,7 @@
 import { useMemo, useState, type ReactElement } from "react";
 import type {
+  GitHubDeviceFlowPollResponse,
+  GitHubDeviceFlowStartResponse,
   GitignoreApplyResponse,
   GitignorePreviewResponse,
   LocalDiagnosticsResponse,
@@ -114,9 +116,31 @@ const statusLabel: Record<StepStatus, string> = {
 };
 
 const diagnosticStepIds = ["github-account", "git-installed", "github-cli-auth", "ssh"] as const;
+const retryableDeviceFlowPollStatuses = new Set<GitHubDeviceFlowPollResponse["status"]>([
+  "pending",
+  "slow_down",
+  "network_error"
+]);
 
 const isDiagnosticStep = (stepId: string): boolean => {
   return diagnosticStepIds.some((diagnosticStepId) => diagnosticStepId === stepId);
+};
+
+const getSshStatusForConnection = (
+  diagnostics: LocalDiagnosticsResponse | null
+): "ok" | "unknown" | "failed" => {
+  if (!diagnostics) {
+    return "unknown";
+  }
+
+  if (diagnostics.ssh.connection.status === "ok" && diagnostics.ssh.connection.authenticated) {
+    return "ok";
+  }
+
+  return diagnostics.ssh.connection.status === "missing" ||
+    diagnostics.ssh.connection.status === "unknown"
+    ? "unknown"
+    : "failed";
 };
 
 const resolveGithubUsername = (diagnostics: LocalDiagnosticsResponse): string | null => {
@@ -134,7 +158,9 @@ const mapDiagnosticsToSteps = (
     "github-cli-auth":
       diagnostics.githubCli.status === "ok" && diagnostics.githubCli.authenticated
         ? "success"
-        : "error",
+        : diagnostics.githubCli.status === "missing"
+          ? "warning"
+          : "error",
     ssh:
       diagnostics.ssh.keys.status === "ok" &&
       diagnostics.ssh.connection.status === "ok" &&
@@ -148,9 +174,12 @@ const mapDiagnosticsToSteps = (
     messages: {
       "github-account": githubUsername
         ? `GitHub アカウント ${githubUsername} を確認しました。`
-        : "GitHub アカウント名を確認できませんでした。GitHub CLI のログイン状態を確認してください。",
+        : "GitHub アカウント名を確認できませんでした。GitHub CLI またはブラウザコードログインを確認してください。",
       "git-installed": diagnostics.git.message,
-      "github-cli-auth": diagnostics.githubCli.message,
+      "github-cli-auth":
+        diagnostics.githubCli.status === "missing"
+          ? `${diagnostics.githubCli.message} ブラウザコードログインを開始できます。`
+          : diagnostics.githubCli.message,
       ssh:
         diagnostics.ssh.keys.status !== "ok"
           ? diagnostics.ssh.keys.message
@@ -173,6 +202,11 @@ export const StudentOnboardingPage = (): ReactElement => {
   const [diagnostics, setDiagnostics] = useState<LocalDiagnosticsResponse | null>(null);
   const [stepMessages, setStepMessages] = useState<Record<string, string>>({});
   const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
+  const [deviceFlowStart, setDeviceFlowStart] = useState<GitHubDeviceFlowStartResponse | null>(
+    null
+  );
+  const [deviceFlowPoll, setDeviceFlowPoll] = useState<GitHubDeviceFlowPollResponse | null>(null);
+  const [deviceFlowBusy, setDeviceFlowBusy] = useState(false);
   const [gitignorePreview, setGitignorePreview] = useState<GitignorePreviewResponse | null>(null);
   const [gitignoreApplyResult, setGitignoreApplyResult] = useState<GitignoreApplyResponse | null>(
     null
@@ -221,6 +255,9 @@ export const StudentOnboardingPage = (): ReactElement => {
     setDiagnostics(null);
     setStepMessages({});
     setDiagnosticsError(null);
+    setDeviceFlowStart(null);
+    setDeviceFlowPoll(null);
+    setDeviceFlowBusy(false);
     setGitignorePreview(null);
     setGitignoreApplyResult(null);
     setGitignoreError(null);
@@ -235,14 +272,53 @@ export const StudentOnboardingPage = (): ReactElement => {
     }
   };
 
+  const persistGithubConnectionMetadata = async ({
+    githubUsername,
+    authMethod,
+    sshStatus,
+    checkedAt
+  }: {
+    githubUsername: string;
+    authMethod: "gh_cli" | "device_flow";
+    sshStatus: "ok" | "unknown" | "failed";
+    checkedAt: string;
+  }): Promise<boolean> => {
+    if (!supabase || !profile) {
+      setDiagnosticsError("GitHub 連携の保存に必要なプロフィールを確認できませんでした。");
+      return false;
+    }
+
+    const { error: connectionError } = await supabase.from("github_connections").upsert(
+      {
+        user_id: profile.id,
+        github_username: githubUsername,
+        auth_method: authMethod,
+        ssh_status: sshStatus,
+        last_checked_at: checkedAt
+      },
+      { onConflict: "user_id" }
+    );
+
+    if (connectionError) {
+      setDiagnosticsError("GitHub 連携状態を保存できませんでした。再チェックしてください。");
+      return false;
+    }
+
+    const { error: profileError } = await supabase
+      .from("users")
+      .update({ github_username: githubUsername })
+      .eq("id", profile.id);
+
+    if (profileError) {
+      console.warn("Failed to update user GitHub username", profileError);
+    }
+
+    return true;
+  };
+
   const persistGithubConnection = async (
     nextDiagnostics: LocalDiagnosticsResponse
   ): Promise<void> => {
-    if (!supabase || !profile) {
-      setDiagnosticsError("GitHub 連携の保存に必要なプロフィールを確認できませんでした。");
-      return;
-    }
-
     const githubUsername = resolveGithubUsername(nextDiagnostics);
     const canPersist =
       githubUsername &&
@@ -255,30 +331,12 @@ export const StudentOnboardingPage = (): ReactElement => {
       return;
     }
 
-    const { error: connectionError } = await supabase.from("github_connections").upsert(
-      {
-        user_id: profile.id,
-        github_username: githubUsername,
-        auth_method: "gh_cli",
-        ssh_status: "ok",
-        last_checked_at: nextDiagnostics.checkedAt
-      },
-      { onConflict: "user_id" }
-    );
-
-    if (connectionError) {
-      setDiagnosticsError("GitHub 連携状態を保存できませんでした。再チェックしてください。");
-      return;
-    }
-
-    const { error: profileError } = await supabase
-      .from("users")
-      .update({ github_username: githubUsername })
-      .eq("id", profile.id);
-
-    if (profileError) {
-      console.warn("Failed to update user GitHub username", profileError);
-    }
+    await persistGithubConnectionMetadata({
+      githubUsername,
+      authMethod: "gh_cli",
+      sshStatus: "ok",
+      checkedAt: nextDiagnostics.checkedAt
+    });
   };
 
   const runLocalDiagnostics = async (): Promise<void> => {
@@ -287,6 +345,9 @@ export const StudentOnboardingPage = (): ReactElement => {
     );
     setDiagnostics(null);
     setDiagnosticsError(null);
+    setDeviceFlowStart(null);
+    setDeviceFlowPoll(null);
+    setDeviceFlowBusy(false);
     setStepMessages((current) => {
       const nextMessages = { ...current };
 
@@ -317,6 +378,113 @@ export const StudentOnboardingPage = (): ReactElement => {
     }));
 
     await persistGithubConnection(result.data);
+  };
+
+  const startDeviceFlow = async (): Promise<void> => {
+    setActiveStepId("github-cli-auth");
+    setDeviceFlowBusy(true);
+    setDeviceFlowStart(null);
+    setDeviceFlowPoll(null);
+    setDiagnosticsError(null);
+    setStepStatus("github-cli-auth", "checking");
+
+    const result = await window.ask.github.startDeviceFlow();
+
+    setDeviceFlowBusy(false);
+
+    if (!result.ok) {
+      setStepStatus("github-cli-auth", "error");
+      setDiagnosticsError(result.error.message);
+      return;
+    }
+
+    setDeviceFlowStart(result.data);
+    setStepStatus("github-cli-auth", result.data.status === "ready" ? "warning" : "error");
+    setStepMessages((current) => ({
+      ...current,
+      "github-cli-auth": result.data.message
+    }));
+  };
+
+  const pollDeviceFlow = async (): Promise<void> => {
+    if (!deviceFlowStart?.sessionId) {
+      setStepStatus("github-cli-auth", "error");
+      setStepMessages((current) => ({
+        ...current,
+        "github-cli-auth": "ブラウザコードログインをもう一度開始してください。"
+      }));
+      return;
+    }
+
+    setDeviceFlowBusy(true);
+    setDiagnosticsError(null);
+
+    const result = await window.ask.github.pollDeviceFlow({
+      sessionId: deviceFlowStart.sessionId
+    });
+
+    setDeviceFlowBusy(false);
+
+    if (!result.ok) {
+      setStepStatus("github-cli-auth", "error");
+      setDiagnosticsError(result.error.message);
+      return;
+    }
+
+    setDeviceFlowPoll(result.data);
+
+    if (result.data.status === "completed" && result.data.githubUsername) {
+      const persisted = await persistGithubConnectionMetadata({
+        githubUsername: result.data.githubUsername,
+        authMethod: "device_flow",
+        sshStatus: getSshStatusForConnection(diagnostics),
+        checkedAt: new Date().toISOString()
+      });
+
+      if (!persisted) {
+        setStepStatus("github-cli-auth", "error");
+        return;
+      }
+
+      mergeStatuses({
+        "github-account": "success",
+        "github-cli-auth": "success"
+      });
+      setStepMessages((current) => ({
+        ...current,
+        "github-account": `GitHub アカウント ${result.data.githubUsername} を確認しました。`,
+        "github-cli-auth": result.data.message
+      }));
+      return;
+    }
+
+    setStepStatus(
+      "github-cli-auth",
+      retryableDeviceFlowPollStatuses.has(result.data.status) ? "warning" : "error"
+    );
+    setStepMessages((current) => ({
+      ...current,
+      "github-cli-auth": result.data.message
+    }));
+  };
+
+  const copyDeviceFlowCode = async (): Promise<void> => {
+    if (!deviceFlowStart?.userCode) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(deviceFlowStart.userCode);
+      setStepMessages((current) => ({
+        ...current,
+        "github-cli-auth": "コードをコピーしました。GitHub の確認画面に貼り付けてください。"
+      }));
+    } catch {
+      setStepMessages((current) => ({
+        ...current,
+        "github-cli-auth": "コピーできませんでした。画面のコードを手入力してください。"
+      }));
+    }
   };
 
   const inspectRepository = async (): Promise<void> => {
@@ -587,6 +755,75 @@ export const StudentOnboardingPage = (): ReactElement => {
               <strong>{diagnostics.ssh.keys.message}</strong>
               <span>SSH接続</span>
               <strong>{diagnostics.ssh.connection.message}</strong>
+            </div>
+          )}
+
+          {activeStep.id === "github-cli-auth" && statuses["github-cli-auth"] !== "success" && (
+            <div className="device-flow-workflow">
+              <div className="instruction-block">
+                <h3>ブラウザコードログイン</h3>
+                <p>
+                  GitHub CLI を使えない場合は、GitHub の確認画面で短いコードを入力します。ASK は
+                  GitHub token を画面や Supabase に保存しません。
+                </p>
+              </div>
+
+              {deviceFlowStart?.status === "ready" && (
+                <div className="device-code-row">
+                  <span>入力コード</span>
+                  <strong>{deviceFlowStart.userCode}</strong>
+                  {deviceFlowStart.verificationUri && (
+                    <a
+                      className="secondary-button"
+                      href={deviceFlowStart.verificationUri}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      GitHub を開く
+                    </a>
+                  )}
+                </div>
+              )}
+
+              {deviceFlowPoll && deviceFlowPoll.status !== "completed" && (
+                <p
+                  className={
+                    retryableDeviceFlowPollStatuses.has(deviceFlowPoll.status)
+                      ? "message warning"
+                      : "message error"
+                  }
+                  role="status"
+                >
+                  {deviceFlowPoll.message}
+                </p>
+              )}
+
+              <div className="control-row">
+                <button
+                  className="secondary-button"
+                  disabled={deviceFlowBusy}
+                  type="button"
+                  onClick={() => void startDeviceFlow()}
+                >
+                  {deviceFlowStart?.status === "ready" ? "コードを再発行" : "コードを発行"}
+                </button>
+                <button
+                  className="secondary-button"
+                  disabled={!deviceFlowStart?.userCode || deviceFlowBusy}
+                  type="button"
+                  onClick={() => void copyDeviceFlowCode()}
+                >
+                  コードをコピー
+                </button>
+                <button
+                  className="primary-button"
+                  disabled={!deviceFlowStart?.sessionId || deviceFlowBusy}
+                  type="button"
+                  onClick={() => void pollDeviceFlow()}
+                >
+                  {deviceFlowBusy ? "確認中..." : "完了を確認"}
+                </button>
+              </div>
             </div>
           )}
 

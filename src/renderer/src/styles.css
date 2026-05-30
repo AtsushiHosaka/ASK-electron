@@ -417,6 +417,43 @@ select:focus,
   padding-top: 16px;
 }
 
+.device-flow-workflow {
+  display: grid;
+  gap: 16px;
+  border-top: 1px solid #e5e9f2;
+  padding-top: 16px;
+}
+
+.device-code-row {
+  display: grid;
+  grid-template-columns: minmax(96px, auto) minmax(160px, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.device-code-row span {
+  color: #5b6475;
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.device-code-row strong {
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 10px 12px;
+  color: #172033;
+  background: #f8fafc;
+  font-family: SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  letter-spacing: 0;
+}
+
+.device-code-row .secondary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
 .gitignore-summary {
   display: flex;
   flex-wrap: wrap;

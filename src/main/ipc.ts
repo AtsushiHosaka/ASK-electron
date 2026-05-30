@@ -7,6 +7,9 @@ import {
   type EnvironmentSnapshotResponse,
   type GitDiffCollectionRequest,
   type GitDiffCollectionResponse,
+  type GitHubDeviceFlowPollRequest,
+  type GitHubDeviceFlowPollResponse,
+  type GitHubDeviceFlowStartResponse,
   type GitignoreApplyRequest,
   type GitignoreApplyResponse,
   type GitignorePreviewRequest,
@@ -40,6 +43,7 @@ import {
 import { runAiAssistPipeline } from "./aiPipeline";
 import { collectEnvironmentSnapshot } from "./environmentSnapshotCollector";
 import { collectGitDiff } from "./gitDiffCollector";
+import { pollGitHubDeviceFlow, startGitHubDeviceFlow } from "./githubDeviceFlow";
 import { applyGitignore, previewGitignore } from "./gitignoreWorkflow";
 import { runLocalDiagnostics } from "./localDiagnostics";
 import { applyPatch, revertPatch, validatePatch } from "./patchWorkflow";
@@ -89,6 +93,10 @@ const isGitignorePreviewRequest = (value: unknown): value is GitignorePreviewReq
   return (
     isRecord(value) && typeof value.projectRootId === "string" && value.projectRootId.length > 0
   );
+};
+
+const isGitHubDeviceFlowPollRequest = (value: unknown): value is GitHubDeviceFlowPollRequest => {
+  return isRecord(value) && typeof value.sessionId === "string" && value.sessionId.length > 0;
 };
 
 const isAiAssistRequest = (value: unknown): value is AiAssistRequest => {
@@ -275,6 +283,54 @@ export const registerIpcHandlers = (): void => {
         IpcChannel.DiagnosticsRunLocal,
         "LOCAL_DIAGNOSTICS_FAILED",
         "ローカル開発環境の診断を実行できませんでした。"
+      );
+    }
+  });
+
+  ipcMain.handle(IpcChannel.GitHubDeviceFlowStart, async () => {
+    try {
+      return ok(
+        IpcChannel.GitHubDeviceFlowStart,
+        (await startGitHubDeviceFlow()) satisfies GitHubDeviceFlowStartResponse
+      );
+    } catch (error) {
+      console.error(`[${IpcChannel.GitHubDeviceFlowStart}] device flow start failed`, {
+        event: "github_device_flow_start_failed",
+        ...getSafeErrorFields(error)
+      });
+
+      return fail(
+        IpcChannel.GitHubDeviceFlowStart,
+        "GITHUB_DEVICE_FLOW_START_FAILED",
+        "GitHub ブラウザコードログインを開始できませんでした。"
+      );
+    }
+  });
+
+  ipcMain.handle(IpcChannel.GitHubDeviceFlowPoll, async (_event, input) => {
+    try {
+      if (!isGitHubDeviceFlowPollRequest(input)) {
+        return fail(
+          IpcChannel.GitHubDeviceFlowPoll,
+          "VALIDATION_FAILED",
+          "GitHub ブラウザコードログインの確認リクエストが正しくありません。"
+        );
+      }
+
+      return ok(
+        IpcChannel.GitHubDeviceFlowPoll,
+        (await pollGitHubDeviceFlow(input)) satisfies GitHubDeviceFlowPollResponse
+      );
+    } catch (error) {
+      console.error(`[${IpcChannel.GitHubDeviceFlowPoll}] device flow poll failed`, {
+        event: "github_device_flow_poll_failed",
+        ...getSafeErrorFields(error)
+      });
+
+      return fail(
+        IpcChannel.GitHubDeviceFlowPoll,
+        "GITHUB_DEVICE_FLOW_POLL_FAILED",
+        "GitHub ブラウザコードログインの完了状態を確認できませんでした。"
       );
     }
   });

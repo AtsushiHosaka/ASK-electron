@@ -59,6 +59,13 @@ ASK should use Device Flow only through a trusted server-side boundary or a
 reviewed OAuth app configuration. The Electron app must not ship a GitHub client
 secret.
 
+The MVP Electron implementation uses a reviewed OAuth app client ID from
+`ASK_GITHUB_OAUTH_CLIENT_ID`. The renderer receives only an opaque session ID,
+user code, verification URL, expiry, and polling interval. The access token stays
+inside the main process long enough to fetch the GitHub username, then is
+discarded; Supabase stores only `github_username`, `auth_method`, `ssh_status`,
+and `last_checked_at`.
+
 Minimum UX shape:
 
 1. Show a short code and GitHub verification URL.

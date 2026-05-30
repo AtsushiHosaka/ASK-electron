@@ -16,9 +16,18 @@ describe("student onboarding diagnostics wiring", () => {
 
   it("persists successful GitHub CLI and SSH diagnostics", () => {
     assert.match(onboardingSource, /\.from\("github_connections"\)\.upsert/);
-    assert.match(onboardingSource, /auth_method: "gh_cli"/);
-    assert.match(onboardingSource, /ssh_status: "ok"/);
+    assert.match(onboardingSource, /auth_method: authMethod/);
+    assert.match(onboardingSource, /authMethod: "gh_cli"/);
+    assert.match(onboardingSource, /ssh_status: sshStatus/);
+    assert.match(onboardingSource, /sshStatus: "ok"/);
     assert.match(onboardingSource, /onConflict: "user_id"/);
+  });
+
+  it("offers Device Flow fallback without PAT entry when GitHub CLI is unavailable", () => {
+    assert.match(onboardingSource, /window\.ask\.github\.startDeviceFlow\(\)/);
+    assert.match(onboardingSource, /window\.ask\.github\.pollDeviceFlow/);
+    assert.match(onboardingSource, /authMethod: "device_flow"/);
+    assert.doesNotMatch(onboardingSource, /personal access token|PAT を入力|token を入力/);
   });
 
   it("uses real repository inspection for the repository onboarding step", () => {
