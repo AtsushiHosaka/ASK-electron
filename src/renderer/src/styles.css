@@ -504,6 +504,12 @@ select:focus,
   max-width: 1180px;
 }
 
+.thread-detail {
+  display: grid;
+  gap: 24px;
+  max-width: 1180px;
+}
+
 .project-registration-grid {
   display: grid;
   grid-template-columns: minmax(320px, 1fr) minmax(320px, 1fr);
@@ -517,16 +523,26 @@ select:focus,
   align-items: start;
 }
 
+.thread-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.65fr);
+  gap: 16px;
+  align-items: start;
+}
+
 .project-registration-panel {
   align-content: start;
 }
 
 .thread-form-panel,
-.thread-preview-panel {
+.thread-preview-panel,
+.chat-panel,
+.composer-panel {
   align-content: start;
 }
 
-.thread-form-panel textarea {
+.thread-form-panel textarea,
+.composer-panel textarea {
   min-height: 96px;
   color: #172033;
   background: #ffffff;
@@ -803,6 +819,90 @@ select:focus,
   gap: 6px;
   color: #475467;
   font-size: 0.84rem;
+}
+
+.chat-message-list {
+  display: grid;
+  gap: 12px;
+  max-height: calc(100vh - 220px);
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.chat-message {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #e1e7ef;
+  border-radius: 8px;
+  padding: 14px;
+  background: #fbfcfe;
+}
+
+.chat-message.teacher {
+  border-color: #b9d7cc;
+  background: #f3faf7;
+}
+
+.chat-message.ai,
+.chat-message.system {
+  border-color: #d8d6f1;
+  background: #f7f6ff;
+}
+
+.chat-message header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  color: #667085;
+  font-size: 0.82rem;
+}
+
+.chat-message header strong {
+  color: #172033;
+  font-size: 0.92rem;
+}
+
+.chat-message p {
+  margin: 0;
+  color: #172033;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.chat-code-block {
+  max-width: 100%;
+  max-height: 440px;
+  margin: 0;
+  overflow: auto;
+  border-radius: 8px;
+  padding: 14px;
+  color: #d8e4ff;
+  background: #111827;
+  font-family: SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 0.86rem;
+  line-height: 1.6;
+}
+
+.chat-code-block code {
+  white-space: pre;
+}
+
+.syntax-comment {
+  color: #8aa2c2;
+}
+
+.syntax-string {
+  color: #a7f3d0;
+}
+
+.syntax-number {
+  color: #f9c56f;
+}
+
+.syntax-keyword {
+  color: #93c5fd;
 }
 
 .empty-state {
