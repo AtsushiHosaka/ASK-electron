@@ -135,6 +135,35 @@ select pg_temp.assert_eq(
   'teacher cannot directly update patch proposal status'
 );
 
+insert into public.messages (
+  id,
+  thread_id,
+  sender_user_id,
+  sender_type,
+  body,
+  message_type
+)
+values (
+  '60000000-0000-4000-8000-000000000101',
+  '50000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+  'teacher',
+  'diff --git a/src/calculator.ts b/src/calculator.ts',
+  'patch'
+);
+delete from public.messages where id = '60000000-0000-4000-8000-000000000101';
+select pg_temp.assert_eq(
+  (select count(*) from public.messages where id = '60000000-0000-4000-8000-000000000101'),
+  0,
+  'teacher deletes own unlinked patch draft'
+);
+delete from public.messages where id = '60000000-0000-4000-8000-000000000003';
+select pg_temp.assert_eq(
+  (select count(*) from public.messages where id = '60000000-0000-4000-8000-000000000003'),
+  1,
+  'teacher cannot delete linked patch proposal message'
+);
+
 insert into public.patch_proposals (
   id,
   thread_id,
@@ -262,6 +291,34 @@ select pg_temp.assert_eq(
   1,
   'student reads own-thread patch proposal'
 );
+insert into public.messages (
+  id,
+  thread_id,
+  sender_user_id,
+  sender_type,
+  body,
+  message_type
+)
+values (
+  '60000000-0000-4000-8000-000000000102',
+  '50000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000004',
+  'student',
+  'diff --git a/src/calculator.ts b/src/calculator.ts',
+  'patch'
+);
+delete from public.messages where id = '60000000-0000-4000-8000-000000000102';
+select pg_temp.assert_eq(
+  (select count(*) from public.messages where id = '60000000-0000-4000-8000-000000000102'),
+  0,
+  'student deletes own unlinked AI patch draft'
+);
+delete from public.messages where id = '60000000-0000-4000-8000-000000000001';
+select pg_temp.assert_eq(
+  (select count(*) from public.messages where id = '60000000-0000-4000-8000-000000000001'),
+  1,
+  'student cannot delete non-patch messages'
+);
 select pg_temp.assert_rejected(
   $statement$
     insert into public.patch_proposals (
@@ -307,6 +364,67 @@ select pg_temp.assert_eq(
   (select count(*) from public.patch_proposals where id = '80000000-0000-4000-8000-000000000104' and status = 'proposed'),
   1,
   'student creates AI patch proposal for own thread'
+);
+select pg_temp.assert_rejected(
+  $statement$
+    update public.patch_proposals
+    set target_file_path = 'src/changed.ts'
+    where id = '80000000-0000-4000-8000-000000000104'
+  $statement$,
+  'student cannot mutate patch proposal metadata'
+);
+update public.patch_proposals
+set status = 'applied'
+where id = '80000000-0000-4000-8000-000000000104';
+select pg_temp.assert_eq(
+  (select count(*) from public.patch_proposals where id = '80000000-0000-4000-8000-000000000104' and status = 'applied'),
+  1,
+  'student marks own-thread patch proposal applied'
+);
+update public.patch_proposals
+set status = 'reverted'
+where id = '80000000-0000-4000-8000-000000000104';
+select pg_temp.assert_eq(
+  (select count(*) from public.patch_proposals where id = '80000000-0000-4000-8000-000000000104' and status = 'reverted'),
+  1,
+  'student marks own-thread applied patch proposal reverted'
+);
+select pg_temp.assert_rejected(
+  $statement$
+    update public.patch_proposals
+    set status = 'applied'
+    where id = '80000000-0000-4000-8000-000000000104'
+  $statement$,
+  'student cannot move reverted patch proposal back to applied'
+);
+insert into public.patch_proposals (
+  id,
+  thread_id,
+  message_id,
+  created_by,
+  created_by_type,
+  target_file_path,
+  patch_text
+)
+values (
+  '80000000-0000-4000-8000-000000000108',
+  '50000000-0000-4000-8000-000000000001',
+  '60000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000004',
+  'ai',
+  'src/calculator.ts',
+  'diff --git a/src/calculator.ts b/src/calculator.ts'
+);
+update public.patch_proposals
+set status = 'failed'
+where id = '80000000-0000-4000-8000-000000000108';
+update public.patch_proposals
+set status = 'applied'
+where id = '80000000-0000-4000-8000-000000000108';
+select pg_temp.assert_eq(
+  (select count(*) from public.patch_proposals where id = '80000000-0000-4000-8000-000000000108' and status = 'applied'),
+  1,
+  'student can retry and apply a failed own-thread patch proposal'
 );
 select pg_temp.assert_rejected(
   $statement$

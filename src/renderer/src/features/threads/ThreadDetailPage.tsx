@@ -1482,6 +1482,7 @@ const PatchReviewPanel = ({
     validation.patchId &&
     validation.confirmationToken &&
     !applyResult &&
+    patchProposal?.status !== "applied" &&
     patchProposal?.status !== "dismissed" &&
     patchProposal?.status !== "reverted"
   );
