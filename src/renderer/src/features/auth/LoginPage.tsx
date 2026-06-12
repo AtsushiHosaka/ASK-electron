@@ -63,7 +63,7 @@ export const LoginPage = (): ReactElement => {
             aria-pressed={mode === "signUp"}
             onClick={() => setMode("signUp")}
           >
-            作成
+            アカウント作成
           </button>
         </div>
 
