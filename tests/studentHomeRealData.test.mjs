@@ -43,6 +43,20 @@ describe("student home real data", () => {
     assert.match(styleSource, /\.first-run-step-list/);
   });
 
+  it("keeps the student home action hierarchy focused", () => {
+    assert.match(studentHomeSource, /const nextSetupAction = setupItems\.find/);
+    assert.match(studentHomeSource, /const homePrimaryAction = nextSetupAction/);
+    assert.match(studentHomeSource, /className="page-actions home-actions"/);
+    assert.match(studentHomeSource, /className="primary-button home-primary-action"/);
+    assert.match(studentHomeSource, /className="setup-action-link"/);
+    assert.match(styleSource, /\.setup-check-row\.needs-action/);
+    assert.match(styleSource, /\.home-primary-action/);
+    assert.doesNotMatch(
+      studentHomeSource,
+      /<Link className="secondary-link" to="\/threads\/new">\s*質問を作成\s*<\/Link>/
+    );
+  });
+
   it("keeps product code free of obsolete demo and placeholder implementation markers", () => {
     const productSources = [appSource, studentHomeSource, styleSource].join("\n");
 
