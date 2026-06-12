@@ -679,7 +679,7 @@ export const StudentOnboardingPage = (): ReactElement => {
         : activeStep.id === "repository"
           ? statuses.repository === "checking"
             ? "確認中..."
-            : "repository を確認"
+            : "リポジトリを確認"
           : "確認";
   const activeStepMessage = stepMessages[activeStep.id];
   const canUseDeviceFlow =
@@ -699,7 +699,7 @@ export const StudentOnboardingPage = (): ReactElement => {
           <p className="eyebrow">Onboarding</p>
           <h1>GitHub とプロジェクト接続</h1>
           <p className="muted">
-            GitHub、Git、SSH、プロジェクトフォルダ、repository の順に確認します。
+            GitHub、Git、SSH、プロジェクトフォルダ、リポジトリの順に確認します。
           </p>
         </div>
         <div className="progress-summary" aria-label={progressText}>

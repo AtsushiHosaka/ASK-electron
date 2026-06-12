@@ -315,7 +315,7 @@ export const ProjectsPage = (): ReactElement => {
       !inspection.localPathHash
     ) {
       setMessageStatus("warning");
-      setMessage("登録前に GitHub remote を持つGit repositoryを選択してください。");
+      setMessage("登録前にGitHubリポジトリへ接続済みのローカルGitフォルダを選択してください。");
       return;
     }
 
@@ -456,7 +456,7 @@ export const ProjectsPage = (): ReactElement => {
         <div>
           <p className="eyebrow">Projects</p>
           <h1>プロジェクト登録</h1>
-          <p className="muted">GitHub remote を持つローカルGit repositoryをASKに登録します。</p>
+          <p className="muted">GitHubリポジトリへ接続済みのローカルGitフォルダを登録します。</p>
         </div>
         <div className="progress-summary">
           <strong>{state.githubConnection ? "GitHub連携済み" : "GitHub未連携"}</strong>
@@ -727,7 +727,7 @@ export const ProjectDetailPage = (): ReactElement => {
   const reconnectLocalFolder = async (): Promise<void> => {
     if (!project?.local_path_hash) {
       setReconnectStatus("warning");
-      setReconnectMessage("local_path_hash が未設定のため、プロジェクトを再登録してください。");
+      setReconnectMessage("ローカル識別子が未設定のため、プロジェクトを再登録してください。");
       return;
     }
 

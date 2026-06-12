@@ -560,7 +560,10 @@ export const ThreadCreatePage = (): ReactElement => {
       if (!inspectionResult.data.canRegister || !repoMatches || !hashMatches) {
         const mismatchMessage = !hashMatches
           ? "選択フォルダが登録済みプロジェクトのローカル識別子と一致しません。"
-          : "選択フォルダが登録済みプロジェクトのGitHubリポジトリと一致しません。";
+          : !repoMatches
+            ? "選択フォルダが登録済みプロジェクトのGitHubリポジトリと一致しません。"
+            : inspectionResult.data.message ||
+              "選択フォルダは登録できません。検査結果を確認してください。";
         setGitDiffState((current) => ({
           ...current,
           loading: false,
