@@ -239,7 +239,7 @@ export const ThreadCreatePage = (): ReactElement => {
   const editableSecretScan = scanSecrets({
     textEntries: [
       { label: "タイトル", value: title },
-      { label: "状況説明", value: situation },
+      { label: "質問内容", value: situation },
       { label: "エラー文", value: errorText },
       { label: "実行コマンド", value: commandText }
     ],
@@ -247,11 +247,11 @@ export const ThreadCreatePage = (): ReactElement => {
   });
   const secretScan = scanSecrets({
     textEntries: [
-      { label: "AI生成質問文", value: sendReview.draftQuestion },
+      { label: "質問文", value: sendReview.draftQuestion },
       { label: "AIエラー要約", value: sendReview.aiErrorSummary },
       { label: "AI原因候補", value: sendReview.aiCauseCandidates },
       { label: "タイトル", value: title },
-      { label: "状況説明", value: situation },
+      { label: "質問内容", value: situation },
       { label: "エラー文", value: errorText },
       { label: "実行コマンド", value: commandText },
       {
@@ -730,7 +730,7 @@ export const ThreadCreatePage = (): ReactElement => {
       setMessage(
         editableSecretScan.blocked
           ? "入力欄に秘密情報候補があります。AI には送信できません。"
-          : "タイトル、状況説明、プロジェクトを確認してください。"
+          : "タイトル、質問内容、プロジェクトを確認してください。"
       );
       return;
     }
@@ -956,7 +956,7 @@ export const ThreadCreatePage = (): ReactElement => {
       setMessage(
         editableSecretScan.blocked
           ? "入力欄に秘密情報候補があります。送信前に本文を編集してください。"
-          : "タイトル、状況説明、プロジェクトを確認してください。"
+          : "タイトル、質問内容、プロジェクトを確認してください。"
       );
       return;
     }
@@ -1030,7 +1030,7 @@ export const ThreadCreatePage = (): ReactElement => {
 
     if (!title.trim() || !situation.trim()) {
       setMessageStatus("warning");
-      setMessage("タイトルと状況説明を入力してください。");
+      setMessage("タイトルと質問内容を入力してください。");
       return;
     }
 
@@ -1195,7 +1195,7 @@ export const ThreadCreatePage = (): ReactElement => {
         <div>
           <p className="eyebrow">Question</p>
           <h1>質問を作成</h1>
-          <p className="muted">プロジェクト、状況、エラー、実行コマンドをまとめて送信します。</p>
+          <p className="muted">必要な内容だけ入力して送信します。</p>
         </div>
         <p className="page-header-meta">
           {selectedProject?.name ?? `${state.projects.length} プロジェクト`}
@@ -1247,7 +1247,7 @@ export const ThreadCreatePage = (): ReactElement => {
             </label>
 
             <label>
-              状況説明
+              質問内容
               <textarea
                 rows={5}
                 value={situation}
@@ -1497,7 +1497,7 @@ export const ThreadCreatePage = (): ReactElement => {
 
             {missingRequiredFields && (
               <p className="message warning" role="status">
-                タイトル、状況説明、プロジェクトを確認してください。
+                タイトル、質問内容、プロジェクトを確認してください。
               </p>
             )}
 
@@ -1548,7 +1548,7 @@ export const ThreadCreatePage = (): ReactElement => {
             </header>
 
             <label>
-              AI生成質問文（編集可）
+              質問文（編集可）
               <textarea
                 rows={5}
                 value={sendReview.draftQuestion}

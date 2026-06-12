@@ -170,7 +170,7 @@ describe("thread creation message helpers", () => {
       excludedItems: ["Git差分"]
     });
 
-    assert.match(output, /## AI生成質問文\nテストが落ちます。/);
+    assert.match(output, /## 質問文\nテストが落ちます。/);
     assert.match(output, /## AIエラー要約\nTypeError が出ています。/);
     assert.match(output, /## AI補助の注意/);
     assert.match(output, /## エラー文\n未入力/);
@@ -208,7 +208,7 @@ describe("thread creation message helpers", () => {
 
     assert.deepEqual(
       context.map((entry) => entry.label),
-      ["タイトル", "状況説明", "関連ファイル"]
+      ["タイトル", "質問内容", "関連ファイル"]
     );
     assert.equal(scan.blocked, true);
     assert.equal(scan.blockedFindings[0]?.sourceLabel, ".env");
