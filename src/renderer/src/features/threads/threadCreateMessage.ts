@@ -90,7 +90,7 @@ export const buildAiAssistContext = ({
 }): AiContextEntry[] => {
   const entries: AiContextEntry[] = [
     { label: "タイトル", kind: "user_text", value: title },
-    { label: "状況説明", kind: "user_text", value: situation },
+    { label: "質問内容", kind: "user_text", value: situation },
     { label: "エラー文", kind: "error", value: errorText },
     { label: "実行コマンド", kind: "command", value: commandText },
     { label: "関連ファイル", kind: "file_path", value: relatedFiles.join("\n") },
@@ -151,13 +151,13 @@ export const buildInitialMessage = ({
   excludedItems: string[];
 }): string => {
   const sections = [
-    `## AI生成質問文\n${draftQuestion.trim() || "未入力"}`,
+    `## 質問文\n${draftQuestion.trim() || "未入力"}`,
     aiErrorSummary.trim() ? `## AIエラー要約\n${aiErrorSummary.trim()}` : null,
     aiCauseCandidates.trim() ? `## AI原因候補と次の確認\n${aiCauseCandidates.trim()}` : null,
     aiUsed
       ? "## AI補助の注意\nAI 出力は補助情報です。確定回答ではなく、送信前に内容を確認・編集しています。"
       : null,
-    `## 状況説明\n${situation.trim()}`,
+    `## 質問内容\n${situation.trim()}`,
     `## エラー文\n${errorText.trim() || "未入力"}`,
     `## 実行コマンド\n${commandText.trim() || "未入力"}`,
     `## 関連ファイル\n${relatedFiles.length > 0 ? relatedFiles.join("\n") : "未選択"}`,
