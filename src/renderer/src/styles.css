@@ -1036,6 +1036,14 @@ textarea:focus,
   background: var(--color-green-muted);
 }
 
+.home-actions {
+  align-items: flex-start;
+}
+
+.home-primary-action {
+  min-width: 148px;
+}
+
 .first-run-onboarding {
   display: grid;
   align-items: center;
@@ -1151,6 +1159,30 @@ textarea:focus,
 
 .setup-check-row {
   grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.setup-check-row.needs-action {
+  border-color: #bfdbfe;
+  background: var(--color-primary-muted);
+}
+
+.setup-action-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: var(--color-primary-strong);
+  background: var(--color-surface);
+  font-weight: 850;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.setup-action-link:hover {
+  background: var(--color-primary-soft);
 }
 
 .student-project-row {

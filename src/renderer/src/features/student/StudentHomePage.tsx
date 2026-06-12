@@ -26,6 +26,11 @@ interface SetupItem {
   actionTo: string | null;
 }
 
+type ActionableSetupItem = SetupItem & {
+  actionLabel: string;
+  actionTo: string;
+};
+
 const firstRunOnboardingStoragePrefix = "ask.firstRunOnboarding.v1";
 
 const initialState: StudentHomeState = {
@@ -216,6 +221,14 @@ export const StudentHomePage = (): ReactElement => {
   ];
   const completedSetupCount = setupItems.filter((item) => item.complete).length;
   const setupComplete = completedSetupCount === setupItems.length;
+  const nextSetupAction = setupItems.find(
+    (item): item is ActionableSetupItem =>
+      !item.complete && Boolean(item.actionLabel) && Boolean(item.actionTo)
+  );
+  const canCreateQuestion = state.projects.length > 0;
+  const homePrimaryAction = nextSetupAction
+    ? { label: nextSetupAction.actionLabel, to: nextSetupAction.actionTo }
+    : { label: "質問を作成", to: "/threads/new" };
 
   useEffect(() => {
     if (!profile?.id || !setupComplete) {
@@ -258,10 +271,15 @@ export const StudentHomePage = (): ReactElement => {
           <p className="eyebrow">Student</p>
           <h1>ホーム</h1>
         </div>
-        <div className="page-actions">
-          <Link className="primary-button" to="/threads/new">
-            質問を作成
+        <div className="page-actions home-actions">
+          <Link className="primary-button home-primary-action" to={homePrimaryAction.to}>
+            {homePrimaryAction.label}
           </Link>
+          {nextSetupAction && canCreateQuestion ? (
+            <Link className="secondary-button" to="/threads/new">
+              質問を作成
+            </Link>
+          ) : null}
         </div>
         <div className="progress-summary learning-summary">
           <strong>{state.threads.length} 件の質問</strong>
@@ -287,7 +305,10 @@ export const StudentHomePage = (): ReactElement => {
 
           <div className="setup-check-list">
             {setupItems.map((item) => (
-              <div className="setup-check-row" key={item.label}>
+              <div
+                className={`setup-check-row ${item.complete ? "complete" : "needs-action"}`}
+                key={item.label}
+              >
                 <span className={`status-pill ${item.complete ? "success" : "warning"}`}>
                   {item.complete ? "完了" : "未完了"}
                 </span>
@@ -296,7 +317,7 @@ export const StudentHomePage = (): ReactElement => {
                   <span>{item.value}</span>
                 </div>
                 {item.actionTo && item.actionLabel ? (
-                  <Link className="secondary-link" to={item.actionTo}>
+                  <Link className="setup-action-link" to={item.actionTo}>
                     {item.actionLabel}
                   </Link>
                 ) : null}
@@ -312,16 +333,13 @@ export const StudentHomePage = (): ReactElement => {
               <h2>登録済みプロジェクト</h2>
             </div>
             <Link className="secondary-link" to="/projects">
-              管理
+              すべて見る
             </Link>
           </div>
 
           {state.projects.length === 0 ? (
             <div className="empty-inline-state">
-              <p className="muted">登録済みプロジェクトはありません。</p>
-              <Link className="secondary-link" to="/projects">
-                プロジェクト登録へ
-              </Link>
+              <p className="muted">プロジェクトはまだありません。</p>
             </div>
           ) : (
             <div className="student-project-list">
@@ -352,17 +370,11 @@ export const StudentHomePage = (): ReactElement => {
               <p className="eyebrow">Threads</p>
               <h2>最近の質問</h2>
             </div>
-            <Link className="secondary-link" to="/threads/new">
-              質問を作成
-            </Link>
           </div>
 
           {state.threads.length === 0 ? (
             <div className="empty-inline-state">
-              <p className="muted">作成済みの質問はありません。</p>
-              <Link className="secondary-link" to="/threads/new">
-                質問を作成
-              </Link>
+              <p className="muted">質問はまだありません。</p>
             </div>
           ) : (
             <div className="student-thread-list">
