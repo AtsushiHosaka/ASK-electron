@@ -15,7 +15,10 @@ describe("usage analytics schema", () => {
     assert.match(migrationSql, /create table if not exists public\.usage_events/);
     assert.match(migrationSql, /alter table public\.usage_events enable row level security;/);
     assert.match(migrationSql, /revoke all on public\.usage_events from authenticated;/);
-    assert.match(migrationSql, /grant select, insert, update, delete on public\.usage_events to service_role;/);
+    assert.match(
+      migrationSql,
+      /grant select, insert, update, delete on public\.usage_events to service_role;/
+    );
     assert.match(migrationSql, /constraint usage_events_properties_safe/);
     assert.match(migrationSql, /constraint usage_events_event_name_format/);
   });

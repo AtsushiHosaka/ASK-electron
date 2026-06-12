@@ -26,6 +26,8 @@ interface SetupItem {
   actionTo: string | null;
 }
 
+const firstRunOnboardingStoragePrefix = "ask.firstRunOnboarding.v1";
+
 const initialState: StudentHomeState = {
   loading: true,
   error: null,
@@ -55,10 +57,48 @@ const shortRepoName = (githubRepoUrl: string): string => {
 
 const formatDateTime = (value: string): string => new Date(value).toLocaleString();
 
+const firstRunOnboardingStorageKey = (profileId: string): string =>
+  `${firstRunOnboardingStoragePrefix}.${profileId}`;
+
+const readFirstRunOnboardingDismissed = (profileId: string | null | undefined): boolean => {
+  if (!profileId) {
+    return false;
+  }
+
+  try {
+    const rawValue = window.localStorage.getItem(firstRunOnboardingStorageKey(profileId));
+
+    if (!rawValue) {
+      return false;
+    }
+
+    const value = JSON.parse(rawValue) as { dismissed?: unknown; completed?: unknown };
+    return value.dismissed === true || value.completed === true;
+  } catch {
+    return false;
+  }
+};
+
+const writeFirstRunOnboardingState = (
+  profileId: string,
+  state: { dismissed?: boolean; completed?: boolean }
+): void => {
+  window.localStorage.setItem(
+    firstRunOnboardingStorageKey(profileId),
+    JSON.stringify({
+      ...state,
+      updatedAt: new Date().toISOString()
+    })
+  );
+};
+
 export const StudentHomePage = (): ReactElement => {
   const { profile } = useAuth();
   const supabase = useMemo(() => getSupabaseClient(), []);
   const [state, setState] = useState<StudentHomeState>(initialState);
+  const [firstRunOnboardingDismissed, setFirstRunOnboardingDismissed] = useState(() =>
+    readFirstRunOnboardingDismissed(profile?.id)
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -148,14 +188,6 @@ export const StudentHomePage = (): ReactElement => {
     };
   }, [profile, supabase]);
 
-  if (state.loading) {
-    return <StudentHomeStatePage title="読み込み中" body="ホームのデータを確認しています。" />;
-  }
-
-  if (state.error) {
-    return <StudentHomeStatePage title="読み込みに失敗しました" body={state.error} />;
-  }
-
   const projectsById = new Map(state.projects.map((project) => [project.id, project]));
   const setupItems: SetupItem[] = [
     {
@@ -183,6 +215,41 @@ export const StudentHomePage = (): ReactElement => {
     }
   ];
   const completedSetupCount = setupItems.filter((item) => item.complete).length;
+  const setupComplete = completedSetupCount === setupItems.length;
+
+  useEffect(() => {
+    if (!profile?.id || !setupComplete) {
+      return;
+    }
+
+    writeFirstRunOnboardingState(profile.id, { completed: true });
+  }, [profile?.id, setupComplete]);
+
+  const dismissFirstRunOnboarding = (): void => {
+    if (profile?.id) {
+      writeFirstRunOnboardingState(profile.id, { dismissed: true });
+    }
+
+    setFirstRunOnboardingDismissed(true);
+  };
+
+  if (state.loading) {
+    return <StudentHomeStatePage title="読み込み中" body="ホームのデータを確認しています。" />;
+  }
+
+  if (state.error) {
+    return <StudentHomeStatePage title="読み込みに失敗しました" body={state.error} />;
+  }
+
+  if (profile?.role === "student" && !setupComplete && !firstRunOnboardingDismissed) {
+    return (
+      <FirstRunOnboardingPage
+        completedSetupCount={completedSetupCount}
+        setupItems={setupItems}
+        onDismiss={dismissFirstRunOnboarding}
+      />
+    );
+  }
 
   return (
     <section className="student-dashboard">
@@ -190,9 +257,13 @@ export const StudentHomePage = (): ReactElement => {
         <div>
           <p className="eyebrow">Student</p>
           <h1>ホーム</h1>
-          <p className="muted">登録済みプロジェクトと最近の質問を確認します。</p>
         </div>
-        <div className="progress-summary">
+        <div className="page-actions">
+          <Link className="primary-button" to="/threads/new">
+            質問を作成
+          </Link>
+        </div>
+        <div className="progress-summary learning-summary">
           <strong>{state.threads.length} 件の質問</strong>
           <span>
             初期設定 {completedSetupCount} / {setupItems.length}
@@ -312,6 +383,63 @@ export const StudentHomePage = (): ReactElement => {
             </div>
           )}
         </article>
+      </div>
+    </section>
+  );
+};
+
+const FirstRunOnboardingPage = ({
+  setupItems,
+  completedSetupCount,
+  onDismiss
+}: {
+  setupItems: SetupItem[];
+  completedSetupCount: number;
+  onDismiss: () => void;
+}): ReactElement => {
+  const nextAction = setupItems.find((item) => !item.complete && item.actionTo);
+
+  return (
+    <section className="first-run-onboarding" aria-labelledby="first-run-onboarding-title">
+      <div className="first-run-panel">
+        <header className="first-run-header">
+          <div>
+            <p className="eyebrow">Start</p>
+            <h1 id="first-run-onboarding-title">はじめる準備</h1>
+          </div>
+          <span className="status-pill pending">
+            {completedSetupCount}/{setupItems.length}
+          </span>
+        </header>
+
+        <ol className="first-run-step-list" aria-label="初回準備">
+          {setupItems.map((item) => (
+            <li className="first-run-step" key={item.label}>
+              <span className={`status-pill ${item.complete ? "success" : "warning"}`}>
+                {item.complete ? "完了" : "未完了"}
+              </span>
+              <div>
+                <strong>{item.label}</strong>
+                <span>{item.value}</span>
+              </div>
+            </li>
+          ))}
+        </ol>
+
+        <footer className="first-run-actions">
+          {nextAction?.actionTo && nextAction.actionLabel ? (
+            <Link className="primary-button" to={nextAction.actionTo} onClick={onDismiss}>
+              {nextAction.actionLabel}
+            </Link>
+          ) : (
+            <button className="primary-button" type="button" onClick={onDismiss}>
+              ホームへ
+            </button>
+          )}
+          <button className="secondary-button" type="button" onClick={onDismiss}>
+            閉じる
+          </button>
+        </footer>
       </div>
     </section>
   );
