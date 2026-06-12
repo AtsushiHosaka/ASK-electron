@@ -22,6 +22,12 @@ const roleHome: Record<AppRole, string> = {
   admin: "/teacher"
 };
 
+const roleLabels: Record<AppRole, string> = {
+  student: "生徒",
+  teacher: "講師",
+  admin: "管理"
+};
+
 export const App = (): ReactElement => {
   return (
     <Routes>
@@ -116,7 +122,7 @@ const AppShell = (): ReactElement => {
         </nav>
 
         <div className="sidebar-footer">
-          <span className="role-badge">{profile.role}</span>
+          <span className="role-badge">{roleLabels[profile.role]}</span>
           <div>
             <strong>{profile.display_name}</strong>
           </div>
