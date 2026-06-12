@@ -472,11 +472,7 @@ export const ProjectsPage = (): ReactElement => {
   const canRegister =
     readyForRegistrationDetails &&
     state.classes.some((option) => option.classRow.id === selectedClassId) &&
-    Boolean(projectName.trim()) &&
-    Boolean(inspection?.canRegister) &&
-    Boolean(gitignoreCheckedForSelectedRoot) &&
-    !gitignoreBusy &&
-    !requiresGitignoreConfirmation;
+    Boolean(projectName.trim());
 
   if (state.loading) {
     return (
