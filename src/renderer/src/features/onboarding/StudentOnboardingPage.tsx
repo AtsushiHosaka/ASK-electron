@@ -71,9 +71,9 @@ const steps: OnboardingStep[] = [
   {
     id: "repository",
     title: "GitHub リポジトリ",
-    goal: "ローカルプロジェクトと GitHub repository を紐付けます。",
-    nextAction: "remote origin と GitHub repository が一致しているか確認します。",
-    errorText: "remote origin が見つからないか、選択した GitHub repository と一致していません。"
+    goal: "ローカルプロジェクトと GitHubリポジトリを紐付けます。",
+    nextAction: "GitHubの接続先とリポジトリが一致しているか確認します。",
+    errorText: "GitHubの接続先が見つからないか、選択したGitHubリポジトリと一致していません。"
   }
 ];
 
@@ -528,7 +528,7 @@ export const StudentOnboardingPage = (): ReactElement => {
     setRepositoryInspection(null);
     setStepMessages((current) => ({
       ...current,
-      repository: "remote origin と GitHub repository を確認しています。"
+      repository: "GitHubの接続先とリポジトリを確認しています。"
     }));
 
     const result = await window.ask.project.inspectGit({
@@ -679,7 +679,7 @@ export const StudentOnboardingPage = (): ReactElement => {
         : activeStep.id === "repository"
           ? statuses.repository === "checking"
             ? "確認中..."
-            : "repository を確認"
+            : "リポジトリを確認"
           : "確認";
   const activeStepMessage = stepMessages[activeStep.id];
   const canUseDeviceFlow =
@@ -699,7 +699,7 @@ export const StudentOnboardingPage = (): ReactElement => {
           <p className="eyebrow">Onboarding</p>
           <h1>GitHub とプロジェクト接続</h1>
           <p className="muted">
-            GitHub、Git、SSH、プロジェクトフォルダ、repository の順に確認します。
+            GitHub、Git、SSH、プロジェクトフォルダ、リポジトリの順に確認します。
           </p>
         </div>
         <div className="progress-summary" aria-label={progressText}>
@@ -860,11 +860,11 @@ export const StudentOnboardingPage = (): ReactElement => {
 
           {activeStep.id === "repository" && repositoryInspection && (
             <div className="project-summary-list">
-              <span>remote origin</span>
+              <span>Git接続先</span>
               <strong>{repositoryInspection.remoteOriginUrl ?? "未設定"}</strong>
-              <span>GitHub repository</span>
+              <span>GitHubリポジトリ</span>
               <strong>{repositoryInspection.normalizedGithubRepoUrl ?? "未検出"}</strong>
-              <span>default branch</span>
+              <span>既定ブランチ</span>
               <strong>{repositoryInspection.defaultBranch ?? "未検出"}</strong>
             </div>
           )}

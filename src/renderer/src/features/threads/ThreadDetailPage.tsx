@@ -2060,7 +2060,7 @@ export const ThreadDetailPage = (): ReactElement => {
                 </label>
 
                 <label>
-                  Base commit
+                  基準コミット
                   <input
                     value={teacherPatchBaseCommitSha}
                     onChange={(event) => setTeacherPatchBaseCommitSha(event.target.value)}
@@ -2548,7 +2548,7 @@ const PatchReviewPanel = ({
   );
 
   return (
-    <section className="patch-review-panel" aria-label="Patch review">
+    <section className="patch-review-panel" aria-label="パッチ適用確認">
       <div>
         <p className="eyebrow">Patch Review</p>
         <h3>ローカル適用確認</h3>
@@ -2564,7 +2564,7 @@ const PatchReviewPanel = ({
             <span>{patchProposalStatusLabels[patchProposal.status]}</span>
             <span>{patchProposal.target_file_path}</span>
             {patchProposal.base_commit_sha ? (
-              <span>Base {shortCommit(patchProposal.base_commit_sha)}</span>
+              <span>基準 {shortCommit(patchProposal.base_commit_sha)}</span>
             ) : null}
           </div>
           {patchProposal.explanation ? <p>{patchProposal.explanation}</p> : null}
@@ -2591,9 +2591,9 @@ const PatchReviewPanel = ({
         <div className="patch-review-result">
           <div className="patch-review-meta">
             <span>{patchValidationLabels[validation.status]}</span>
-            <span>HEAD {shortCommit(validation.currentHead)}</span>
+            <span>現在 {shortCommit(validation.currentHead)}</span>
             {validation.expectedBaseCommit ? (
-              <span>Base {shortCommit(validation.expectedBaseCommit)}</span>
+              <span>基準 {shortCommit(validation.expectedBaseCommit)}</span>
             ) : null}
           </div>
 

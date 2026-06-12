@@ -3,6 +3,14 @@ import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 const appSource = readFileSync("src/renderer/src/App.tsx", "utf8");
+const onboardingSource = readFileSync(
+  "src/renderer/src/features/onboarding/StudentOnboardingPage.tsx",
+  "utf8"
+);
+const projectSource = readFileSync(
+  "src/renderer/src/features/projects/ProjectRegistrationPage.tsx",
+  "utf8"
+);
 const stylesSource = readFileSync("src/renderer/src/styles.css", "utf8");
 const threadCreateSource = readFileSync(
   "src/renderer/src/features/threads/ThreadCreatePage.tsx",
@@ -10,6 +18,10 @@ const threadCreateSource = readFileSync(
 );
 const threadDetailSource = readFileSync(
   "src/renderer/src/features/threads/ThreadDetailPage.tsx",
+  "utf8"
+);
+const threadCreateMessageSource = readFileSync(
+  "src/renderer/src/features/threads/threadCreateMessage.ts",
   "utf8"
 );
 
@@ -39,5 +51,31 @@ describe("student-facing UI clarity regressions", () => {
     assert.doesNotMatch(screenSources, /状況説明|コード差分|生徒ユーザー|先生ユーザー/);
     assert.match(threadCreateSource, /質問内容/);
     assert.match(threadDetailSource, /aria-label="パンくずリスト"/);
+  });
+
+  it("uses clear labels instead of raw internal repository names", () => {
+    const screenSources = [
+      onboardingSource,
+      projectSource,
+      threadCreateSource,
+      threadDetailSource,
+      threadCreateMessageSource
+    ]
+      .join("\n")
+      .replace(/\\.select\\([\\s\\S]*?\\)/g, "");
+
+    assert.doesNotMatch(
+      screenSources,
+      />\s*(remote origin|GitHub repository|default branch|local_path_hash|branch|HEAD|scanner 候補|Base commit)\s*</
+    );
+    assert.doesNotMatch(
+      screenSources,
+      /GitHub remote|Git repository|remote origin|GitHub repository|local_path_hash と|local_path_hash が|scanner 候補/
+    );
+    assert.match(screenSources, />GitHubリポジトリ</);
+    assert.match(screenSources, />既定ブランチ</);
+    assert.match(screenSources, />ローカル識別子</);
+    assert.match(screenSources, />最新コミット</);
+    assert.match(threadDetailSource, /aria-label="パッチ適用確認"/);
   });
 });

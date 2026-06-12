@@ -559,8 +559,11 @@ export const ThreadCreatePage = (): ReactElement => {
 
       if (!inspectionResult.data.canRegister || !repoMatches || !hashMatches) {
         const mismatchMessage = !hashMatches
-          ? "選択フォルダが登録済みプロジェクトの local_path_hash と一致しません。"
-          : "選択フォルダが登録済みプロジェクトの GitHub repository と一致しません。";
+          ? "選択フォルダが登録済みプロジェクトのローカル識別子と一致しません。"
+          : !repoMatches
+            ? "選択フォルダが登録済みプロジェクトのGitHubリポジトリと一致しません。"
+            : inspectionResult.data.message ||
+              "選択フォルダは登録できません。検査結果を確認してください。";
         setGitDiffState((current) => ({
           ...current,
           loading: false,
@@ -1206,7 +1209,7 @@ export const ThreadCreatePage = (): ReactElement => {
         <article className="detail-panel">
           <h2>プロジェクト未登録</h2>
           <p className="muted">
-            質問を作成する前に、GitHub repository付きのプロジェクトを登録してください。
+            質問を作成する前に、GitHubリポジトリ付きのプロジェクトを登録してください。
           </p>
           <Link className="secondary-link" to="/projects">
             プロジェクト登録へ
@@ -1302,11 +1305,11 @@ export const ThreadCreatePage = (): ReactElement => {
             <div className="project-summary-list">
               <span>Git差分</span>
               <strong>{gitDiffSummary}</strong>
-              <span>branch</span>
+              <span>ブランチ</span>
               <strong>
                 {gitDiffResponse?.branch ?? selectedProject?.default_branch ?? "未取得"}
               </strong>
-              <span>HEAD</span>
+              <span>最新コミット</span>
               <strong>{gitDiffResponse?.headShortCommit ?? "未取得"}</strong>
               <span>環境情報</span>
               <strong>{environmentSummary}</strong>
@@ -1347,7 +1350,7 @@ export const ThreadCreatePage = (): ReactElement => {
               </p>
               {gitDiffResponse?.sensitiveFilePaths.length ? (
                 <p className="message warning" role="status">
-                  scanner 候補: {gitDiffResponse.sensitiveFilePaths.join(", ")}
+                  秘密情報候補: {gitDiffResponse.sensitiveFilePaths.join(", ")}
                 </p>
               ) : null}
             </div>
