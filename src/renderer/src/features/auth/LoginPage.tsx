@@ -48,6 +48,25 @@ export const LoginPage = (): ReactElement => {
           <h1 id="login-title">{mode === "signIn" ? "ログイン" : "アカウント作成"}</h1>
         </div>
 
+        <div className="auth-mode-control" aria-label="認証モード">
+          <button
+            className={mode === "signIn" ? "active" : ""}
+            type="button"
+            aria-pressed={mode === "signIn"}
+            onClick={() => setMode("signIn")}
+          >
+            ログイン
+          </button>
+          <button
+            className={mode === "signUp" ? "active" : ""}
+            type="button"
+            aria-pressed={mode === "signUp"}
+            onClick={() => setMode("signUp")}
+          >
+            アカウント作成
+          </button>
+        </div>
+
         <form className="form-stack" onSubmit={handleSubmit}>
           <label>
             メールアドレス
@@ -87,14 +106,6 @@ export const LoginPage = (): ReactElement => {
             {submitting ? "確認中..." : mode === "signIn" ? "ログイン" : "アカウント作成"}
           </button>
         </form>
-
-        <button
-          className="link-button"
-          type="button"
-          onClick={() => setMode((current) => (current === "signIn" ? "signUp" : "signIn"))}
-        >
-          {mode === "signIn" ? "アカウントを作成する" : "ログインに戻る"}
-        </button>
       </section>
     </main>
   );
