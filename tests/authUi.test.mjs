@@ -9,6 +9,7 @@ describe("auth UI hierarchy", () => {
   it("uses an explicit segmented control for auth mode selection", () => {
     assert.match(loginSource, /className="auth-mode-control"/);
     assert.match(loginSource, /aria-label="認証モード"/);
+    assert.match(loginSource, /ログイン/);
     assert.match(loginSource, /アカウント作成/);
     assert.match(loginSource, /aria-pressed=\{mode === "signIn"\}/);
     assert.match(loginSource, /aria-pressed=\{mode === "signUp"\}/);
