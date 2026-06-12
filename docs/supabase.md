@@ -22,6 +22,8 @@ Foundation migrations live in `supabase/migrations`:
 - `20260530000200_mvp_rls.sql`: helper functions, grants, RLS enablement, and baseline policies.
 - `20260530000300_class_invites.sql`: student invite tokens and RPCs for issuing and redeeming class joins.
 - `20260530000400_audit_events.sql`: redacted audit event table, scoped read policy, authenticated audit RPC, and DB triggers for core MVP mutations.
+- `20260612071145_usage_events.sql`: product usage event table, sanitized tracking RPC, and daily analytics rollup view.
+- `20260612073438_revoke_anon_usage_event_rpc.sql`: explicit anon revoke for the authenticated-only usage tracking RPC.
 
 `supabase/seed.sql` provides local fixtures for RLS and UI checks. The login account matrix and
 manual QA steps are documented in
@@ -73,3 +75,13 @@ Audit records are stored in `public.audit_events` through DB triggers and the `r
 Audit metadata is intentionally small and redacted. The database rejects metadata keys or values that look like passwords, tokens, private keys, `.env` contents, service role secrets, or raw absolute paths. Project roots should be represented by `project_root_hash`, and file references should be relative paths only. Login failures remain in Supabase Auth logs for MVP because unauthenticated clients cannot safely write audit rows without a trusted server or Edge Function.
 
 Run the migrations against a local Supabase instance before relying on the policies in production.
+
+## Usage Events
+
+Product usage records are stored separately from audit logs in `public.usage_events`. Audit events answer "what security-sensitive action happened?", while usage events answer "which product flows are being used?".
+
+Renderer code records usage through the `public.track_usage_event` RPC. Direct table access is revoked for `anon` and `authenticated`; inserts are handled by a private helper after checking the authenticated actor, class/project/thread access, safe event names, and redacted JSON properties.
+
+Usage events must never include code, chat bodies, raw error text, secrets, tokens, raw paths, email addresses, or other directly identifying/free-text payloads. Use counts, booleans, statuses, event names, and foreign keys such as `class_id`, `project_id`, and `thread_id`.
+
+`public.usage_daily_metrics` provides a service-role rollup by date, role, event, and class. It is intended for Supabase SQL/Data Analytics reads, not renderer dashboards.

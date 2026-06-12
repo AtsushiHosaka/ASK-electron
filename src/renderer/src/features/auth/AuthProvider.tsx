@@ -14,6 +14,7 @@ import type { UserProfile } from "@shared/domain";
 import { recordAuditEvent } from "../../lib/audit";
 import { getPublicEnv } from "../../lib/env";
 import { getSupabaseClient } from "../../lib/supabase";
+import { trackUsageEvent } from "../../lib/telemetry";
 
 interface AuthContextValue {
   loading: boolean;
@@ -142,6 +143,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }): ReactElemen
             provider: "password"
           }
         });
+        void trackUsageEvent({
+          eventName: "login_completed",
+          properties: {
+            provider: "password"
+          }
+        });
       }
     },
     [configError, supabase]
@@ -184,6 +191,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }): ReactElemen
             provider: "password"
           }
         });
+        void trackUsageEvent({
+          eventName: "signup_completed",
+          properties: {
+            provider: "password"
+          }
+        });
       }
     },
     [configError, supabase]
@@ -198,6 +211,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }): ReactElemen
       eventType: "auth_signout_requested",
       decision: "allowed",
       operation: "auth.sign_out"
+    });
+    await trackUsageEvent({
+      eventName: "signout_requested"
     });
     const { error } = await supabase.auth.signOut();
     if (error) {

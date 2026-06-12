@@ -1,5 +1,5 @@
 import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
-import type { ReactElement } from "react";
+import { useEffect, useRef, type ReactElement } from "react";
 import { LoginPage } from "./features/auth/LoginPage";
 import { useAuth } from "./features/auth/AuthProvider";
 import { StudentOnboardingPage } from "./features/onboarding/StudentOnboardingPage";
@@ -14,6 +14,7 @@ import {
 import { ThreadCreatePage } from "./features/threads/ThreadCreatePage";
 import { ThreadDetailPage } from "./features/threads/ThreadDetailPage";
 import type { AppRole } from "@shared/domain";
+import { trackUsageEvent } from "./lib/telemetry";
 
 const roleHome: Record<AppRole, string> = {
   student: "/student",
@@ -54,6 +55,39 @@ const RequireAuth = ({ children }: { children: ReactElement }): ReactElement => 
 
 const AppShell = (): ReactElement => {
   const { profile, signOut } = useAuth();
+  const location = useLocation();
+  const appOpenedTracked = useRef(false);
+  const lastTrackedScreen = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!profile) {
+      return;
+    }
+
+    if (!appOpenedTracked.current) {
+      appOpenedTracked.current = true;
+      void trackUsageEvent({
+        eventName: "app_opened",
+        screen: location.pathname,
+        properties: {
+          role: profile.role
+        }
+      });
+    }
+
+    if (lastTrackedScreen.current === location.pathname) {
+      return;
+    }
+
+    lastTrackedScreen.current = location.pathname;
+    void trackUsageEvent({
+      eventName: "screen_viewed",
+      screen: location.pathname,
+      properties: {
+        role: profile.role
+      }
+    });
+  }, [location.pathname, profile]);
 
   if (!profile) {
     return (

@@ -38,6 +38,29 @@ export type AuditEventType =
   | "ipc_operation"
   | "security_blocked";
 export type AuditDecision = "allowed" | "denied" | "blocked" | "failed" | "succeeded";
+export type UsageEventName =
+  | "app_opened"
+  | "screen_viewed"
+  | "login_completed"
+  | "signup_completed"
+  | "signout_requested"
+  | "class_joined"
+  | "github_connected"
+  | "project_registered"
+  | "question_ai_assist_requested"
+  | "question_ai_assist_completed"
+  | "question_submitted"
+  | "message_sent"
+  | "thread_status_changed"
+  | "ai_cause_requested"
+  | "ai_cause_completed"
+  | "ai_escalated_to_teacher"
+  | "ai_patch_requested"
+  | "ai_patch_proposed"
+  | "patch_applied"
+  | "patch_failed"
+  | "patch_reverted"
+  | "patch_dismissed";
 
 export interface Database {
   public: {
@@ -425,8 +448,86 @@ export interface Database {
         };
         Relationships: [];
       };
+      usage_events: {
+        Row: {
+          id: string;
+          actor_user_id: string;
+          actor_role: AppRole | null;
+          event_name: string;
+          event_version: number;
+          session_id: string;
+          screen: string | null;
+          class_id: string | null;
+          project_id: string | null;
+          thread_id: string | null;
+          patch_proposal_id: string | null;
+          app_version: string | null;
+          platform: string | null;
+          duration_ms: number | null;
+          success: boolean | null;
+          error_code: string | null;
+          properties: Json;
+          occurred_at: string;
+          received_at: string;
+        };
+        Insert: {
+          id?: string;
+          actor_user_id: string;
+          actor_role?: AppRole | null;
+          event_name: string;
+          event_version?: number;
+          session_id: string;
+          screen?: string | null;
+          class_id?: string | null;
+          project_id?: string | null;
+          thread_id?: string | null;
+          patch_proposal_id?: string | null;
+          app_version?: string | null;
+          platform?: string | null;
+          duration_ms?: number | null;
+          success?: boolean | null;
+          error_code?: string | null;
+          properties?: Json;
+          occurred_at?: string;
+          received_at?: string;
+        };
+        Update: {
+          actor_user_id?: string;
+          actor_role?: AppRole | null;
+          event_name?: string;
+          event_version?: number;
+          session_id?: string;
+          screen?: string | null;
+          class_id?: string | null;
+          project_id?: string | null;
+          thread_id?: string | null;
+          patch_proposal_id?: string | null;
+          app_version?: string | null;
+          platform?: string | null;
+          duration_ms?: number | null;
+          success?: boolean | null;
+          error_code?: string | null;
+          properties?: Json;
+          occurred_at?: string;
+          received_at?: string;
+        };
+        Relationships: [];
+      };
     };
-    Views: Record<string, never>;
+    Views: {
+      usage_daily_metrics: {
+        Row: {
+          usage_date: string | null;
+          actor_role: AppRole | null;
+          event_name: string | null;
+          class_id: string | null;
+          event_count: number | null;
+          unique_users: number | null;
+          unique_sessions: number | null;
+        };
+        Relationships: [];
+      };
+    };
     Functions: {
       create_class_invite: {
         Args: {
@@ -469,6 +570,26 @@ export interface Database {
           p_error_code?: string | null;
           p_metadata?: Json;
           p_redaction?: Json;
+        };
+        Returns: string;
+      };
+      track_usage_event: {
+        Args: {
+          p_event_name: UsageEventName;
+          p_event_version?: number;
+          p_session_id?: string;
+          p_screen?: string | null;
+          p_class_id?: string | null;
+          p_project_id?: string | null;
+          p_thread_id?: string | null;
+          p_patch_proposal_id?: string | null;
+          p_app_version?: string | null;
+          p_platform?: string | null;
+          p_duration_ms?: number | null;
+          p_success?: boolean | null;
+          p_error_code?: string | null;
+          p_properties?: Json;
+          p_occurred_at?: string;
         };
         Returns: string;
       };

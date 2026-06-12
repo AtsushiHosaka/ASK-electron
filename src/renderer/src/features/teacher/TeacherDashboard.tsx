@@ -10,6 +10,7 @@ import type {
 import { useAuth } from "../auth/AuthProvider";
 import { getPublicAppBaseUrl } from "../../lib/env";
 import { getSupabaseClient } from "../../lib/supabase";
+import { trackUsageEvent } from "../../lib/telemetry";
 
 type ClassRow = Database["public"]["Tables"]["classes"]["Row"];
 type ClassMemberRow = Database["public"]["Tables"]["class_members"]["Row"];
@@ -43,6 +44,8 @@ interface TeacherDashboardState {
 }
 
 type MessageStatus = "success" | "warning" | "error";
+type QueueStatusFilter = ThreadStatus | "all";
+type QueueSortMode = "priority" | "updated";
 
 const threadStatuses: ThreadStatus[] = [
   "open",
@@ -73,6 +76,8 @@ const priorityRank: Record<ThreadPriority, number> = {
   normal: 1,
   low: 2
 };
+
+const queueStatusFilters: QueueStatusFilter[] = ["all", ...threadStatuses];
 
 const sshStatusLabels: Record<GithubSshStatus, string> = {
   unknown: "未確認",
@@ -110,6 +115,8 @@ const sortThreadsForQueue = (threads: QueueThread[]): QueueThread[] => {
     return new Date(right.thread.created_at).getTime() - new Date(left.thread.created_at).getTime();
   });
 };
+
+const formatDateTime = (value: string): string => new Date(value).toLocaleString();
 
 interface QueueThread {
   thread: ThreadRow;
@@ -368,13 +375,13 @@ export const TeacherHomePage = (): ReactElement => {
 };
 
 export const TeacherQueuePage = (): ReactElement => {
-  const { profile } = useAuth();
   const [reloadVersion, setReloadVersion] = useState(0);
   const { loading, error, classes } = useTeacherDashboard(reloadVersion);
   const supabase = useMemo(() => getSupabaseClient(), []);
-  const [updatingThreadId, setUpdatingThreadId] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  const [messageStatus, setMessageStatus] = useState<MessageStatus>("success");
+  const [selectedStatus, setSelectedStatus] = useState<QueueStatusFilter>("all");
+  const [selectedClassId, setSelectedClassId] = useState("all");
+  const [query, setQuery] = useState("");
+  const [sortMode, setSortMode] = useState<QueueSortMode>("priority");
 
   const reloadQueue = useCallback((): void => setReloadVersion((current) => current + 1), []);
 
@@ -412,65 +419,32 @@ export const TeacherQueuePage = (): ReactElement => {
         }))
     )
   );
-  const groupedThreads = Object.fromEntries(
+  const statusCounts = Object.fromEntries(
     threadStatuses.map((status) => [
       status,
-      sortThreadsForQueue(queueThreads.filter((item) => item.thread.status === status))
+      queueThreads.filter((item) => item.thread.status === status).length
     ])
-  ) as Record<ThreadStatus, QueueThread[]>;
+  ) as Record<ThreadStatus, number>;
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredThreads = queueThreads.filter((item) => {
+    const matchesStatus = selectedStatus === "all" || item.thread.status === selectedStatus;
+    const matchesClass = selectedClassId === "all" || item.classRow.id === selectedClassId;
+    const matchesQuery =
+      normalizedQuery.length === 0 ||
+      [item.thread.title, item.classRow.name, item.project.name]
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedQuery);
 
-  const updateThreadStatus = async (item: QueueThread, nextStatus: ThreadStatus): Promise<void> => {
-    if (!supabase || !profile || nextStatus === item.thread.status) {
-      return;
-    }
-
-    setUpdatingThreadId(item.thread.id);
-    setMessage(null);
-
-    try {
-      const previousStatus = item.thread.status;
-      const { error: updateError } = await supabase
-        .from("threads")
-        .update({
-          status: nextStatus,
-          updated_at: new Date().toISOString()
-        })
-        .eq("id", item.thread.id);
-
-      if (updateError) {
-        throw updateError;
-      }
-
-      const { error: messageError } = await supabase.from("messages").insert({
-        thread_id: item.thread.id,
-        sender_user_id: profile.id,
-        sender_type: "teacher",
-        body: `ステータスを「${statusLabels[previousStatus]}」から「${statusLabels[nextStatus]}」に変更しました。`,
-        message_type: "text"
-      });
-
-      if (messageError) {
-        await supabase
-          .from("threads")
-          .update({
-            status: previousStatus,
-            updated_at: item.thread.updated_at
-          })
-          .eq("id", item.thread.id);
-        throw messageError;
-      }
-
-      setMessageStatus("success");
-      setMessage("ステータスを更新しました。");
-      reloadQueue();
-    } catch (error) {
-      console.error("Failed to update thread status", error);
-      setMessageStatus("error");
-      setMessage("ステータスを更新できませんでした。");
-    } finally {
-      setUpdatingThreadId(null);
-    }
-  };
+    return matchesStatus && matchesClass && matchesQuery;
+  });
+  const visibleThreads =
+    sortMode === "priority"
+      ? sortThreadsForQueue(filteredThreads)
+      : [...filteredThreads].sort(
+          (left, right) =>
+            new Date(right.thread.updated_at).getTime() - new Date(left.thread.updated_at).getTime()
+        );
 
   return (
     <section className="teacher-dashboard">
@@ -478,76 +452,97 @@ export const TeacherQueuePage = (): ReactElement => {
         <div>
           <p className="eyebrow">Queue</p>
           <h1>質問キュー</h1>
-          <p className="muted">担当クラス内の質問をステータス別に確認し、対応状況を更新します。</p>
+          <p className="muted">担当クラス内の質問を絞り込み、詳細画面で対応します。</p>
         </div>
-        <div className="progress-summary">
-          <strong>{queueThreads.length} 件</strong>
-          <span>担当クラス内の質問のみ表示</span>
-        </div>
+        <p className="page-header-meta">{queueThreads.length} 件</p>
       </div>
 
-      {message && (
-        <p
-          className={`message ${messageStatus}`}
-          role={messageStatus === "error" ? "alert" : "status"}
-        >
-          {message}
-        </p>
-      )}
+      <section className="queue-ledger" aria-label="質問一覧">
+        <div className="queue-ledger-tools">
+          <div className="queue-status-tabs" role="group" aria-label="ステータスで絞り込み">
+            {queueStatusFilters.map((status) => {
+              const count =
+                status === "all" ? queueThreads.length : statusCounts[status as ThreadStatus];
+              const label = status === "all" ? "すべて" : statusLabels[status as ThreadStatus];
 
-      <div className="queue-status-grid">
-        {threadStatuses.map((status) => (
-          <section className="queue-column" key={status}>
-            <div className="panel-heading">
-              <div>
-                <p className="eyebrow">Status</p>
-                <h2>{statusLabels[status]}</h2>
-              </div>
-              <span className="status-pill pending">{groupedThreads[status].length} 件</span>
-            </div>
+              return (
+                <button
+                  className={`queue-filter-tab ${selectedStatus === status ? "active" : ""}`}
+                  key={status}
+                  type="button"
+                  onClick={() => setSelectedStatus(status)}
+                >
+                  {label} <span>{count}</span>
+                </button>
+              );
+            })}
+          </div>
 
-            {groupedThreads[status].length === 0 ? (
-              <p className="muted">該当する質問はありません。</p>
-            ) : (
-              <div className="queue-thread-list">
-                {groupedThreads[status].map((item) => (
-                  <article className="queue-thread-card" key={item.thread.id}>
-                    <div>
-                      <Link to={`/threads/${item.thread.id}`}>{item.thread.title}</Link>
-                      <div className="thread-meta">
-                        <span>{item.classRow.name}</span>
-                        <span>{item.project.name}</span>
-                        <span>
-                          優先度:{" "}
-                          {item.thread.priority ? priorityLabels[item.thread.priority] : "通常"}
-                        </span>
-                        <span>{new Date(item.thread.updated_at).toLocaleString()}</span>
-                      </div>
-                    </div>
+          <div className="queue-compact-controls" aria-label="質問キューの絞り込み">
+            <select
+              aria-label="クラス"
+              value={selectedClassId}
+              onChange={(event) => setSelectedClassId(event.target.value)}
+            >
+              <option value="all">すべてのクラス</option>
+              {classes.map((classSummary) => (
+                <option key={classSummary.classRow.id} value={classSummary.classRow.id}>
+                  {classSummary.classRow.name}
+                </option>
+              ))}
+            </select>
+            <input
+              aria-label="検索"
+              placeholder="検索"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+            <select
+              aria-label="並び順"
+              value={sortMode}
+              onChange={(event) => setSortMode(event.target.value as QueueSortMode)}
+            >
+              <option value="priority">優先度順</option>
+              <option value="updated">更新順</option>
+            </select>
+          </div>
+        </div>
 
-                    <label className="status-select-label">
-                      ステータス
-                      <select
-                        disabled={updatingThreadId === item.thread.id}
-                        value={item.thread.status}
-                        onChange={(event) =>
-                          void updateThreadStatus(item, event.target.value as ThreadStatus)
-                        }
-                      >
-                        {threadStatuses.map((option) => (
-                          <option key={option} value={option}>
-                            {statusLabels[option]}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  </article>
-                ))}
-              </div>
-            )}
-          </section>
-        ))}
-      </div>
+        <div className="queue-ledger-header" role="row">
+          <span>状態</span>
+          <span>優先度</span>
+          <span>質問</span>
+          <span>クラス</span>
+          <span>プロジェクト</span>
+          <span>更新</span>
+          <span>開く</span>
+        </div>
+
+        {visibleThreads.length === 0 ? (
+          <div className="queue-ledger-empty">
+            <strong>該当する質問はありません</strong>
+            <span>絞り込み条件を変えると、別の質問を確認できます。</span>
+          </div>
+        ) : (
+          visibleThreads.map((item) => (
+            <Link
+              className="queue-ledger-row"
+              key={item.thread.id}
+              to={`/threads/${item.thread.id}`}
+            >
+              <span className="status-pill pending">{statusLabels[item.thread.status]}</span>
+              <span>{item.thread.priority ? priorityLabels[item.thread.priority] : "通常"}</span>
+              <strong>{item.thread.title}</strong>
+              <span>{item.classRow.name}</span>
+              <span>{item.project.name}</span>
+              <time dateTime={item.thread.updated_at}>
+                {formatDateTime(item.thread.updated_at)}
+              </time>
+              <span className="queue-open-label">開く</span>
+            </Link>
+          ))
+        )}
+      </section>
     </section>
   );
 };
@@ -869,6 +864,15 @@ export const ClassJoinPage = (): ReactElement => {
             error: null
           });
         }
+        void trackUsageEvent({
+          eventName: "class_joined",
+          classId: result.class_id,
+          success: true,
+          properties: {
+            status: result.status,
+            role: result.role
+          }
+        });
       } catch (error) {
         console.error("Failed to redeem class invite", error);
 

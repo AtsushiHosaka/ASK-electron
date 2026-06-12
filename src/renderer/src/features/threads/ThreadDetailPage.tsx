@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactElement, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { Link, useParams } from "react-router-dom";
 import type { AiAssistRequest, AiContextEntry } from "../../../../shared/aiPipeline";
 import type {
@@ -24,25 +24,26 @@ import {
 } from "../../../../shared/patchProposal";
 import { scanSecrets, type SecretScanFinding } from "../../../../shared/secretScanner";
 import { CodeContextViewer } from "../../components/CodeContextViewer";
+import { MarkdownMessage } from "../../components/MarkdownMessage";
 import { useAuth } from "../auth/AuthProvider";
 import { getSupabaseClient } from "../../lib/supabase";
+import { trackUsageEvent } from "../../lib/telemetry";
+import {
+  buildChatMessageInsert,
+  removeMessage,
+  removePatchProposal,
+  sortMessages,
+  upsertMessage,
+  upsertPatchProposal,
+  type MessageRow,
+  type PatchProposalRow,
+  type PatchProposalSummary
+} from "./threadMessageState";
 
-type MessageRow = Database["public"]["Tables"]["messages"]["Row"];
-type PatchProposalRow = Database["public"]["Tables"]["patch_proposals"]["Row"];
 type ProjectRow = Database["public"]["Tables"]["projects"]["Row"];
 type ThreadRow = Database["public"]["Tables"]["threads"]["Row"];
 type UserRow = Database["public"]["Tables"]["users"]["Row"];
 type ProjectSummary = Pick<ProjectRow, "id" | "local_path_hash" | "name">;
-type PatchProposalSummary = Pick<
-  PatchProposalRow,
-  | "id"
-  | "message_id"
-  | "status"
-  | "target_file_path"
-  | "base_commit_sha"
-  | "explanation"
-  | "created_by_type"
->;
 
 interface ThreadDetailState {
   loading: boolean;
@@ -156,80 +157,7 @@ const patchProposalStatusLabels: Record<PatchStatus, string> = {
 
 const AI_ESCALATION_MESSAGE_LIMIT = 8;
 
-type TextMessagePart =
-  | { type: "text"; content: string }
-  | { type: "code"; content: string; language: string | null };
 type LifecycleMessageStatus = "success" | "warning" | "error";
-
-const parseTextMessageParts = (body: string): TextMessagePart[] => {
-  const parts: TextMessagePart[] = [];
-  const fencePattern = /^(`{3,})([a-z0-9_+-]*)\s*$/gim;
-  let cursor = 0;
-  let openingMatch: RegExpExecArray | null;
-
-  while ((openingMatch = fencePattern.exec(body)) !== null) {
-    const openingFence = openingMatch[1];
-    const language = openingMatch[2]?.trim() || null;
-    const codeStart = fencePattern.lastIndex;
-    const closingPattern = new RegExp(`^${openingFence}\\s*$`, "gim");
-    closingPattern.lastIndex = codeStart;
-    const closingMatch = closingPattern.exec(body);
-
-    if (!closingMatch) {
-      break;
-    }
-
-    if (openingMatch.index > cursor) {
-      parts.push({ type: "text", content: body.slice(cursor, openingMatch.index) });
-    }
-
-    parts.push({
-      type: "code",
-      language,
-      content: body
-        .slice(codeStart, closingMatch.index)
-        .replace(/^\r?\n/, "")
-        .replace(/\r?\n$/, "")
-    });
-    cursor = closingPattern.lastIndex;
-    fencePattern.lastIndex = closingPattern.lastIndex;
-  }
-
-  if (cursor < body.length) {
-    parts.push({ type: "text", content: body.slice(cursor) });
-  }
-
-  return parts.length > 0 ? parts : [{ type: "text", content: body }];
-};
-
-const renderTextWithLineBreaks = (content: string): ReactNode[] =>
-  content.split(/\r?\n/).map((line, index, lines) => (
-    <span key={`${index}-${line}`}>
-      {line}
-      {index < lines.length - 1 ? <br /> : null}
-    </span>
-  ));
-
-const TextMessageBody = ({ body }: { body: string }): ReactElement => {
-  const parts = useMemo(() => parseTextMessageParts(body), [body]);
-
-  return (
-    <div className="text-message-body">
-      {parts.map((part, index) =>
-        part.type === "code" ? (
-          <CodeContextViewer
-            content={part.content}
-            kind="code"
-            key={`${index}-code`}
-            language={part.language}
-          />
-        ) : part.content.trim().length > 0 ? (
-          <p key={`${index}-text`}>{renderTextWithLineBreaks(part.content.trim())}</p>
-        ) : null
-      )}
-    </div>
-  );
-};
 
 const formatSecretFindingForUi = (finding: SecretScanFinding): string => {
   const line = finding.lineNumber ? `:${finding.lineNumber}` : "";
@@ -248,53 +176,6 @@ const clipThreadAiText = (value: string): string => {
   }
 
   return `${value.slice(0, THREAD_AI_MESSAGE_CHAR_LIMIT).trimEnd()}\n[長いため一部省略]`;
-};
-
-const sortMessages = (messages: MessageRow[]): MessageRow[] => {
-  return [...messages].sort(
-    (left, right) => new Date(left.created_at).getTime() - new Date(right.created_at).getTime()
-  );
-};
-
-const upsertMessage = (messages: MessageRow[], nextMessage: MessageRow): MessageRow[] => {
-  const withoutCurrent = messages.filter((message) => message.id !== nextMessage.id);
-  return sortMessages([...withoutCurrent, nextMessage]);
-};
-
-const removeMessage = (messages: MessageRow[], messageId: string): MessageRow[] => {
-  return messages.filter((message) => message.id !== messageId);
-};
-
-const upsertPatchProposal = (
-  proposals: Map<string, PatchProposalSummary>,
-  proposal: PatchProposalSummary
-): Map<string, PatchProposalSummary> => {
-  const nextProposals = new Map(proposals);
-  nextProposals.set(proposal.message_id, proposal);
-  return nextProposals;
-};
-
-const removePatchProposal = (
-  proposals: Map<string, PatchProposalSummary>,
-  patchProposalId: string | null,
-  messageId: string | null
-): Map<string, PatchProposalSummary> => {
-  const nextProposals = new Map(proposals);
-
-  if (messageId) {
-    nextProposals.delete(messageId);
-    return nextProposals;
-  }
-
-  if (patchProposalId) {
-    for (const [proposalMessageId, proposal] of nextProposals.entries()) {
-      if (proposal.id === patchProposalId) {
-        nextProposals.delete(proposalMessageId);
-      }
-    }
-  }
-
-  return nextProposals;
 };
 
 const initialPatchReviewState: PatchReviewState = {
@@ -795,6 +676,10 @@ export const ThreadDetailPage = (): ReactElement => {
       return;
     }
 
+    if (!state.thread) {
+      return;
+    }
+
     const validation = patchReviews[message.id]?.validation;
 
     if (!validation?.patchId || !validation.confirmationToken || !validation.canApply) {
@@ -837,6 +722,17 @@ export const ThreadDetailPage = (): ReactElement => {
         applyResult: result.data,
         error: statusError
       }));
+      void trackUsageEvent({
+        eventName: result.data.applied ? "patch_applied" : "patch_failed",
+        projectId: state.thread.project_id,
+        threadId: state.thread.id,
+        patchProposalId: validation.patchId,
+        success: result.data.applied,
+        errorCode: result.data.applied ? null : result.data.status,
+        properties: {
+          status: result.data.status
+        }
+      });
     } catch (error) {
       console.error("Failed to apply patch", error);
       updatePatchReview(message.id, (current) => ({
@@ -844,6 +740,14 @@ export const ThreadDetailPage = (): ReactElement => {
         applying: false,
         error: "パッチを適用できませんでした。"
       }));
+      void trackUsageEvent({
+        eventName: "patch_failed",
+        projectId: state.thread.project_id,
+        threadId: state.thread.id,
+        patchProposalId: validation.patchId,
+        success: false,
+        errorCode: "patch_apply_failed"
+      });
     }
   };
 
@@ -902,6 +806,17 @@ export const ThreadDetailPage = (): ReactElement => {
         revertResult: result.data,
         error: statusError
       }));
+      void trackUsageEvent({
+        eventName: "patch_reverted",
+        projectId: state.thread?.project_id ?? null,
+        threadId: state.thread?.id ?? null,
+        patchProposalId: patchId,
+        success: result.data.reverted,
+        errorCode: result.data.reverted ? null : result.data.status,
+        properties: {
+          status: result.data.status
+        }
+      });
     } catch (error) {
       console.error("Failed to revert patch", error);
       updatePatchReview(message.id, (current) => ({
@@ -930,6 +845,13 @@ export const ThreadDetailPage = (): ReactElement => {
         dismissing: false,
         error: null
       }));
+      void trackUsageEvent({
+        eventName: "patch_dismissed",
+        projectId: state.thread?.project_id ?? null,
+        threadId: state.thread?.id ?? null,
+        patchProposalId: state.patchProposalsByMessageId.get(message.id)?.id ?? null,
+        success: true
+      });
     } catch (error) {
       console.error("Failed to dismiss patch", error);
       updatePatchReview(message.id, (current) => ({
@@ -946,10 +868,16 @@ export const ThreadDetailPage = (): ReactElement => {
       return;
     }
 
-    const trimmedBody = body.trim();
+    const messageInsert = buildChatMessageInsert({
+      threadId: state.thread.id,
+      senderUserId: profile.id,
+      senderRole: profile.role,
+      body,
+      messageType
+    });
 
-    if (!trimmedBody) {
-      setSendError("メッセージを入力してください。");
+    if (!messageInsert.ok) {
+      setSendError(messageInsert.error);
       return;
     }
 
@@ -957,19 +885,22 @@ export const ThreadDetailPage = (): ReactElement => {
     setSendError(null);
 
     try {
-      const senderType: MessageSenderType = profile.role === "student" ? "student" : "teacher";
-      const { error } = await supabase.from("messages").insert({
-        thread_id: state.thread.id,
-        sender_user_id: profile.id,
-        sender_type: senderType,
-        body: trimmedBody,
-        message_type: messageType
-      });
+      const { error } = await supabase.from("messages").insert(messageInsert.message);
 
       if (error) {
         throw error;
       }
 
+      void trackUsageEvent({
+        eventName: "message_sent",
+        projectId: state.thread.project_id,
+        threadId: state.thread.id,
+        success: true,
+        properties: {
+          message_type: messageType,
+          sender_type: messageInsert.senderType
+        }
+      });
       setBody("");
       setMessageType("text");
     } catch (error) {
@@ -1060,6 +991,17 @@ export const ThreadDetailPage = (): ReactElement => {
       }));
       setLifecycleMessageStatus("success");
       setLifecycleMessage("ステータスを更新しました。");
+      void trackUsageEvent({
+        eventName: "thread_status_changed",
+        projectId: previousThread.project_id,
+        threadId: previousThread.id,
+        success: true,
+        properties: {
+          previous_status: previousThread.status,
+          next_status: nextStatus,
+          actor_type: senderType
+        }
+      });
     } catch (error) {
       console.error("Failed to update thread lifecycle status", error);
       setLifecycleMessageStatus("error");
@@ -1301,6 +1243,15 @@ export const ThreadDetailPage = (): ReactElement => {
       setAiEscalationReviewOpen(false);
       setAiEscalationMessageStatus("success");
       setAiEscalationMessage("AI補助の文脈を先生へ共有しました。");
+      void trackUsageEvent({
+        eventName: "ai_escalated_to_teacher",
+        projectId: previousThread.project_id,
+        threadId: previousThread.id,
+        success: true,
+        properties: {
+          next_status: nextStatus
+        }
+      });
     } catch (error) {
       console.error("Failed to escalate AI context to teacher", error);
       setAiEscalationMessageStatus("error");
@@ -1325,6 +1276,12 @@ export const ThreadDetailPage = (): ReactElement => {
       setAiError("秘密情報の可能性がある内容を検出したため、AI には送信しません。");
       return;
     }
+
+    void trackUsageEvent({
+      eventName: "ai_cause_requested",
+      projectId: state.thread.project_id,
+      threadId: state.thread.id
+    });
 
     setAiGenerating(true);
     setAiError(null);
@@ -1407,9 +1364,25 @@ export const ThreadDetailPage = (): ReactElement => {
         thread: current.thread ? { ...current.thread, ai_used: true } : current.thread,
         messages: data ? sortMessages([...current.messages, data]) : current.messages
       }));
+      void trackUsageEvent({
+        eventName: "ai_cause_completed",
+        projectId: state.thread.project_id,
+        threadId: state.thread.id,
+        success: true,
+        properties: {
+          output_chars: outputText.length
+        }
+      });
     } catch (error) {
       console.error("Failed to generate cause candidates", error);
       setAiError("AI 原因候補を生成または保存できませんでした。");
+      void trackUsageEvent({
+        eventName: "ai_cause_completed",
+        projectId: state.thread.project_id,
+        threadId: state.thread.id,
+        success: false,
+        errorCode: "ai_cause_failed"
+      });
     } finally {
       setAiGenerating(false);
     }
@@ -1673,6 +1646,17 @@ export const ThreadDetailPage = (): ReactElement => {
         patchProposalsByMessageId
       };
     });
+    void trackUsageEvent({
+      eventName: "ai_patch_proposed",
+      projectId: state.thread.project_id,
+      threadId: state.thread.id,
+      patchProposalId: patchProposal.id,
+      success: true,
+      properties: {
+        target_file_path_present: Boolean(proposal.targetFilePath),
+        base_commit_present: Boolean(proposal.baseCommitSha)
+      }
+    });
   };
 
   const generateAiPatchProposal = async (): Promise<void> => {
@@ -1695,6 +1679,12 @@ export const ThreadDetailPage = (): ReactElement => {
       setAiPatchError("秘密情報の可能性がある内容を検出したため、AI には送信しません。");
       return;
     }
+
+    void trackUsageEvent({
+      eventName: "ai_patch_requested",
+      projectId: state.thread.project_id,
+      threadId: state.thread.id
+    });
 
     setAiPatchGenerating(true);
     setAiPatchError(null);
@@ -1749,6 +1739,13 @@ export const ThreadDetailPage = (): ReactElement => {
     } catch (error) {
       console.error("Failed to generate AI patch proposal", error);
       setAiPatchError("AI パッチ案を生成または保存できませんでした。");
+      void trackUsageEvent({
+        eventName: "ai_patch_proposed",
+        projectId: state.thread.project_id,
+        threadId: state.thread.id,
+        success: false,
+        errorCode: "ai_patch_failed"
+      });
     } finally {
       setAiPatchGenerating(false);
     }
@@ -1772,19 +1769,73 @@ export const ThreadDetailPage = (): ReactElement => {
     return <ThreadStatePage title="スレッドが見つかりません" body={state.error ?? ""} />;
   }
 
+  const backTarget = profile?.role === "student" ? "/student" : "/teacher/queue";
+  const backLabel = profile?.role === "student" ? "ホームへ戻る" : "キューへ戻る";
+
   return (
     <section className="thread-detail">
-      <div className="page-header">
+      <div className="page-header thread-page-header">
         <div>
           <p className="eyebrow">Thread</p>
           <h1>{state.thread.title}</h1>
-          <p className="muted">
-            {state.project?.name ?? "プロジェクト"} のメッセージと提案パッチを確認できます。
-          </p>
+          <div className="thread-meta">
+            <span>{state.project?.name ?? "プロジェクト"}</span>
+            <span>{state.messages.length} messages</span>
+          </div>
         </div>
-        <div className="progress-summary">
-          <strong>{statusLabels[state.thread.status]}</strong>
-          <span>{state.messages.length} messages</span>
+
+        <div className="thread-header-actions">
+          <Link className="secondary-link" to={backTarget}>
+            {backLabel}
+          </Link>
+          <div className="thread-status-compact">
+            <span>ステータス</span>
+            {canUseTeacherLifecycleControls ? (
+              <select
+                aria-label="ステータス"
+                disabled={lifecycleUpdating}
+                value={state.thread.status}
+                onChange={(event) =>
+                  void updateThreadLifecycleStatus(event.target.value as ThreadStatus)
+                }
+              >
+                {threadStatuses.map((option) => (
+                  <option key={option} value={option}>
+                    {statusLabels[option]}
+                  </option>
+                ))}
+              </select>
+            ) : canUseLifecycleControls ? (
+              <div className="thread-status-buttons" role="group" aria-label="スレッド状態">
+                <button
+                  className="secondary-button"
+                  disabled={lifecycleUpdating || state.thread.status === "resolved"}
+                  type="button"
+                  onClick={() => void updateThreadLifecycleStatus("resolved")}
+                >
+                  解決済みにする
+                </button>
+                <button
+                  className="secondary-button"
+                  disabled={lifecycleUpdating || state.thread.status === "reopened"}
+                  type="button"
+                  onClick={() => void updateThreadLifecycleStatus("reopened")}
+                >
+                  再オープンする
+                </button>
+              </div>
+            ) : (
+              <strong>{statusLabels[state.thread.status]}</strong>
+            )}
+          </div>
+          {lifecycleMessage ? (
+            <p
+              className={`message ${lifecycleMessageStatus} thread-status-message`}
+              role={lifecycleMessageStatus === "error" ? "alert" : "status"}
+            >
+              {lifecycleMessage}
+            </p>
+          ) : null}
         </div>
       </div>
 
@@ -1809,6 +1860,7 @@ export const ThreadDetailPage = (): ReactElement => {
                   projectId={state.project?.id ?? null}
                   projectHasLocalRoot={Boolean(state.project?.local_path_hash)}
                   projectName={state.project?.name ?? null}
+                  isOwnMessage={message.sender_user_id === profile?.id}
                   onValidatePatch={() => void validatePatchMessage(message)}
                   onApplyPatch={() => void applyPatchMessage(message)}
                   onRevertPatch={() => void revertPatchMessage(message)}
@@ -1817,267 +1869,219 @@ export const ThreadDetailPage = (): ReactElement => {
               ))
             )}
           </div>
+
+          <form
+            className="chat-composer"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void sendMessage();
+            }}
+          >
+            <div className="chat-composer-toolbar">
+              <label>
+                種類
+                <select
+                  value={messageType}
+                  onChange={(event) => setMessageType(event.target.value as MessageType)}
+                >
+                  {(["text", "code", "environment", "ai_summary", "patch"] as MessageType[]).map(
+                    (type) => (
+                      <option key={type} value={type}>
+                        {messageTypeLabels[type]}
+                      </option>
+                    )
+                  )}
+                </select>
+              </label>
+            </div>
+
+            <label className="chat-composer-input">
+              内容
+              <textarea
+                placeholder="追加質問や返信を入力"
+                rows={messageType === "code" || messageType === "patch" ? 8 : 4}
+                value={body}
+                onChange={(event) => setBody(event.target.value)}
+              />
+            </label>
+
+            {sendError && (
+              <p className="message error" role="alert">
+                {sendError}
+              </p>
+            )}
+
+            <div className="chat-composer-actions">
+              <button className="primary-button" disabled={sending || !body.trim()} type="submit">
+                {sending ? "送信中..." : "送信"}
+              </button>
+            </div>
+          </form>
         </article>
 
-        <aside className="detail-panel composer-panel">
-          {canUseLifecycleControls ? (
-            <div className="thread-lifecycle-controls">
-              <div>
-                <p className="eyebrow">Status</p>
-                <h2>対応ステータス</h2>
-              </div>
-
-              {canUseTeacherLifecycleControls ? (
-                <label className="status-select-label">
-                  ステータス
-                  <select
-                    disabled={lifecycleUpdating}
-                    value={state.thread.status}
-                    onChange={(event) =>
-                      void updateThreadLifecycleStatus(event.target.value as ThreadStatus)
-                    }
-                  >
-                    {threadStatuses.map((option) => (
-                      <option key={option} value={option}>
-                        {statusLabels[option]}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : (
-                <div className="control-row" role="group" aria-label="スレッド状態">
-                  <button
-                    className="secondary-button"
-                    disabled={lifecycleUpdating || state.thread.status === "resolved"}
-                    type="button"
-                    onClick={() => void updateThreadLifecycleStatus("resolved")}
-                  >
-                    解決済みにする
-                  </button>
-                  <button
-                    className="secondary-button"
-                    disabled={lifecycleUpdating || state.thread.status === "reopened"}
-                    type="button"
-                    onClick={() => void updateThreadLifecycleStatus("reopened")}
-                  >
-                    再オープンする
-                  </button>
-                </div>
-              )}
-
-              {lifecycleMessage ? (
-                <p
-                  className={`message ${lifecycleMessageStatus}`}
-                  role={lifecycleMessageStatus === "error" ? "alert" : "status"}
-                >
-                  {lifecycleMessage}
-                </p>
-              ) : null}
-            </div>
-          ) : null}
-
-          <div>
-            <p className="eyebrow">Reply</p>
-            <h2>メッセージ送信</h2>
-          </div>
-
-          <label>
-            種類
-            <select
-              value={messageType}
-              onChange={(event) => setMessageType(event.target.value as MessageType)}
-            >
-              {(["text", "code", "environment", "ai_summary", "patch"] as MessageType[]).map(
-                (type) => (
-                  <option key={type} value={type}>
-                    {messageTypeLabels[type]}
-                  </option>
-                )
-              )}
-            </select>
-          </label>
-
-          <label>
-            内容
-            <textarea
-              rows={messageType === "code" || messageType === "patch" ? 12 : 7}
-              value={body}
-              onChange={(event) => setBody(event.target.value)}
-            />
-          </label>
-
-          {sendError && (
-            <p className="message error" role="alert">
-              {sendError}
-            </p>
-          )}
-
-          <button
-            className="primary-button"
-            disabled={sending || !body.trim()}
-            type="button"
-            onClick={() => void sendMessage()}
-          >
-            {sending ? "送信中..." : "送信"}
-          </button>
-
+        <div className="thread-support-tools">
           {profile?.role === "teacher" ? (
-            <div className="teacher-patch-composer">
-              <div>
-                <p className="eyebrow">Patch Composer</p>
-                <h2>先生パッチ提案</h2>
-              </div>
+            <details className="thread-tool-panel">
+              <summary>
+                <span>先生パッチ提案</span>
+                <small>diffを提案として送信</small>
+              </summary>
+              <div className="teacher-patch-composer">
+                <div>
+                  <p className="eyebrow">Patch Composer</p>
+                  <h2>先生パッチ提案</h2>
+                </div>
 
-              <label>
-                対象ファイル
-                <input
-                  value={teacherPatchTargetFilePath}
-                  onChange={(event) => setTeacherPatchTargetFilePath(event.target.value)}
-                />
-              </label>
-
-              <label>
-                Base commit
-                <input
-                  value={teacherPatchBaseCommitSha}
-                  onChange={(event) => setTeacherPatchBaseCommitSha(event.target.value)}
-                />
-              </label>
-
-              <label>
-                変更理由
-                <textarea
-                  rows={4}
-                  value={teacherPatchExplanation}
-                  onChange={(event) => setTeacherPatchExplanation(event.target.value)}
-                />
-              </label>
-
-              <label>
-                Unified diff
-                <textarea
-                  className="diff-textarea"
-                  rows={14}
-                  value={teacherPatchText}
-                  onChange={(event) => setTeacherPatchText(event.target.value)}
-                />
-              </label>
-
-              <div className="teacher-patch-actions">
-                <button
-                  className="secondary-button"
-                  disabled={teacherPatchSaving || !teacherPatchTargetFilePath.trim()}
-                  type="button"
-                  onClick={createTeacherPatchTemplate}
-                >
-                  diffひな形
-                </button>
-                <button
-                  className="primary-button"
-                  disabled={
-                    teacherPatchSaving ||
-                    !teacherPatchTargetFilePath.trim() ||
-                    !teacherPatchExplanation.trim() ||
-                    !teacherPatchText.trim()
-                  }
-                  type="button"
-                  onClick={() => void saveTeacherPatchProposal()}
-                >
-                  {teacherPatchSaving ? "保存中..." : "パッチ提案を送信"}
-                </button>
-              </div>
-
-              <p className="message warning" role="status">
-                先生の提案は proposed として保存され、生徒のローカル環境には直接適用されません。
-              </p>
-              {teacherPatchNotice ? (
-                <p className="message success" role="status">
-                  {teacherPatchNotice}
-                </p>
-              ) : null}
-              {teacherPatchError ? (
-                <p className="message error" role="alert">
-                  {teacherPatchError}
-                </p>
-              ) : null}
-            </div>
-          ) : null}
-
-          <div className="ai-thread-assist">
-            <div>
-              <p className="eyebrow">AI Assist</p>
-              <h2>調査とパッチ案</h2>
-            </div>
-            <div className="ai-assist-actions">
-              <button
-                className="secondary-button"
-                disabled={aiGenerating || state.messages.length === 0}
-                type="button"
-                onClick={() => void generateCauseCandidates()}
-              >
-                {aiGenerating ? "原因候補を生成中..." : "AIで原因候補を追加"}
-              </button>
-              {profile?.role === "student" ? (
-                <button
-                  className="secondary-button"
-                  disabled={aiPatchGenerating || state.messages.length === 0}
-                  type="button"
-                  onClick={() => void generateAiPatchProposal()}
-                >
-                  {aiPatchGenerating ? "パッチ案を生成中..." : "AIでパッチ案を追加"}
-                </button>
-              ) : null}
-            </div>
-            <p className="message warning" role="status">
-              AI 出力は提案です。パッチ案は proposed として保存し、承認なしに適用しません。
-            </p>
-            {canEscalateAiToTeacher ? (
-              <div className="ai-escalation-panel">
                 <label>
-                  先生への確認メモ
-                  <textarea
-                    rows={4}
-                    value={aiEscalationConfirmation}
-                    onChange={(event) => setAiEscalationConfirmation(event.target.value)}
+                  対象ファイル
+                  <input
+                    value={teacherPatchTargetFilePath}
+                    onChange={(event) => setTeacherPatchTargetFilePath(event.target.value)}
                   />
                 </label>
+
+                <label>
+                  Base commit
+                  <input
+                    value={teacherPatchBaseCommitSha}
+                    onChange={(event) => setTeacherPatchBaseCommitSha(event.target.value)}
+                  />
+                </label>
+
+                <label>
+                  変更理由
+                  <textarea
+                    rows={4}
+                    value={teacherPatchExplanation}
+                    onChange={(event) => setTeacherPatchExplanation(event.target.value)}
+                  />
+                </label>
+
+                <label>
+                  Unified diff
+                  <textarea
+                    className="diff-textarea"
+                    rows={14}
+                    value={teacherPatchText}
+                    onChange={(event) => setTeacherPatchText(event.target.value)}
+                  />
+                </label>
+
+                <div className="teacher-patch-actions">
+                  <button
+                    className="secondary-button"
+                    disabled={teacherPatchSaving || !teacherPatchTargetFilePath.trim()}
+                    type="button"
+                    onClick={createTeacherPatchTemplate}
+                  >
+                    diffひな形
+                  </button>
+                  <button
+                    className="primary-button"
+                    disabled={
+                      teacherPatchSaving ||
+                      !teacherPatchTargetFilePath.trim() ||
+                      !teacherPatchExplanation.trim() ||
+                      !teacherPatchText.trim()
+                    }
+                    type="button"
+                    onClick={() => void saveTeacherPatchProposal()}
+                  >
+                    {teacherPatchSaving ? "保存中..." : "パッチ提案を送信"}
+                  </button>
+                </div>
+
+                <p className="message warning" role="status">
+                  先生の提案は proposed として保存され、生徒のローカル環境には直接適用されません。
+                </p>
+                {teacherPatchNotice ? (
+                  <p className="message success" role="status">
+                    {teacherPatchNotice}
+                  </p>
+                ) : null}
+                {teacherPatchError ? (
+                  <p className="message error" role="alert">
+                    {teacherPatchError}
+                  </p>
+                ) : null}
+              </div>
+            </details>
+          ) : null}
+
+          <details className="thread-tool-panel">
+            <summary>
+              <span>AI補助</span>
+              <small>原因候補やパッチ案を会話に追加</small>
+            </summary>
+            <div className="ai-thread-assist">
+              <div>
+                <p className="eyebrow">AI Assist</p>
+                <h2>調査とパッチ案</h2>
+              </div>
+              <div className="ai-assist-actions">
                 <button
                   className="secondary-button"
-                  disabled={aiEscalating || !aiEscalationConfirmation.trim()}
+                  disabled={aiGenerating || state.messages.length === 0}
                   type="button"
-                  onClick={openAiEscalationReview}
+                  onClick={() => void generateCauseCandidates()}
                 >
-                  先生にエスカレーション
+                  {aiGenerating ? "原因候補を生成中..." : "AIで原因候補を追加"}
                 </button>
+                {profile?.role === "student" ? (
+                  <button
+                    className="secondary-button"
+                    disabled={aiPatchGenerating || state.messages.length === 0}
+                    type="button"
+                    onClick={() => void generateAiPatchProposal()}
+                  >
+                    {aiPatchGenerating ? "パッチ案を生成中..." : "AIでパッチ案を追加"}
+                  </button>
+                ) : null}
               </div>
-            ) : null}
-            {aiEscalationMessage ? (
-              <p
-                className={`message ${aiEscalationMessageStatus}`}
-                role={aiEscalationMessageStatus === "error" ? "alert" : "status"}
-              >
-                {aiEscalationMessage}
+              <p className="message warning" role="status">
+                AI 出力は提案です。パッチ案は proposed として保存し、承認なしに適用しません。
               </p>
-            ) : null}
-            {aiError ? (
-              <p className="message error" role="alert">
-                {aiError}
-              </p>
-            ) : null}
-            {aiPatchError ? (
-              <p className="message error" role="alert">
-                {aiPatchError}
-              </p>
-            ) : null}
-          </div>
-
-          <Link
-            className="secondary-link"
-            to={profile?.role === "student" ? "/student" : "/teacher/queue"}
-          >
-            {profile?.role === "student" ? "ホームへ戻る" : "キューへ戻る"}
-          </Link>
-        </aside>
+              {canEscalateAiToTeacher ? (
+                <div className="ai-escalation-panel">
+                  <label>
+                    先生への確認メモ
+                    <textarea
+                      rows={4}
+                      value={aiEscalationConfirmation}
+                      onChange={(event) => setAiEscalationConfirmation(event.target.value)}
+                    />
+                  </label>
+                  <button
+                    className="secondary-button"
+                    disabled={aiEscalating || !aiEscalationConfirmation.trim()}
+                    type="button"
+                    onClick={openAiEscalationReview}
+                  >
+                    先生にエスカレーション
+                  </button>
+                </div>
+              ) : null}
+              {aiEscalationMessage ? (
+                <p
+                  className={`message ${aiEscalationMessageStatus}`}
+                  role={aiEscalationMessageStatus === "error" ? "alert" : "status"}
+                >
+                  {aiEscalationMessage}
+                </p>
+              ) : null}
+              {aiError ? (
+                <p className="message error" role="alert">
+                  {aiError}
+                </p>
+              ) : null}
+              {aiPatchError ? (
+                <p className="message error" role="alert">
+                  {aiPatchError}
+                </p>
+              ) : null}
+            </div>
+          </details>
+        </div>
       </div>
 
       {aiEscalationReviewOpen ? (
@@ -2206,6 +2210,7 @@ const MessageBubble = ({
   projectId,
   projectHasLocalRoot,
   projectName,
+  isOwnMessage,
   onValidatePatch,
   onApplyPatch,
   onRevertPatch,
@@ -2219,6 +2224,7 @@ const MessageBubble = ({
   projectId: string | null;
   projectHasLocalRoot: boolean;
   projectName: string | null;
+  isOwnMessage: boolean;
   onValidatePatch: () => void;
   onApplyPatch: () => void;
   onRevertPatch: () => void;
@@ -2228,7 +2234,7 @@ const MessageBubble = ({
   const viewerKind = message.message_type === "patch" ? "diff" : "code";
 
   return (
-    <article className={`chat-message ${message.sender_type}`}>
+    <article className={`chat-message ${message.sender_type}${isOwnMessage ? " own" : ""}`}>
       <header>
         <strong>{senderName ?? senderLabels[message.sender_type]}</strong>
         <span>{messageTypeLabels[message.message_type]}</span>
@@ -2238,7 +2244,7 @@ const MessageBubble = ({
       {isCodeLike ? (
         <CodeContextViewer content={message.body} kind={viewerKind} />
       ) : (
-        <TextMessageBody body={message.body} />
+        <MarkdownMessage>{message.body}</MarkdownMessage>
       )}
 
       {message.message_type === "patch" ? (

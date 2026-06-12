@@ -11,6 +11,7 @@ import type {
 } from "../../../../shared/ipc";
 import { useAuth } from "../auth/AuthProvider";
 import { getSupabaseClient } from "../../lib/supabase";
+import { trackUsageEvent } from "../../lib/telemetry";
 
 type StepStatus = "pending" | "checking" | "success" | "warning" | "error";
 
@@ -290,6 +291,15 @@ export const StudentOnboardingPage = (): ReactElement => {
       if (profileError) {
         console.warn("Failed to update user GitHub username", profileError);
       }
+
+      void trackUsageEvent({
+        eventName: "github_connected",
+        success: true,
+        properties: {
+          auth_method: authMethod,
+          ssh_status: sshStatus
+        }
+      });
     },
     [profile, supabase]
   );

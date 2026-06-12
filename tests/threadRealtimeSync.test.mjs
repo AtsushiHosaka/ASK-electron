@@ -6,6 +6,10 @@ const threadDetailSource = readFileSync(
   "src/renderer/src/features/threads/ThreadDetailPage.tsx",
   "utf8"
 );
+const threadMessageStateSource = readFileSync(
+  "src/renderer/src/features/threads/threadMessageState.ts",
+  "utf8"
+);
 
 describe("thread detail realtime sync", () => {
   it("subscribes to message, patch proposal, and thread row changes", () => {
@@ -19,11 +23,12 @@ describe("thread detail realtime sync", () => {
   });
 
   it("handles inserts, updates, and deletes without duplicating local rows", () => {
-    assert.match(threadDetailSource, /const upsertMessage = /);
+    assert.match(threadDetailSource, /from "\.\/threadMessageState"/);
+    assert.match(threadMessageStateSource, /export const upsertMessage = /);
     assert.match(threadDetailSource, /messages: upsertMessage\(current\.messages, nextMessage\)/);
     assert.match(threadDetailSource, /messages: removeMessage\(current\.messages, messageId\)/);
-    assert.match(threadDetailSource, /upsertPatchProposal/);
-    assert.match(threadDetailSource, /removePatchProposal/);
+    assert.match(threadMessageStateSource, /export const upsertPatchProposal = /);
+    assert.match(threadMessageStateSource, /export const removePatchProposal = /);
   });
 
   it("loads a patch message when proposal metadata arrives before the message event", () => {

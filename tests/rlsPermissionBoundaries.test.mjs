@@ -91,6 +91,14 @@ describe("RLS SQL coverage", () => {
     );
   });
 
+  it("keeps thread reads compatible with insert returning", () => {
+    assert.match(
+      rlsSql,
+      /create policy "threads_select_accessible"\s+on public\.threads\s+for select\s+to authenticated\s+using\s*\(\s*public\.can_access_project\(project_id\)\s*\);/i
+    );
+    assert.match(rlsSql, /INSERT \.\.\. RETURNING/);
+  });
+
   it("guards patch proposal updates with immutable metadata and student status transitions", () => {
     assert.match(rlsSql, /create or replace function public\.enforce_patch_proposal_update_guard/);
     assert.match(rlsSql, /old\.id is distinct from new\.id/);

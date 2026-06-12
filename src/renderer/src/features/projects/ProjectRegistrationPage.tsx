@@ -10,6 +10,7 @@ import type {
 import type { Database } from "../../../../shared/database.types";
 import { useAuth } from "../auth/AuthProvider";
 import { getSupabaseClient } from "../../lib/supabase";
+import { trackUsageEvent } from "../../lib/telemetry";
 
 type ClassRow = Database["public"]["Tables"]["classes"]["Row"];
 type ClassMemberRow = Database["public"]["Tables"]["class_members"]["Row"];
@@ -390,6 +391,18 @@ export const ProjectsPage = (): ReactElement => {
         );
         return;
       }
+
+      void trackUsageEvent({
+        eventName: "project_registered",
+        classId: selectedClass.classRow.id,
+        projectId: data.id,
+        success: true,
+        properties: {
+          default_branch_present: Boolean(inspection.defaultBranch),
+          gitignore_checked: gitignoreCheckedForSelectedRoot,
+          high_risk_gitignore_missing_count: missingHighRiskEntries.length
+        }
+      });
 
       navigate(`/projects/${data.id}`);
     } catch (error) {

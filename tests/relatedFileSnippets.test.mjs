@@ -136,13 +136,20 @@ describe("related file snippet UI wiring", () => {
     assert.match(source, /関連ファイルスニペット/);
   });
 
-  it("renders fenced snippets inside text messages with the code viewer", async () => {
+  it("renders text messages as markdown and keeps code-like messages in the code viewer", async () => {
     const source = await import("node:fs/promises").then((fs) =>
       fs.readFile("src/renderer/src/features/threads/ThreadDetailPage.tsx", "utf8")
     );
+    const markdownSource = await import("node:fs/promises").then((fs) =>
+      fs.readFile("src/renderer/src/components/MarkdownMessage.tsx", "utf8")
+    );
 
-    assert.match(source, /parseTextMessageParts/);
-    assert.match(source, /TextMessageBody/);
+    assert.match(source, /MarkdownMessage/);
     assert.match(source, /CodeContextViewer/);
+    assert.match(markdownSource, /react-markdown/);
+    assert.match(markdownSource, /remark-gfm/);
+    assert.match(markdownSource, /rehype-highlight/);
+    assert.match(markdownSource, /skipHtml/);
+    assert.doesNotMatch(markdownSource, /rehype-raw/);
   });
 });
