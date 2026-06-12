@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 import { Link } from "react-router-dom";
 import type { Database, ThreadStatus } from "../../../../shared/database.types";
 import { useAuth } from "../auth/AuthProvider";
@@ -105,10 +105,14 @@ export const StudentHomePage = (): ReactElement => {
     readFirstRunOnboardingDismissed(profile?.id)
   );
 
-  useEffect(() => {
-    let mounted = true;
+  const loadHomeData = useCallback(
+    async (shouldCommit: () => boolean = () => true): Promise<void> => {
+      await Promise.resolve();
 
-    const load = async (): Promise<void> => {
+      if (!shouldCommit()) {
+        return;
+      }
+
       if (!supabase || !profile) {
         setState({
           ...initialState,
@@ -163,7 +167,7 @@ export const StudentHomePage = (): ReactElement => {
           throw threadsResult.error;
         }
 
-        if (mounted) {
+        if (shouldCommit()) {
           setState({
             loading: false,
             error: null,
@@ -176,7 +180,7 @@ export const StudentHomePage = (): ReactElement => {
       } catch (error) {
         console.error("Failed to load student home", error);
 
-        if (mounted) {
+        if (shouldCommit()) {
           setState({
             ...initialState,
             loading: false,
@@ -184,14 +188,25 @@ export const StudentHomePage = (): ReactElement => {
           });
         }
       }
-    };
+    },
+    [profile, supabase]
+  );
 
-    void load();
+  useEffect(() => {
+    let mounted = true;
+    const loadTimer = window.setTimeout(() => {
+      void loadHomeData(() => mounted);
+    }, 0);
 
     return () => {
       mounted = false;
+      window.clearTimeout(loadTimer);
     };
-  }, [profile, supabase]);
+  }, [loadHomeData]);
+
+  const retryHomeLoad = (): void => {
+    void loadHomeData();
+  };
 
   const projectsById = new Map(state.projects.map((project) => [project.id, project]));
   const setupItems: SetupItem[] = [
@@ -251,7 +266,14 @@ export const StudentHomePage = (): ReactElement => {
   }
 
   if (state.error) {
-    return <StudentHomeStatePage title="読み込みに失敗しました" body={state.error} />;
+    return (
+      <StudentHomeStatePage
+        title="読み込みに失敗しました"
+        body={state.error}
+        actionLabel="再試行"
+        onAction={retryHomeLoad}
+      />
+    );
   }
 
   if (profile?.role === "student" && !setupComplete && !firstRunOnboardingDismissed) {
@@ -457,9 +479,29 @@ const FirstRunOnboardingPage = ({
   );
 };
 
-const StudentHomeStatePage = ({ title, body }: { title: string; body: string }): ReactElement => (
+const StudentHomeStatePage = ({
+  title,
+  body,
+  actionLabel,
+  onAction
+}: {
+  title: string;
+  body: string;
+  actionLabel?: string;
+  onAction?: () => void;
+}): ReactElement => (
   <section className="empty-state">
     <h1>{title}</h1>
     <p>{body}</p>
+    {actionLabel && onAction ? (
+      <button
+        aria-label="ホームを再読み込み"
+        className="primary-button"
+        type="button"
+        onClick={onAction}
+      >
+        {actionLabel}
+      </button>
+    ) : null}
   </section>
 );

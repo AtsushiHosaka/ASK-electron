@@ -57,6 +57,15 @@ describe("student home real data", () => {
     );
   });
 
+  it("offers a direct retry action when student home loading fails", () => {
+    assert.match(studentHomeSource, /const loadHomeData = useCallback/);
+    assert.match(studentHomeSource, /void loadHomeData\(\(\) => mounted\)/);
+    assert.match(studentHomeSource, /const retryHomeLoad = \(\): void =>/);
+    assert.match(studentHomeSource, /actionLabel="再試行"/);
+    assert.match(studentHomeSource, /onAction=\{retryHomeLoad\}/);
+    assert.match(studentHomeSource, /aria-label="ホームを再読み込み"/);
+  });
+
   it("keeps product code free of obsolete demo and placeholder implementation markers", () => {
     const productSources = [appSource, studentHomeSource, styleSource].join("\n");
 
