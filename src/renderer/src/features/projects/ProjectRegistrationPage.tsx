@@ -490,13 +490,13 @@ export const ProjectsPage = (): ReactElement => {
 
           {inspection && (
             <div className="project-summary-list">
-              <span>remote origin</span>
+              <span>Git接続先</span>
               <strong>{inspection.remoteOriginUrl ?? "未設定"}</strong>
-              <span>GitHub repository</span>
+              <span>GitHubリポジトリ</span>
               <strong>{inspection.normalizedGithubRepoUrl ?? "未検出"}</strong>
-              <span>default branch</span>
+              <span>既定ブランチ</span>
               <strong>{inspection.defaultBranch ?? "未検出"}</strong>
-              <span>local_path_hash</span>
+              <span>ローカル識別子</span>
               <strong>{inspection.localPathHash?.slice(0, 12) ?? "未生成"}</strong>
             </div>
           )}
@@ -787,15 +787,15 @@ export const ProjectDetailPage = (): ReactElement => {
     <section className="workspace-page">
       <p className="eyebrow">Project Detail</p>
       <h1>{project.name}</h1>
-      <p className="muted">GitHub repository とローカルフォルダの登録情報です。</p>
+      <p className="muted">GitHubリポジトリとローカルフォルダの登録情報です。</p>
       <div className="project-summary-list detail-panel">
-        <span>GitHub repository</span>
+        <span>GitHubリポジトリ</span>
         <strong>{project.github_repo_url}</strong>
-        <span>default branch</span>
+        <span>既定ブランチ</span>
         <strong>{project.default_branch ?? "未設定"}</strong>
-        <span>local_path_hash</span>
+        <span>ローカル識別子</span>
         <strong>{project.local_path_hash?.slice(0, 12) ?? "未設定"}</strong>
-        <span>created</span>
+        <span>登録日</span>
         <strong>{new Date(project.created_at).toLocaleString()}</strong>
       </div>
       <div className="control-row">
@@ -812,9 +812,9 @@ export const ProjectDetailPage = (): ReactElement => {
         <div className="project-summary-list detail-panel">
           <span>再接続状態</span>
           <strong>{reconnectResult.persisted ? "保存済み" : reconnectResult.status}</strong>
-          <span>GitHub repository</span>
+          <span>GitHubリポジトリ</span>
           <strong>{reconnectResult.normalizedGithubRepoUrl ?? "未検出"}</strong>
-          <span>local_path_hash</span>
+          <span>ローカル識別子</span>
           <strong>{reconnectResult.localPathHash?.slice(0, 12) ?? "未検出"}</strong>
         </div>
       ) : null}

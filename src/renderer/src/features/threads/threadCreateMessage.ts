@@ -247,17 +247,17 @@ export const buildGitDiffMessage = (gitDiff: GitDiffCollectionResponse | null): 
   return [
     "## Git差分",
     `状態: ${gitDiff.message}`,
-    `branch: ${gitDiff.branch ?? "未取得"}`,
-    `HEAD: ${gitDiff.headCommit ?? "未取得"}`,
+    `ブランチ: ${gitDiff.branch ?? "未取得"}`,
+    `最新コミット: ${gitDiff.headCommit ?? "未取得"}`,
     `対象フォルダ: ${gitDiff.displayName ?? "未選択"}`,
     "### 変更ファイル",
     formatChangedFiles(gitDiff),
-    "### 送信前 scanner 候補",
+    "### 送信前 秘密情報候補",
     sensitiveFiles,
     "### 差分本文から省略したファイル",
     omittedFiles,
-    formatDiffSection("staged diff", gitDiff.stagedDiff),
-    formatDiffSection("unstaged diff", gitDiff.unstagedDiff)
+    formatDiffSection("ステージ済み差分", gitDiff.stagedDiff),
+    formatDiffSection("未ステージ差分", gitDiff.unstagedDiff)
   ].join("\n");
 };
 
