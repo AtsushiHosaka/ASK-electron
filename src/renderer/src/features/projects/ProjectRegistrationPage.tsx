@@ -29,6 +29,12 @@ interface ProjectRegistrationState {
   githubConnection: Pick<GithubConnectionRow, "github_username" | "ssh_status"> | null;
 }
 
+interface RegistrationReadinessItem {
+  label: string;
+  complete: boolean;
+  value: string;
+}
+
 const initialRegistrationState: ProjectRegistrationState = {
   loading: true,
   error: null,
@@ -431,8 +437,40 @@ export const ProjectsPage = (): ReactElement => {
     gitignoreApplyResult?.status === "applied" || gitignoreApplyResult?.status === "unchanged";
   const requiresGitignoreConfirmation =
     missingHighRiskEntries.length > 0 && !gitignoreAppliedOrUnchanged && !confirmHighRiskGitignore;
+  const repositoryReady = Boolean(
+    selectedRoot?.projectRootId &&
+    inspection?.canRegister &&
+    inspection.normalizedGithubRepoUrl &&
+    inspection.localPathHash
+  );
+  const gitignoreReady =
+    Boolean(gitignoreCheckedForSelectedRoot) && !gitignoreBusy && !requiresGitignoreConfirmation;
+  const classReady = state.classes.length > 0;
+  const registrationReadinessItems: RegistrationReadinessItem[] = [
+    {
+      label: "GitHub連携",
+      complete: Boolean(state.githubConnection),
+      value: state.githubConnection?.github_username ?? "未連携"
+    },
+    {
+      label: "フォルダ検証",
+      complete: repositoryReady,
+      value: selectedRoot?.displayName ?? "未選択"
+    },
+    {
+      label: ".gitignore",
+      complete: gitignoreReady,
+      value: gitignoreReady ? "確認済み" : "未確認"
+    },
+    {
+      label: "クラス参加",
+      complete: classReady,
+      value: classReady ? `${state.classes.length} クラス` : "未参加"
+    }
+  ];
+  const readyForRegistrationDetails = registrationReadinessItems.every((item) => item.complete);
   const canRegister =
-    Boolean(state.githubConnection) &&
+    readyForRegistrationDetails &&
     state.classes.some((option) => option.classRow.id === selectedClassId) &&
     Boolean(projectName.trim()) &&
     Boolean(inspection?.canRegister) &&
@@ -622,40 +660,60 @@ export const ProjectsPage = (): ReactElement => {
         <article className="detail-panel project-registration-panel">
           <div>
             <p className="eyebrow">ASK Project</p>
-            <h2>登録内容</h2>
+            <h2>{readyForRegistrationDetails ? "登録内容" : "登録準備"}</h2>
           </div>
 
-          <label>
-            プロジェクト名
-            <input value={projectName} onChange={(event) => setProjectName(event.target.value)} />
-          </label>
+          {readyForRegistrationDetails ? (
+            <>
+              <label>
+                プロジェクト名
+                <input
+                  value={projectName}
+                  onChange={(event) => setProjectName(event.target.value)}
+                />
+              </label>
 
-          <label>
-            登録先クラス
-            <select
-              value={selectedClassId}
-              onChange={(event) => setSelectedClassId(event.target.value)}
-            >
-              {state.classes.length === 0 ? (
-                <option value="">参加中のクラスがありません</option>
-              ) : (
-                state.classes.map((classOption) => (
-                  <option key={classOption.classRow.id} value={classOption.classRow.id}>
-                    {classOption.classRow.name}
-                  </option>
-                ))
-              )}
-            </select>
-          </label>
+              <label>
+                登録先クラス
+                <select
+                  value={selectedClassId}
+                  onChange={(event) => setSelectedClassId(event.target.value)}
+                >
+                  {state.classes.map((classOption) => (
+                    <option key={classOption.classRow.id} value={classOption.classRow.id}>
+                      {classOption.classRow.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
-          <button
-            className="primary-button"
-            disabled={busy || !canRegister}
-            type="button"
-            onClick={() => void registerProject()}
-          >
-            {busy ? "登録中..." : "プロジェクトを登録"}
-          </button>
+              <button
+                className="primary-button"
+                disabled={busy || !canRegister}
+                type="button"
+                onClick={() => void registerProject()}
+              >
+                {busy ? "登録中..." : "プロジェクトを登録"}
+              </button>
+            </>
+          ) : (
+            <div className="registration-readiness-list" aria-label="登録準備">
+              {registrationReadinessItems.map((item) => (
+                <div
+                  className={`registration-readiness-row ${item.complete ? "complete" : "pending"}`}
+                  key={item.label}
+                >
+                  <span className={`status-pill ${item.complete ? "success" : "warning"}`}>
+                    {item.complete ? "完了" : "未完了"}
+                  </span>
+                  <div>
+                    <strong>{item.label}</strong>
+                    <span>{item.value}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </article>
       </div>
 

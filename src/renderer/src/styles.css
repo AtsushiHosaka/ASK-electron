@@ -721,6 +721,42 @@ textarea:focus,
   align-content: start;
 }
 
+.registration-readiness-list {
+  display: grid;
+  gap: 10px;
+}
+
+.registration-readiness-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  border: 1px solid #dbe5f3;
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--color-surface);
+}
+
+.registration-readiness-row.pending {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
+.registration-readiness-row div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.registration-readiness-row strong {
+  color: #172033;
+}
+
+.registration-readiness-row span:not(.status-pill) {
+  color: #667085;
+  font-size: 0.88rem;
+}
+
 .thread-form-panel,
 .thread-preview-panel,
 .chat-panel,
