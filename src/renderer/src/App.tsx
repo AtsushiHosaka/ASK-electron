@@ -99,11 +99,10 @@ const AppShell = (): ReactElement => {
   }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell role-${profile.role}`}>
       <aside className="sidebar" aria-label="メインナビゲーション">
         <div className="brand">
           <span className="brand-mark">ASK</span>
-          <span className="brand-subtitle">Question Support</span>
         </div>
 
         <nav className="nav-list">
@@ -117,9 +116,9 @@ const AppShell = (): ReactElement => {
         </nav>
 
         <div className="sidebar-footer">
+          <span className="role-badge">{profile.role}</span>
           <div>
             <strong>{profile.display_name}</strong>
-            <span>{profile.role}</span>
           </div>
           <button className="secondary-button" type="button" onClick={() => void signOut()}>
             ログアウト

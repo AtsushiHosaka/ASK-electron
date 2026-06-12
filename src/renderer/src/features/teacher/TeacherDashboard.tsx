@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactElement
+} from "react";
 import { Link, useParams } from "react-router-dom";
 import type {
   ClassMemberRole,
@@ -298,9 +306,12 @@ const useTeacherDashboard = (reloadVersion = 0): TeacherDashboardState => {
 
 export const TeacherHomePage = (): ReactElement => {
   const [reloadVersion, setReloadVersion] = useState(0);
+  const [classCreateOpen, setClassCreateOpen] = useState(false);
   const { loading, error, classes } = useTeacherDashboard(reloadVersion);
 
-  const reloadClasses = (): void => setReloadVersion((current) => current + 1);
+  const reloadClasses = useCallback((): void => setReloadVersion((current) => current + 1), []);
+  const openClassCreate = useCallback((): void => setClassCreateOpen(true), []);
+  const closeClassCreate = useCallback((): void => setClassCreateOpen(false), []);
 
   if (loading) {
     return <TeacherPageState title="読み込み中" body="担当クラスを確認しています。" />;
@@ -317,19 +328,27 @@ export const TeacherHomePage = (): ReactElement => {
           <div>
             <p className="eyebrow">Teacher</p>
             <h1>担当クラス</h1>
-            <p className="muted">クラスを作成すると、生徒向け招待リンクを発行できます。</p>
           </div>
-          <div className="progress-summary">
-            <strong>0 クラス</strong>
-            <span>まずクラスを作成してください</span>
+          <div className="teacher-header-actions">
+            <button className="primary-button" type="button" onClick={openClassCreate}>
+              クラスを作成
+            </button>
+            <div className="progress-summary">
+              <strong>0 クラス</strong>
+              <span>未作成</span>
+            </div>
           </div>
         </div>
 
-        <TeacherClassCreatePanel onCreated={reloadClasses} />
-
         <article className="detail-panel">
-          <p className="muted">先生またはメンターとして参加しているクラスが見つかりません。</p>
+          <p className="muted">クラスがありません。</p>
         </article>
+
+        <TeacherClassCreateModal
+          open={classCreateOpen}
+          onClose={closeClassCreate}
+          onCreated={reloadClasses}
+        />
       </section>
     );
   }
@@ -340,15 +359,17 @@ export const TeacherHomePage = (): ReactElement => {
         <div>
           <p className="eyebrow">Teacher</p>
           <h1>担当クラス</h1>
-          <p className="muted">担当クラスの質問状況、生徒の初期設定、招待導線を確認します。</p>
         </div>
-        <div className="progress-summary">
-          <strong>{classes.length} クラス</strong>
-          <span>自分が担当するクラスのみ表示</span>
+        <div className="teacher-header-actions">
+          <button className="primary-button" type="button" onClick={openClassCreate}>
+            クラスを作成
+          </button>
+          <div className="progress-summary">
+            <strong>{classes.length} クラス</strong>
+            <span>担当中</span>
+          </div>
         </div>
       </div>
-
-      <TeacherClassCreatePanel onCreated={reloadClasses} />
 
       <div className="teacher-class-grid">
         {classes.map((classSummary) => (
@@ -370,6 +391,12 @@ export const TeacherHomePage = (): ReactElement => {
           </article>
         ))}
       </div>
+
+      <TeacherClassCreateModal
+        open={classCreateOpen}
+        onClose={closeClassCreate}
+        onCreated={reloadClasses}
+      />
     </section>
   );
 };
@@ -547,9 +574,21 @@ export const TeacherQueuePage = (): ReactElement => {
   );
 };
 
-const TeacherClassCreatePanel = ({ onCreated }: { onCreated: () => void }): ReactElement => {
+const TeacherClassCreateModal = ({
+  open,
+  onClose,
+  onCreated
+}: {
+  open: boolean;
+  onClose: () => void;
+  onCreated: () => void;
+}): ReactElement | null => {
   const { profile } = useAuth();
   const supabase = useMemo(() => getSupabaseClient(), []);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const nameInputRef = useRef<HTMLInputElement | null>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const creatingRef = useRef(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [creating, setCreating] = useState(false);
@@ -558,7 +597,106 @@ const TeacherClassCreatePanel = ({ onCreated }: { onCreated: () => void }): Reac
 
   const canCreateClass = profile?.role === "teacher" || profile?.role === "admin";
 
-  const createClass = async (): Promise<void> => {
+  const closeDialog = useCallback((): void => {
+    if (creatingRef.current) {
+      return;
+    }
+
+    setName("");
+    setDescription("");
+    setMessage(null);
+    onClose();
+  }, [onClose]);
+
+  useEffect(() => {
+    creatingRef.current = creating;
+  }, [creating]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    previousFocusRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
+    const modal = dialogRef.current;
+    const focusableSelector = [
+      "a[href]",
+      "button:not([disabled])",
+      "input:not([disabled])",
+      "select:not([disabled])",
+      "textarea:not([disabled])",
+      '[tabindex]:not([tabindex="-1"])'
+    ].join(",");
+    const getFocusableElements = (): HTMLElement[] =>
+      Array.from(modal?.querySelectorAll<HTMLElement>(focusableSelector) ?? []).filter(
+        (element) => !element.hasAttribute("disabled") && element.offsetParent !== null
+      );
+
+    window.requestAnimationFrame(() => {
+      (nameInputRef.current ?? getFocusableElements()[0] ?? modal)?.focus();
+    });
+
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeDialog();
+        return;
+      }
+
+      if (event.key !== "Tab" || !modal) {
+        return;
+      }
+
+      const focusableElements = getFocusableElements();
+
+      if (focusableElements.length === 0) {
+        event.preventDefault();
+        modal.focus();
+        return;
+      }
+
+      const firstFocusable = focusableElements[0];
+      const lastFocusable = focusableElements.at(-1);
+
+      if (!firstFocusable || !lastFocusable) {
+        return;
+      }
+
+      if (!modal.contains(document.activeElement)) {
+        event.preventDefault();
+        firstFocusable.focus();
+        return;
+      }
+
+      if (event.shiftKey && document.activeElement === firstFocusable) {
+        event.preventDefault();
+        lastFocusable.focus();
+        return;
+      }
+
+      if (!event.shiftKey && document.activeElement === lastFocusable) {
+        event.preventDefault();
+        firstFocusable.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      previousFocusRef.current?.focus();
+    };
+  }, [closeDialog, open]);
+
+  if (!open) {
+    return null;
+  }
+
+  const createClass = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
+    event.preventDefault();
+
     if (!supabase || !profile) {
       setMessageStatus("error");
       setMessage("Supabase 設定またはプロフィールを確認できませんでした。");
@@ -603,9 +741,8 @@ const TeacherClassCreatePanel = ({ onCreated }: { onCreated: () => void }): Reac
 
       setName("");
       setDescription("");
-      setMessageStatus("success");
-      setMessage("クラスを作成しました。詳細画面から招待リンクをコピーできます。");
       onCreated();
+      onClose();
     } catch (error) {
       console.error("Failed to create class", error);
       setMessageStatus("error");
@@ -616,53 +753,87 @@ const TeacherClassCreatePanel = ({ onCreated }: { onCreated: () => void }): Reac
   };
 
   return (
-    <article className="detail-panel class-create-panel">
-      <div>
-        <p className="eyebrow">Create Class</p>
-        <h2>クラス作成</h2>
+    <div
+      className="class-create-modal-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          closeDialog();
+        }
+      }}
+    >
+      <div
+        ref={dialogRef}
+        aria-labelledby="class-create-title"
+        aria-modal="true"
+        className="class-create-dialog"
+        role="dialog"
+        tabIndex={-1}
+      >
+        <header>
+          <h2 id="class-create-title">クラスを作成</h2>
+          <button
+            className="secondary-button"
+            disabled={creating}
+            type="button"
+            onClick={closeDialog}
+          >
+            閉じる
+          </button>
+        </header>
+
+        <form className="class-create-form" onSubmit={(event) => void createClass(event)}>
+          <label>
+            クラス名
+            <input
+              ref={nameInputRef}
+              maxLength={80}
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+            />
+          </label>
+
+          <label>
+            説明
+            <textarea
+              maxLength={240}
+              rows={3}
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+            />
+          </label>
+
+          {!canCreateClass && (
+            <p className="message warning" role="status">
+              先生または管理者アカウントのみクラスを作成できます。
+            </p>
+          )}
+
+          {message && (
+            <p
+              className={`message ${messageStatus}`}
+              role={messageStatus === "error" ? "alert" : "status"}
+            >
+              {message}
+            </p>
+          )}
+
+          <footer>
+            <button
+              className="secondary-button"
+              disabled={creating}
+              type="button"
+              onClick={closeDialog}
+            >
+              キャンセル
+            </button>
+            <button className="primary-button" disabled={creating || !canCreateClass} type="submit">
+              {creating ? "作成中..." : "作成"}
+            </button>
+          </footer>
+        </form>
       </div>
-
-      <div className="class-create-form">
-        <label>
-          クラス名
-          <input maxLength={80} value={name} onChange={(event) => setName(event.target.value)} />
-        </label>
-
-        <label>
-          説明
-          <textarea
-            maxLength={240}
-            rows={3}
-            value={description}
-            onChange={(event) => setDescription(event.target.value)}
-          />
-        </label>
-
-        <button
-          className="primary-button"
-          disabled={creating || !canCreateClass}
-          type="button"
-          onClick={() => void createClass()}
-        >
-          {creating ? "作成中..." : "クラスを作成"}
-        </button>
-      </div>
-
-      {!canCreateClass && (
-        <p className="message warning" role="status">
-          先生または管理者アカウントのみクラスを作成できます。
-        </p>
-      )}
-
-      {message && (
-        <p
-          className={`message ${messageStatus}`}
-          role={messageStatus === "error" ? "alert" : "status"}
-        >
-          {message}
-        </p>
-      )}
-    </article>
+    </div>
   );
 };
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactElement } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { Link, useParams } from "react-router-dom";
 import type { AiAssistRequest, AiContextEntry } from "../../../../shared/aiPipeline";
 import type {
@@ -77,12 +77,15 @@ const initialState: ThreadDetailState = {
 };
 
 const messageTypeLabels: Record<MessageType, string> = {
-  text: "Text",
-  code: "Code",
-  environment: "Environment",
-  ai_summary: "AI Summary",
-  patch: "Patch"
+  text: "文章",
+  code: "コード",
+  environment: "環境",
+  ai_summary: "AI補助",
+  patch: "パッチ"
 };
+
+const manualMessageTypes = ["text", "code", "environment", "patch"] as const;
+type ManualMessageType = (typeof manualMessageTypes)[number];
 
 const senderLabels: Record<MessageSenderType, string> = {
   student: "生徒",
@@ -162,6 +165,133 @@ type LifecycleMessageStatus = "success" | "warning" | "error";
 const formatSecretFindingForUi = (finding: SecretScanFinding): string => {
   const line = finding.lineNumber ? `:${finding.lineNumber}` : "";
   return `${finding.sourceLabel}${line} - ${finding.message}`;
+};
+
+const formatMessageTime = (value: string): string =>
+  new Intl.DateTimeFormat("ja-JP", {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(new Date(value));
+
+const MESSAGE_PREVIEW_CHAR_LIMIT = 120;
+
+const countTextLines = (value: string): number => {
+  const lines = value.split(/\r\n|\r|\n/);
+  return Math.max(lines.length, value.length > 0 ? 1 : 0);
+};
+
+const collapseWhitespace = (value: string): string => value.replace(/\s+/g, " ").trim();
+
+const stripMarkdownForPreview = (value: string): string =>
+  collapseWhitespace(
+    value
+      .replace(/```[\s\S]*?```/g, " コード ")
+      .replace(/`([^`]+)`/g, "$1")
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+      .replace(/^#{1,6}\s*/gm, "")
+      .replace(/^\s*[-*+]\s+/gm, "")
+      .replace(/^\s*>\s?/gm, "")
+      .replace(/[*_~|]/g, " ")
+  );
+
+const extractMarkdownPreview = (value: string): string => {
+  const lines = value
+    .replace(/```[\s\S]*?```/g, "\n")
+    .split(/\r\n|\r|\n/)
+    .map((line) => line.trim());
+  const paragraph: string[] = [];
+
+  for (const line of lines) {
+    if (!line) {
+      if (paragraph.length > 0) {
+        break;
+      }
+      continue;
+    }
+
+    if (/^#{1,6}\s+/.test(line) || /^-{3,}$/.test(line)) {
+      continue;
+    }
+
+    paragraph.push(line);
+  }
+
+  return stripMarkdownForPreview(paragraph.join(" "));
+};
+
+const clipMessagePreview = (value: string): string => {
+  const preview = collapseWhitespace(value);
+
+  if (preview.length <= MESSAGE_PREVIEW_CHAR_LIMIT) {
+    return preview || "詳細を確認";
+  }
+
+  return `${preview.slice(0, MESSAGE_PREVIEW_CHAR_LIMIT).trimEnd()}...`;
+};
+
+const firstContentLine = (value: string): string =>
+  value
+    .split(/\r\n|\r|\n/)
+    .map((line) => line.trim())
+    .find((line) => line.length > 0) ?? "";
+
+const buildMessageSummary = (
+  message: MessageRow,
+  patchProposal: PatchProposalSummary | null
+): { preview: string; meta: string | null } => {
+  const lineCount = countTextLines(message.body);
+
+  if (message.message_type === "code") {
+    return {
+      preview: clipMessagePreview(firstContentLine(message.body) || "コード"),
+      meta: `${lineCount}行`
+    };
+  }
+
+  if (message.message_type === "patch") {
+    return {
+      preview: clipMessagePreview(
+        patchProposal?.explanation ??
+          patchProposal?.target_file_path ??
+          firstContentLine(message.body) ??
+          "パッチ提案"
+      ),
+      meta: patchProposal?.target_file_path ?? `${lineCount}行`
+    };
+  }
+
+  const plainText = extractMarkdownPreview(message.body);
+  return {
+    preview: clipMessagePreview(plainText),
+    meta: lineCount > 4 ? `${lineCount}行` : null
+  };
+};
+
+const isMessageOwnForViewer = (
+  message: MessageRow,
+  profileId: string | null | undefined
+): boolean =>
+  message.sender_type !== "ai" &&
+  message.sender_type !== "system" &&
+  message.message_type !== "ai_summary" &&
+  message.sender_user_id === profileId;
+
+const getMessageDisplayName = (
+  message: MessageRow,
+  senderName: string | null | undefined,
+  isOwnMessage: boolean
+): string | null => {
+  if (isOwnMessage) {
+    return null;
+  }
+
+  if (message.sender_type === "ai" || message.message_type === "ai_summary") {
+    return senderLabels.ai;
+  }
+
+  return senderName ?? senderLabels[message.sender_type];
 };
 
 const THREAD_AI_MESSAGE_CHAR_LIMIT = 1_000;
@@ -248,10 +378,11 @@ export const ThreadDetailPage = (): ReactElement => {
   const { profile } = useAuth();
   const supabase = useMemo(() => getSupabaseClient(), []);
   const [state, setState] = useState<ThreadDetailState>(initialState);
-  const [messageType, setMessageType] = useState<MessageType>("text");
+  const [messageType, setMessageType] = useState<ManualMessageType>("text");
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [detailMessageId, setDetailMessageId] = useState<string | null>(null);
   const [patchReviews, setPatchReviews] = useState<Record<string, PatchReviewState>>({});
   const [aiGenerating, setAiGenerating] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
@@ -1770,24 +1901,28 @@ export const ThreadDetailPage = (): ReactElement => {
   }
 
   const backTarget = profile?.role === "student" ? "/student" : "/teacher/queue";
-  const backLabel = profile?.role === "student" ? "ホームへ戻る" : "キューへ戻る";
+  const breadcrumbParentLabel = profile?.role === "student" ? "ホーム" : "質問キュー";
+  const detailMessage =
+    detailMessageId === null
+      ? null
+      : (state.messages.find((message) => message.id === detailMessageId) ?? null);
 
   return (
     <section className="thread-detail">
       <div className="page-header thread-page-header">
         <div>
-          <p className="eyebrow">Thread</p>
+          <nav className="breadcrumb" aria-label="パンくずリスト">
+            <Link to={backTarget}>{breadcrumbParentLabel}</Link>
+            <span>{state.project?.name ?? "プロジェクト"}</span>
+          </nav>
           <h1>{state.thread.title}</h1>
           <div className="thread-meta">
             <span>{state.project?.name ?? "プロジェクト"}</span>
-            <span>{state.messages.length} messages</span>
+            <span>{state.messages.length}件</span>
           </div>
         </div>
 
         <div className="thread-header-actions">
-          <Link className="secondary-link" to={backTarget}>
-            {backLabel}
-          </Link>
           <div className="thread-status-compact">
             <span>ステータス</span>
             {canUseTeacherLifecycleControls ? (
@@ -1854,17 +1989,9 @@ export const ThreadDetailPage = (): ReactElement => {
                       ? state.usersById.get(message.sender_user_id)?.display_name
                       : null
                   }
-                  patchReview={patchReviews[message.id] ?? initialPatchReviewState}
                   patchProposal={state.patchProposalsByMessageId.get(message.id) ?? null}
-                  canReviewPatch={profile?.role === "student"}
-                  projectId={state.project?.id ?? null}
-                  projectHasLocalRoot={Boolean(state.project?.local_path_hash)}
-                  projectName={state.project?.name ?? null}
-                  isOwnMessage={message.sender_user_id === profile?.id}
-                  onValidatePatch={() => void validatePatchMessage(message)}
-                  onApplyPatch={() => void applyPatchMessage(message)}
-                  onRevertPatch={() => void revertPatchMessage(message)}
-                  onDismissPatch={() => void dismissPatchMessage(message)}
+                  isOwnMessage={isMessageOwnForViewer(message, profile?.id)}
+                  onOpenDetails={() => setDetailMessageId(message.id)}
                 />
               ))
             )}
@@ -1877,45 +2004,37 @@ export const ThreadDetailPage = (): ReactElement => {
               void sendMessage();
             }}
           >
-            <div className="chat-composer-toolbar">
-              <label>
-                種類
-                <select
-                  value={messageType}
-                  onChange={(event) => setMessageType(event.target.value as MessageType)}
-                >
-                  {(["text", "code", "environment", "ai_summary", "patch"] as MessageType[]).map(
-                    (type) => (
-                      <option key={type} value={type}>
-                        {messageTypeLabels[type]}
-                      </option>
-                    )
-                  )}
-                </select>
-              </label>
-            </div>
-
-            <label className="chat-composer-input">
-              内容
+            <div className="chat-composer-row">
               <textarea
-                placeholder="追加質問や返信を入力"
+                aria-label="返信内容"
+                placeholder="返信を入力"
                 rows={messageType === "code" || messageType === "patch" ? 8 : 4}
                 value={body}
                 onChange={(event) => setBody(event.target.value)}
               />
-            </label>
+              <div className="chat-composer-controls">
+                <select
+                  aria-label="メッセージ形式"
+                  value={messageType}
+                  onChange={(event) => setMessageType(event.target.value as ManualMessageType)}
+                >
+                  {manualMessageTypes.map((type) => (
+                    <option key={type} value={type}>
+                      {messageTypeLabels[type]}
+                    </option>
+                  ))}
+                </select>
+                <button className="primary-button" disabled={sending || !body.trim()} type="submit">
+                  {sending ? "送信中..." : "送信"}
+                </button>
+              </div>
+            </div>
 
             {sendError && (
               <p className="message error" role="alert">
                 {sendError}
               </p>
             )}
-
-            <div className="chat-composer-actions">
-              <button className="primary-button" disabled={sending || !body.trim()} type="submit">
-                {sending ? "送信中..." : "送信"}
-              </button>
-            </div>
           </form>
         </article>
 
@@ -2084,6 +2203,29 @@ export const ThreadDetailPage = (): ReactElement => {
         </div>
       </div>
 
+      {detailMessage ? (
+        <MessageDetailModal
+          message={detailMessage}
+          senderName={
+            detailMessage.sender_user_id
+              ? state.usersById.get(detailMessage.sender_user_id)?.display_name
+              : null
+          }
+          patchReview={patchReviews[detailMessage.id] ?? initialPatchReviewState}
+          patchProposal={state.patchProposalsByMessageId.get(detailMessage.id) ?? null}
+          canReviewPatch={profile?.role === "student"}
+          projectId={state.project?.id ?? null}
+          projectHasLocalRoot={Boolean(state.project?.local_path_hash)}
+          projectName={state.project?.name ?? null}
+          isOwnMessage={isMessageOwnForViewer(detailMessage, profile?.id)}
+          onClose={() => setDetailMessageId(null)}
+          onValidatePatch={() => void validatePatchMessage(detailMessage)}
+          onApplyPatch={() => void applyPatchMessage(detailMessage)}
+          onRevertPatch={() => void revertPatchMessage(detailMessage)}
+          onDismissPatch={() => void dismissPatchMessage(detailMessage)}
+        />
+      ) : null}
+
       {aiEscalationReviewOpen ? (
         <div className="review-modal-backdrop" role="presentation">
           <div
@@ -2204,6 +2346,46 @@ export const ThreadDetailPage = (): ReactElement => {
 const MessageBubble = ({
   message,
   senderName,
+  patchProposal,
+  isOwnMessage,
+  onOpenDetails
+}: {
+  message: MessageRow;
+  senderName: string | null | undefined;
+  patchProposal: PatchProposalSummary | null;
+  isOwnMessage: boolean;
+  onOpenDetails: () => void;
+}): ReactElement => {
+  const showMessageKind = message.message_type !== "text" && message.message_type !== "ai_summary";
+  const displayName = getMessageDisplayName(message, senderName, isOwnMessage);
+  const summary = buildMessageSummary(message, patchProposal);
+
+  return (
+    <article className={`chat-message ${message.sender_type}${isOwnMessage ? " own" : ""}`}>
+      <button
+        className="chat-summary-button"
+        type="button"
+        onClick={onOpenDetails}
+        aria-label="メッセージ詳細を開く"
+      >
+        <span className="chat-summary-header">
+          {displayName ? <strong>{displayName}</strong> : null}
+          {showMessageKind ? <span>{messageTypeLabels[message.message_type]}</span> : null}
+          <time dateTime={message.created_at}>{formatMessageTime(message.created_at)}</time>
+        </span>
+        <span className="chat-summary-preview">{summary.preview}</span>
+        <span className="chat-summary-footer">
+          {summary.meta ? <span>{summary.meta}</span> : <span />}
+          <span>詳細</span>
+        </span>
+      </button>
+    </article>
+  );
+};
+
+const MessageDetailModal = ({
+  message,
+  senderName,
   patchReview,
   patchProposal,
   canReviewPatch,
@@ -2211,6 +2393,7 @@ const MessageBubble = ({
   projectHasLocalRoot,
   projectName,
   isOwnMessage,
+  onClose,
   onValidatePatch,
   onApplyPatch,
   onRevertPatch,
@@ -2225,44 +2408,89 @@ const MessageBubble = ({
   projectHasLocalRoot: boolean;
   projectName: string | null;
   isOwnMessage: boolean;
+  onClose: () => void;
   onValidatePatch: () => void;
   onApplyPatch: () => void;
   onRevertPatch: () => void;
   onDismissPatch: () => void;
 }): ReactElement => {
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const isCodeLike = message.message_type === "code" || message.message_type === "patch";
   const viewerKind = message.message_type === "patch" ? "diff" : "code";
+  const showMessageKind = message.message_type !== "text" && message.message_type !== "ai_summary";
+  const displayName = getMessageDisplayName(message, senderName, isOwnMessage) ?? "自分";
+
+  useEffect(() => {
+    closeButtonRef.current?.focus();
+
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+      }
+    };
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [onClose]);
 
   return (
-    <article className={`chat-message ${message.sender_type}${isOwnMessage ? " own" : ""}`}>
-      <header>
-        <strong>{senderName ?? senderLabels[message.sender_type]}</strong>
-        <span>{messageTypeLabels[message.message_type]}</span>
-        <time dateTime={message.created_at}>{new Date(message.created_at).toLocaleString()}</time>
-      </header>
+    <div
+      className="message-detail-modal-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      <div
+        aria-labelledby="message-detail-title"
+        aria-modal="true"
+        className="message-detail-modal"
+        role="dialog"
+      >
+        <header>
+          <div>
+            <h2 id="message-detail-title">メッセージ詳細</h2>
+            <div className="message-detail-meta">
+              <strong>{displayName}</strong>
+              {showMessageKind ? <span>{messageTypeLabels[message.message_type]}</span> : null}
+              <time dateTime={message.created_at}>{formatMessageTime(message.created_at)}</time>
+            </div>
+          </div>
+          <button ref={closeButtonRef} className="secondary-button" type="button" onClick={onClose}>
+            閉じる
+          </button>
+        </header>
 
-      {isCodeLike ? (
-        <CodeContextViewer content={message.body} kind={viewerKind} />
-      ) : (
-        <MarkdownMessage>{message.body}</MarkdownMessage>
-      )}
+        <div className="message-detail-body">
+          {isCodeLike ? (
+            <CodeContextViewer content={message.body} kind={viewerKind} />
+          ) : (
+            <MarkdownMessage>{message.body}</MarkdownMessage>
+          )}
 
-      {message.message_type === "patch" ? (
-        <PatchReviewPanel
-          canReviewPatch={canReviewPatch}
-          projectId={projectId}
-          projectHasLocalRoot={projectHasLocalRoot}
-          projectName={projectName}
-          review={patchReview}
-          patchProposal={patchProposal}
-          patchText={message.body}
-          onApplyPatch={onApplyPatch}
-          onDismissPatch={onDismissPatch}
-          onRevertPatch={onRevertPatch}
-          onValidatePatch={onValidatePatch}
-        />
-      ) : null}
-    </article>
+          {message.message_type === "patch" ? (
+            <PatchReviewPanel
+              canReviewPatch={canReviewPatch}
+              projectId={projectId}
+              projectHasLocalRoot={projectHasLocalRoot}
+              projectName={projectName}
+              review={patchReview}
+              patchProposal={patchProposal}
+              patchText={message.body}
+              onApplyPatch={onApplyPatch}
+              onDismissPatch={onDismissPatch}
+              onRevertPatch={onRevertPatch}
+              onValidatePatch={onValidatePatch}
+            />
+          ) : null}
+        </div>
+      </div>
+    </div>
   );
 };
 

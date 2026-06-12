@@ -44,11 +44,8 @@ export const LoginPage = (): ReactElement => {
     <main className="auth-page">
       <section className="auth-panel" aria-labelledby="login-title">
         <div>
-          <p className="eyebrow">ASK Electron</p>
-          <h1 id="login-title">学習中の質問を、調べやすい形で先生へ送る</h1>
-          <p className="muted">
-            GitHub、コード差分、環境情報をそろえて、質問対応を始めやすくします。
-          </p>
+          <p className="eyebrow">ASK</p>
+          <h1 id="login-title">{mode === "signIn" ? "ログイン" : "アカウント作成"}</h1>
         </div>
 
         <form className="form-stack" onSubmit={handleSubmit}>

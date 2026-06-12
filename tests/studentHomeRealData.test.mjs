@@ -29,6 +29,20 @@ describe("student home real data", () => {
     assert.match(studentHomeSource, /\/onboarding/);
   });
 
+  it("shows first-run onboarding from real setup state and stores dismissal locally", () => {
+    assert.match(studentHomeSource, /firstRunOnboardingStoragePrefix/);
+    assert.match(studentHomeSource, /window\.localStorage\.getItem/);
+    assert.match(studentHomeSource, /window\.localStorage\.setItem/);
+    assert.match(
+      studentHomeSource,
+      /const setupComplete = completedSetupCount === setupItems\.length/
+    );
+    assert.match(studentHomeSource, /const FirstRunOnboardingPage = /);
+    assert.match(studentHomeSource, /profile\?\.role === "student"/);
+    assert.match(styleSource, /\.first-run-onboarding/);
+    assert.match(styleSource, /\.first-run-step-list/);
+  });
+
   it("keeps product code free of obsolete demo and placeholder implementation markers", () => {
     const productSources = [appSource, studentHomeSource, styleSource].join("\n");
 
