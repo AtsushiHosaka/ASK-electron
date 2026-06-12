@@ -112,6 +112,31 @@ button {
   display: block;
 }
 
+.auth-mode-control {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  padding: 4px;
+  background: var(--color-primary-muted);
+}
+
+.auth-mode-control button {
+  min-height: 38px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--color-primary-strong);
+  background: transparent;
+  font-weight: 900;
+}
+
+.auth-mode-control button.active {
+  color: var(--color-surface);
+  background: var(--color-primary);
+  box-shadow: 0 6px 12px rgb(37 99 235 / 16%);
+}
+
 h1 {
   margin: 0;
   color: var(--color-heading);
