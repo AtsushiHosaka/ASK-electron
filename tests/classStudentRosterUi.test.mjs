@@ -21,7 +21,8 @@ describe("class student roster UI", () => {
   it("keeps student addition inside class detail without a persistent invite link panel", () => {
     assert.ok(classDetailSource);
     assert.match(classDetailSource, /<StudentAddModal/);
-    assert.match(classDetailSource, /<StudentMemberPanel classSummary=\{classSummary\}/);
+    assert.match(classDetailSource, /<ClassMemberRosterPanel classSummary=\{classSummary\}/);
+    assert.doesNotMatch(classDetailSource, /<StudentMemberPanel|<MemberPanel/);
     assert.match(classDetailSource, /生徒を追加/);
     assert.doesNotMatch(classDetailSource, /招待リンク|create_class_invite|invite-panel/);
   });
@@ -35,11 +36,26 @@ describe("class student roster UI", () => {
     assert.doesNotMatch(classDetailSource ?? "", /コピー|招待/);
   });
 
+  it("renders class members in one ordered roster with staff before students", () => {
+    const rosterSource = teacherDashboardSource.match(
+      /const ClassMemberRosterPanel = \([\s\S]*?const StatusCounters =/
+    )?.[0];
+
+    assert.ok(rosterSource);
+    assert.match(rosterSource, /<h2>メンバー<\/h2>/);
+    assert.match(rosterSource, /const staff = mentorMembers\(classSummary\)/);
+    assert.match(rosterSource, /const students = studentMembers\(classSummary\)/);
+    assert.match(rosterSource, /const pendingStudents = pendingStudentRoster\(classSummary\)/);
+    assert.ok(rosterSource.indexOf("staff.map") < rosterSource.indexOf("students.map"));
+    assert.ok(rosterSource.indexOf("students.map") < rosterSource.indexOf("pendingStudents.map"));
+    assert.doesNotMatch(rosterSource, /<h2>生徒<\/h2>|<h2>講師 \/ メンター<\/h2>/);
+    assert.match(stylesSource, /\.class-member-roster-panel/);
+  });
+
   it("renders pending roster rows as students instead of separate instructional UI", () => {
     assert.match(teacherDashboardSource, /const pendingStudentRoster =/);
     assert.match(teacherDashboardSource, /classSummary\.studentRoster/);
     assert.match(teacherDashboardSource, /<span>未参加<\/span>/);
-    assert.match(teacherDashboardSource, /<span>参加済み<\/span>/);
     assert.match(stylesSource, /\.member-row\.pending/);
     assert.match(stylesSource, /\.student-add-tabs/);
     assert.match(stylesSource, /\.student-add-preview/);
