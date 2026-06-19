@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import type { Database, Json } from "../../../../shared/database.types";
 import type { AiAssistRequest, AiAssistTask } from "../../../../shared/aiPipeline";
 import type {
@@ -135,6 +135,7 @@ const formatSecretFindingForUi = (finding: SecretScanFinding): string => {
 };
 
 export const ThreadCreatePage = (): ReactElement => {
+  const { projectId: routeProjectId } = useParams<{ projectId?: string }>();
   const { profile } = useAuth();
   const navigate = useNavigate();
   const supabase = useMemo(() => getSupabaseClient(), []);
@@ -188,8 +189,18 @@ export const ThreadCreatePage = (): ReactElement => {
 
         if (mounted) {
           const projects = data ?? [];
+
+          if (routeProjectId && !projects.some((project) => project.id === routeProjectId)) {
+            setState({
+              loading: false,
+              error: "プロジェクトを確認できませんでした。",
+              projects: []
+            });
+            return;
+          }
+
           setState({ loading: false, error: null, projects });
-          setSelectedProjectId((current) => current || projects[0]?.id || "");
+          setSelectedProjectId((current) => routeProjectId ?? (current || projects[0]?.id || ""));
         }
       } catch (error) {
         console.error("Failed to load projects for thread creation", error);
@@ -209,9 +220,10 @@ export const ThreadCreatePage = (): ReactElement => {
     return () => {
       mounted = false;
     };
-  }, [profile, supabase]);
+  }, [profile, routeProjectId, supabase]);
 
   const selectedProject = state.projects.find((project) => project.id === selectedProjectId);
+  const projectLocked = Boolean(routeProjectId);
   const manualRelatedFiles = splitRelatedFiles(relatedFilesText);
   const relatedSnippets = relatedFileSnippetState.snippets;
   const relatedFiles = dedupeRelatedFiles([
@@ -1223,26 +1235,28 @@ export const ThreadCreatePage = (): ReactElement => {
               <h2>質問内容</h2>
             </div>
 
-            <label>
-              プロジェクト
-              <select
-                value={selectedProjectId}
-                onChange={(event) => {
-                  setSelectedProjectId(event.target.value);
-                  setGitDiffState(initialGitDiffState);
-                  setEnvironmentSnapshotState(initialEnvironmentSnapshotState);
-                  setRelatedFileSnippetState(initialRelatedFileSnippetState);
-                  setSendReview(initialSendReviewState);
-                  setAllowedSecretFindingIds([]);
-                }}
-              >
-                {state.projects.map((project) => (
-                  <option key={project.id} value={project.id}>
-                    {project.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {projectLocked ? null : (
+              <label>
+                プロジェクト
+                <select
+                  value={selectedProjectId}
+                  onChange={(event) => {
+                    setSelectedProjectId(event.target.value);
+                    setGitDiffState(initialGitDiffState);
+                    setEnvironmentSnapshotState(initialEnvironmentSnapshotState);
+                    setRelatedFileSnippetState(initialRelatedFileSnippetState);
+                    setSendReview(initialSendReviewState);
+                    setAllowedSecretFindingIds([]);
+                  }}
+                >
+                  {state.projects.map((project) => (
+                    <option key={project.id} value={project.id}>
+                      {project.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
 
             <label>
               タイトル

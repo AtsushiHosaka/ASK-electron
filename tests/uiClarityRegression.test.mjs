@@ -56,6 +56,19 @@ describe("student-facing UI clarity regressions", () => {
     assert.match(stylesSource, /\.sidebar-setup-link/);
   });
 
+  it("keeps student question actions inside project screens", () => {
+    const navMatch = appSource.match(/<nav className="nav-list">([\s\S]*?)<\/nav>/);
+
+    assert.ok(navMatch);
+    assert.doesNotMatch(navMatch[1], /\/threads|質問を作成|質問一覧/);
+    assert.match(appSource, /path="\/projects\/:projectId\/threads\/new"/);
+    assert.match(projectSource, /\.from\("threads"\)/);
+    assert.match(projectSource, /to=\{`\/projects\/\$\{project\.id\}\/threads\/new`\}/);
+    assert.match(projectSource, />質問一覧</);
+    assert.match(threadCreateSource, /routeProjectId/);
+    assert.match(threadCreateSource, /projectLocked/);
+  });
+
   it("keeps obsolete verbose labels out of question and chat screens", () => {
     const screenSources = [threadCreateSource, threadDetailSource].join("\n");
 

@@ -15,7 +15,6 @@ describe("student home real data", () => {
     assert.doesNotMatch(appSource, /WorkspacePage/);
     assert.match(appSource, /StudentHomePage/);
     assert.match(appSource, /path="\/threads"/);
-    assert.match(appSource, /質問一覧/);
   });
 
   it("loads student home data from Supabase tables", () => {
@@ -24,7 +23,6 @@ describe("student home real data", () => {
     assert.match(studentHomeSource, /\.from\("projects"\)/);
     assert.match(studentHomeSource, /\.from\("threads"\)/);
     assert.match(studentHomeSource, /id="threads"/);
-    assert.match(studentHomeSource, /\/threads\/new/);
     assert.match(studentHomeSource, /\/projects/);
     assert.match(studentHomeSource, /\/onboarding/);
   });
@@ -49,8 +47,10 @@ describe("student home real data", () => {
     assert.match(studentHomeSource, /className="page-actions home-actions"/);
     assert.match(studentHomeSource, /className="primary-button home-primary-action"/);
     assert.match(studentHomeSource, /className="setup-action-link"/);
+    assert.match(studentHomeSource, /label: "プロジェクトを選ぶ", to: "\/projects"/);
     assert.match(styleSource, /\.setup-check-row\.needs-action/);
     assert.match(styleSource, /\.home-primary-action/);
+    assert.doesNotMatch(studentHomeSource, /to="\/threads\/new"/);
     assert.doesNotMatch(
       studentHomeSource,
       /<Link className="secondary-link" to="\/threads\/new">\s*質問を作成\s*<\/Link>/
