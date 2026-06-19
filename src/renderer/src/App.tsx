@@ -183,8 +183,6 @@ const AppShell = (): ReactElement => {
             <NavLink to="/classes">クラス</NavLink>
             {profile.role !== "student" && <NavLink to="/teacher/queue">質問キュー</NavLink>}
             <NavLink to="/projects">プロジェクト</NavLink>
-            {profile.role === "student" && <NavLink to="/threads/new">質問を作成</NavLink>}
-            {profile.role === "student" && <NavLink to="/threads">質問一覧</NavLink>}
           </nav>
 
           {showOnboardingShortcut ? (
@@ -221,18 +219,28 @@ const AppShell = (): ReactElement => {
           <Route path="/classes/:classId" element={<ClassDetailPage />} />
           <Route path="/join/:token" element={<ClassJoinPage />} />
           <Route path="/projects" element={<ProjectsPage />} />
+          <Route path="/projects/:projectId/threads/new" element={<ThreadCreatePage />} />
           <Route path="/projects/:projectId" element={<ProjectDetailPage />} />
           <Route
             path="/threads"
             element={
               profile.role === "student" ? (
-                <StudentHomePage />
+                <Navigate to="/projects" replace />
               ) : (
                 <Navigate to="/teacher/queue" replace />
               )
             }
           />
-          <Route path="/threads/new" element={<ThreadCreatePage />} />
+          <Route
+            path="/threads/new"
+            element={
+              profile.role === "student" ? (
+                <Navigate to="/projects" replace />
+              ) : (
+                <ThreadCreatePage />
+              )
+            }
+          />
           <Route path="/threads/:threadId" element={<ThreadDetailPage />} />
           <Route
             path="*"

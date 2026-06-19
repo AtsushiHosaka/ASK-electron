@@ -7,7 +7,7 @@ import type {
   ProjectRootReconnectResponse,
   ProjectRootSelectionResponse
 } from "../../../../shared/ipc";
-import type { Database } from "../../../../shared/database.types";
+import type { Database, ThreadStatus } from "../../../../shared/database.types";
 import { useAuth } from "../auth/AuthProvider";
 import { getSupabaseClient } from "../../lib/supabase";
 import { trackUsageEvent } from "../../lib/telemetry";
@@ -16,6 +16,7 @@ type ClassRow = Database["public"]["Tables"]["classes"]["Row"];
 type ClassMemberRow = Database["public"]["Tables"]["class_members"]["Row"];
 type GithubConnectionRow = Database["public"]["Tables"]["github_connections"]["Row"];
 type ProjectRow = Database["public"]["Tables"]["projects"]["Row"];
+type ThreadRow = Database["public"]["Tables"]["threads"]["Row"];
 
 interface StudentClassOption {
   membership: ClassMemberRow;
@@ -62,6 +63,15 @@ const highRiskGitignorePatterns = new Set([
   "releases/",
   ".venv/"
 ]);
+
+const threadStatusLabels: Record<ThreadStatus, string> = {
+  open: "未対応",
+  in_progress: "対応中",
+  waiting_student: "確認待ち",
+  patch_proposed: "パッチ提案",
+  resolved: "解決済み",
+  reopened: "再オープン"
+};
 
 export const ProjectsPage = (): ReactElement => {
   const { profile } = useAuth();
@@ -729,6 +739,7 @@ export const ProjectDetailPage = (): ReactElement => {
   const { projectId } = useParams();
   const supabase = useMemo(() => getSupabaseClient(), []);
   const [project, setProject] = useState<ProjectRow | null>(null);
+  const [threads, setThreads] = useState<ThreadRow[]>([]);
   const [reconnectResult, setReconnectResult] = useState<ProjectRootReconnectResponse | null>(null);
   const [reconnectBusy, setReconnectBusy] = useState(false);
   const [reconnectMessage, setReconnectMessage] = useState<string | null>(null);
@@ -756,17 +767,24 @@ export const ProjectDetailPage = (): ReactElement => {
         .eq("id", projectId)
         .single();
 
+      const threadsResult = await supabase
+        .from("threads")
+        .select("id,project_id,created_by,title,status,priority,ai_used,created_at,updated_at")
+        .eq("project_id", projectId)
+        .order("updated_at", { ascending: false });
+
       if (!mounted) {
         return;
       }
 
-      if (projectError) {
+      if (projectError || threadsResult.error) {
         setLoading(false);
         setError("プロジェクトを読み込めませんでした。");
         return;
       }
 
       setProject(data);
+      setThreads(threadsResult.data ?? []);
       setLoading(false);
       setError(null);
     };
@@ -839,9 +857,50 @@ export const ProjectDetailPage = (): ReactElement => {
 
   return (
     <section className="workspace-page">
-      <p className="eyebrow">Project Detail</p>
-      <h1>{project.name}</h1>
-      <p className="muted">GitHubリポジトリとローカルフォルダの登録情報です。</p>
+      <div className="page-header">
+        <div>
+          <p className="eyebrow">Project Detail</p>
+          <h1>{project.name}</h1>
+          <p className="muted">GitHubリポジトリとローカルフォルダの登録情報です。</p>
+        </div>
+        <div className="page-actions">
+          <Link className="primary-button" to={`/projects/${project.id}/threads/new`}>
+            質問を作成
+          </Link>
+        </div>
+      </div>
+
+      <article className="detail-panel thread-list-panel">
+        <div className="panel-heading">
+          <div>
+            <p className="eyebrow">Threads</p>
+            <h2>質問一覧</h2>
+          </div>
+          <span className="status-pill pending">{threads.length} 件</span>
+        </div>
+
+        {threads.length === 0 ? (
+          <div className="empty-inline-state">
+            <p className="muted">質問はまだありません。</p>
+          </div>
+        ) : (
+          <div className="student-thread-list">
+            {threads.map((thread) => (
+              <Link className="student-thread-row" key={thread.id} to={`/threads/${thread.id}`}>
+                <div>
+                  <strong>{thread.title}</strong>
+                  <span>{new Date(thread.created_at).toLocaleDateString()}</span>
+                </div>
+                <span className="status-pill pending">{threadStatusLabels[thread.status]}</span>
+                <time dateTime={thread.updated_at}>
+                  {new Date(thread.updated_at).toLocaleString()}
+                </time>
+              </Link>
+            ))}
+          </div>
+        )}
+      </article>
+
       <div className="project-summary-list detail-panel">
         <span>GitHubリポジトリ</span>
         <strong>{project.github_repo_url}</strong>

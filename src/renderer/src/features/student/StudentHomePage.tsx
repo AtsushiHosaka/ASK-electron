@@ -244,7 +244,7 @@ export const StudentHomePage = (): ReactElement => {
   const canCreateQuestion = state.projects.length > 0;
   const homePrimaryAction = nextSetupAction
     ? { label: nextSetupAction.actionLabel, to: nextSetupAction.actionTo }
-    : { label: "質問を作成", to: "/threads/new" };
+    : { label: "プロジェクトを選ぶ", to: "/projects" };
 
   useEffect(() => {
     if (!profile?.id || !setupComplete) {
@@ -299,8 +299,8 @@ export const StudentHomePage = (): ReactElement => {
             {homePrimaryAction.label}
           </Link>
           {nextSetupAction && canCreateQuestion ? (
-            <Link className="secondary-button" to="/threads/new">
-              質問を作成
+            <Link className="secondary-button" to="/projects">
+              プロジェクト
             </Link>
           ) : null}
         </div>
