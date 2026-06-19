@@ -842,6 +842,21 @@ textarea:focus,
   font-size: 0.9rem;
 }
 
+.syntax-preview {
+  display: grid;
+  gap: 0;
+  margin-top: -4px;
+}
+
+.syntax-preview .code-viewer {
+  max-height: 220px;
+}
+
+.syntax-preview .code-context-toolbar {
+  min-height: 30px;
+  padding: 0 2px 6px;
+}
+
 .git-diff-controls {
   display: grid;
   gap: 10px;

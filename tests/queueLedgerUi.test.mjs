@@ -10,6 +10,7 @@ const threadCreateSource = readFileSync(
   "src/renderer/src/features/threads/ThreadCreatePage.tsx",
   "utf8"
 );
+const stylesSource = readFileSync("src/renderer/src/styles.css", "utf8");
 
 describe("queue ledger UI", () => {
   it("keeps the teacher queue as a list that opens thread detail pages", () => {
@@ -40,5 +41,23 @@ describe("question creation long-form fields", () => {
 
     assert.ok(threadForm);
     assert.doesNotMatch(threadForm, /maxLength=/);
+  });
+
+  it("shows syntax-highlighted previews for code-like question inputs", () => {
+    const threadForm = threadCreateSource.match(
+      /<article className="detail-panel thread-form-panel">[\s\S]*?<\/article>/
+    )?.[0];
+
+    assert.ok(threadForm);
+    assert.match(threadCreateSource, /const errorPreview = errorText\.trim\(\)/);
+    assert.match(threadCreateSource, /const commandPreview = commandText\.trim\(\)/);
+    assert.match(threadForm, /className="syntax-preview"/);
+    assert.match(threadForm, /aria-label="エラー文プレビュー"/);
+    assert.match(threadForm, /language="Log"/);
+    assert.match(threadForm, /aria-label="実行コマンドプレビュー"/);
+    assert.match(threadForm, /language="Shell"/);
+    assert.match(threadForm, /<CodeContextViewer/);
+    assert.match(stylesSource, /\.syntax-preview/);
+    assert.match(stylesSource, /\.syntax-preview \.code-viewer/);
   });
 });
