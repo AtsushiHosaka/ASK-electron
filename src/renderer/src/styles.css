@@ -867,24 +867,6 @@ textarea:focus,
   gap: 12px;
 }
 
-.teacher-patch-composer {
-  display: grid;
-  gap: 12px;
-}
-
-.teacher-patch-composer .diff-textarea {
-  min-height: 220px;
-  font-family: SFMono-Regular, Consolas, "Liberation Mono", monospace;
-  font-size: 0.84rem;
-  line-height: 1.55;
-}
-
-.teacher-patch-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
 .git-diff-controls .secondary-button {
   width: fit-content;
 }
@@ -2076,17 +2058,18 @@ textarea:focus,
   align-items: center;
 }
 
-.chat-composer-controls select {
-  width: 116px;
-  height: 40px;
-  border-radius: 8px;
-  padding: 0 10px;
-  color: #475467;
-}
-
 .chat-composer-controls .primary-button {
   min-width: 88px;
   min-height: 40px;
+}
+
+.chat-composer-preview {
+  max-height: 240px;
+  overflow: auto;
+  border: 1px solid #dbe5f3;
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: #fbfcfe;
 }
 
 .chat-composer-input {
@@ -2132,7 +2115,6 @@ textarea:focus,
   background: var(--color-surface-muted);
 }
 
-.thread-tool-panel .teacher-patch-composer,
 .thread-tool-panel .ai-thread-assist {
   padding: 16px;
 }
