@@ -407,7 +407,15 @@ export const StudentHomePage = (): ReactElement => {
                 const project = projectsById.get(thread.project_id);
 
                 return (
-                  <Link className="student-thread-row" key={thread.id} to={`/threads/${thread.id}`}>
+                  <Link
+                    className="student-thread-row"
+                    key={thread.id}
+                    to={
+                      project
+                        ? `/projects/${project.id}/threads/${thread.id}`
+                        : `/threads/${thread.id}`
+                    }
+                  >
                     <div>
                       <strong>{thread.title}</strong>
                       <span>{project?.name ?? "プロジェクト不明"}</span>

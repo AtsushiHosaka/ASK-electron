@@ -12,7 +12,6 @@ import type {
   ClassMemberRole,
   Database,
   GithubSshStatus,
-  ThreadPriority,
   ThreadStatus
 } from "../../../../shared/database.types";
 import { useAuth } from "../auth/AuthProvider";
@@ -66,8 +65,6 @@ interface TeacherDashboardState {
 }
 
 type MessageStatus = "success" | "warning" | "error";
-type QueueStatusFilter = ThreadStatus | "all";
-type QueueSortMode = "priority" | "updated";
 
 const threadStatuses: ThreadStatus[] = [
   "open",
@@ -86,20 +83,6 @@ const statusLabels: Record<ThreadStatus, string> = {
   resolved: "解決済み",
   reopened: "再オープン"
 };
-
-const priorityLabels: Record<ThreadPriority, string> = {
-  high: "高",
-  normal: "通常",
-  low: "低"
-};
-
-const priorityRank: Record<ThreadPriority, number> = {
-  high: 0,
-  normal: 1,
-  low: 2
-};
-
-const queueStatusFilters: QueueStatusFilter[] = ["all", ...threadStatuses];
 
 const sshStatusLabels: Record<GithubSshStatus, string> = {
   unknown: "未確認",
@@ -124,28 +107,6 @@ const buildJoinUrl = (token: string): string => {
   return `${getPublicAppBaseUrl()}#/join/${encodeURIComponent(token)}`;
 };
 
-const sortThreadsForQueue = (threads: QueueThread[]): QueueThread[] => {
-  return [...threads].sort((left, right) => {
-    const leftPriority = left.thread.priority ? priorityRank[left.thread.priority] : 1;
-    const rightPriority = right.thread.priority ? priorityRank[right.thread.priority] : 1;
-
-    if (leftPriority !== rightPriority) {
-      return leftPriority - rightPriority;
-    }
-
-    const updatedDelta =
-      new Date(right.thread.updated_at).getTime() - new Date(left.thread.updated_at).getTime();
-
-    if (updatedDelta !== 0) {
-      return updatedDelta;
-    }
-
-    return new Date(right.thread.created_at).getTime() - new Date(left.thread.created_at).getTime();
-  });
-};
-
-const formatDateTime = (value: string): string => new Date(value).toLocaleString();
-
 const classJoinStatusLabel = (status: string): string =>
   status === "already_member" ? "参加済み" : "参加完了";
 
@@ -166,12 +127,6 @@ const classJoinMemberMeta = (member: ClassJoinMemberSummary): string => {
 
   return roleLabel;
 };
-
-interface QueueThread {
-  thread: ThreadRow;
-  classRow: ClassRow;
-  project: ProjectRow;
-}
 
 const useTeacherDashboard = (reloadVersion = 0): TeacherDashboardState => {
   const { profile } = useAuth();
@@ -438,179 +393,6 @@ export const TeacherHomePage = (): ReactElement => {
         onClose={closeClassCreate}
         onCreated={reloadClasses}
       />
-    </section>
-  );
-};
-
-export const TeacherQueuePage = (): ReactElement => {
-  const [reloadVersion, setReloadVersion] = useState(0);
-  const { loading, error, classes } = useTeacherDashboard(reloadVersion);
-  const supabase = useMemo(() => getSupabaseClient(), []);
-  const [selectedStatus, setSelectedStatus] = useState<QueueStatusFilter>("all");
-  const [selectedClassId, setSelectedClassId] = useState("all");
-  const [query, setQuery] = useState("");
-  const [sortMode, setSortMode] = useState<QueueSortMode>("priority");
-
-  const reloadQueue = useCallback((): void => setReloadVersion((current) => current + 1), []);
-
-  useEffect(() => {
-    if (!supabase) {
-      return;
-    }
-
-    const channel = supabase
-      .channel("teacher-thread-queue")
-      .on("postgres_changes", { event: "*", schema: "public", table: "threads" }, reloadQueue)
-      .subscribe();
-
-    return () => {
-      void supabase.removeChannel(channel);
-    };
-  }, [reloadQueue, supabase]);
-
-  if (loading) {
-    return <TeacherPageState title="読み込み中" body="質問キューを確認しています。" />;
-  }
-
-  if (error) {
-    return <TeacherPageState title="読み込みに失敗しました" body={error} />;
-  }
-
-  const queueThreads = classes.flatMap((classSummary) =>
-    classSummary.projects.flatMap((project) =>
-      classSummary.threads
-        .filter((thread) => thread.project_id === project.id)
-        .map((thread) => ({
-          thread,
-          classRow: classSummary.classRow,
-          project
-        }))
-    )
-  );
-  const statusCounts = Object.fromEntries(
-    threadStatuses.map((status) => [
-      status,
-      queueThreads.filter((item) => item.thread.status === status).length
-    ])
-  ) as Record<ThreadStatus, number>;
-  const normalizedQuery = query.trim().toLowerCase();
-  const filteredThreads = queueThreads.filter((item) => {
-    const matchesStatus = selectedStatus === "all" || item.thread.status === selectedStatus;
-    const matchesClass = selectedClassId === "all" || item.classRow.id === selectedClassId;
-    const matchesQuery =
-      normalizedQuery.length === 0 ||
-      [item.thread.title, item.classRow.name, item.project.name]
-        .join(" ")
-        .toLowerCase()
-        .includes(normalizedQuery);
-
-    return matchesStatus && matchesClass && matchesQuery;
-  });
-  const visibleThreads =
-    sortMode === "priority"
-      ? sortThreadsForQueue(filteredThreads)
-      : [...filteredThreads].sort(
-          (left, right) =>
-            new Date(right.thread.updated_at).getTime() - new Date(left.thread.updated_at).getTime()
-        );
-
-  return (
-    <section className="teacher-dashboard">
-      <div className="page-header">
-        <div>
-          <p className="eyebrow">Queue</p>
-          <h1>質問キュー</h1>
-          <p className="muted">担当クラス内の質問を絞り込み、詳細画面で対応します。</p>
-        </div>
-        <p className="page-header-meta">{queueThreads.length} 件</p>
-      </div>
-
-      <section className="queue-ledger" aria-label="質問一覧">
-        <div className="queue-ledger-tools">
-          <div className="queue-status-tabs" role="group" aria-label="ステータスで絞り込み">
-            {queueStatusFilters.map((status) => {
-              const count =
-                status === "all" ? queueThreads.length : statusCounts[status as ThreadStatus];
-              const label = status === "all" ? "すべて" : statusLabels[status as ThreadStatus];
-
-              return (
-                <button
-                  className={`queue-filter-tab ${selectedStatus === status ? "active" : ""}`}
-                  key={status}
-                  type="button"
-                  onClick={() => setSelectedStatus(status)}
-                >
-                  {label} <span>{count}</span>
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="queue-compact-controls" aria-label="質問キューの絞り込み">
-            <select
-              aria-label="クラス"
-              value={selectedClassId}
-              onChange={(event) => setSelectedClassId(event.target.value)}
-            >
-              <option value="all">すべてのクラス</option>
-              {classes.map((classSummary) => (
-                <option key={classSummary.classRow.id} value={classSummary.classRow.id}>
-                  {classSummary.classRow.name}
-                </option>
-              ))}
-            </select>
-            <input
-              aria-label="検索"
-              placeholder="検索"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-            <select
-              aria-label="並び順"
-              value={sortMode}
-              onChange={(event) => setSortMode(event.target.value as QueueSortMode)}
-            >
-              <option value="priority">優先度順</option>
-              <option value="updated">更新順</option>
-            </select>
-          </div>
-        </div>
-
-        <div className="queue-ledger-header" role="row">
-          <span>状態</span>
-          <span>優先度</span>
-          <span>質問</span>
-          <span>クラス</span>
-          <span>プロジェクト</span>
-          <span>更新</span>
-          <span>開く</span>
-        </div>
-
-        {visibleThreads.length === 0 ? (
-          <div className="queue-ledger-empty">
-            <strong>該当する質問はありません</strong>
-            <span>絞り込み条件を変えると、別の質問を確認できます。</span>
-          </div>
-        ) : (
-          visibleThreads.map((item) => (
-            <Link
-              className="queue-ledger-row"
-              key={item.thread.id}
-              to={`/threads/${item.thread.id}`}
-            >
-              <span className="status-pill pending">{statusLabels[item.thread.status]}</span>
-              <span>{item.thread.priority ? priorityLabels[item.thread.priority] : "通常"}</span>
-              <strong>{item.thread.title}</strong>
-              <span>{item.classRow.name}</span>
-              <span>{item.project.name}</span>
-              <time dateTime={item.thread.updated_at}>
-                {formatDateTime(item.thread.updated_at)}
-              </time>
-              <span className="queue-open-label">開く</span>
-            </Link>
-          ))
-        )}
-      </section>
     </section>
   );
 };
@@ -916,6 +698,10 @@ export const ClassDetailPage = (): ReactElement => {
   }
 
   const inviteLink = inviteState?.classId === classSummary.classRow.id ? inviteState.link : "";
+  const projectThreadGroups = classSummary.projects.map((project) => ({
+    project,
+    threads: classSummary.threads.filter((thread) => thread.project_id === project.id)
+  }));
 
   const copyInviteLink = async (): Promise<void> => {
     if (!supabase) {
@@ -988,25 +774,49 @@ export const ClassDetailPage = (): ReactElement => {
         <MemberPanel title="生徒" members={studentMembers(classSummary)} />
         <MemberPanel title="メンター / 先生" members={mentorMembers(classSummary)} />
 
-        <article className="detail-panel thread-list-panel">
+        <article className="detail-panel class-project-thread-panel">
           <div className="panel-heading">
             <div>
-              <p className="eyebrow">Threads</p>
-              <h2>質問一覧</h2>
+              <p className="eyebrow">Projects</p>
+              <h2>プロジェクト</h2>
             </div>
-            <span className="status-pill pending">{classSummary.threads.length} 件</span>
+            <span className="status-pill pending">{projectThreadGroups.length} 件</span>
           </div>
 
-          {classSummary.threads.length === 0 ? (
-            <p className="muted">このクラスの質問はまだありません。</p>
+          {projectThreadGroups.length === 0 ? (
+            <p className="muted">このクラスのプロジェクトはまだありません。</p>
           ) : (
-            <div className="teacher-thread-list">
-              {classSummary.threads.map((thread) => (
-                <Link className="teacher-thread-row" key={thread.id} to={`/threads/${thread.id}`}>
-                  <span>{thread.title}</span>
-                  <span>{statusLabels[thread.status]}</span>
-                  <span>{new Date(thread.updated_at).toLocaleDateString()}</span>
-                </Link>
+            <div className="class-project-thread-list">
+              {projectThreadGroups.map(({ project, threads }) => (
+                <section className="class-project-thread-card" key={project.id}>
+                  <div className="class-project-thread-card-header">
+                    <div>
+                      <h3>{project.name}</h3>
+                      <span>{threads.length} 件の質問</span>
+                    </div>
+                    <Link className="secondary-link" to={`/projects/${project.id}`}>
+                      詳細
+                    </Link>
+                  </div>
+
+                  {threads.length === 0 ? (
+                    <p className="muted compact">このプロジェクトの質問はまだありません。</p>
+                  ) : (
+                    <div className="teacher-thread-list">
+                      {threads.map((thread) => (
+                        <Link
+                          className="teacher-thread-row"
+                          key={thread.id}
+                          to={`/projects/${project.id}/threads/${thread.id}`}
+                        >
+                          <span>{thread.title}</span>
+                          <span>{statusLabels[thread.status]}</span>
+                          <span>{new Date(thread.updated_at).toLocaleDateString()}</span>
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                </section>
               ))}
             </div>
           )}

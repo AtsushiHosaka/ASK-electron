@@ -1162,7 +1162,7 @@ export const ThreadCreatePage = (): ReactElement => {
         }
       });
 
-      navigate(`/threads/${thread.id}`);
+      navigate(`/projects/${selectedProject.id}/threads/${thread.id}`);
     } catch (error) {
       console.error("Failed to create question thread", error);
       if (createdThreadId) {

@@ -77,6 +77,9 @@ describe("student-facing UI clarity regressions", () => {
     assert.ok(detailMatch);
     assert.doesNotMatch(detailMatch[1], />ローカル識別子</);
     assert.doesNotMatch(detailMatch[1], /localPathHash\?\.slice|local_path_hash\?\.slice/);
+    assert.match(detailMatch[1], /const canCreateQuestion = profile\?\.role === "student"/);
+    assert.match(detailMatch[1], /const backTarget = profile\?\.role === "student"/);
+    assert.match(detailMatch[1], /`\/classes\/\$\{project\.class_id\}`/);
     assert.match(detailMatch[1], /className="project-detail-actions"/);
     assert.match(stylesSource, /\.workspace-page/);
     assert.match(stylesSource, /\.project-detail-actions/);
