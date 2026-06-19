@@ -889,15 +889,11 @@ export const ThreadCreatePage = (): ReactElement => {
           ? "差分なし"
           : "未収集"
       : "未収集";
-  const gitDiffStatusMessage =
+  const gitDiffAlertMessage =
     gitDiffState.error ??
-    gitDiffResponse?.message ??
-    "ローカルフォルダを選択すると Git差分を収集します。";
-  const gitDiffStatus = gitDiffState.error
-    ? "warning"
-    : gitDiffResponse?.status === "ready" || gitDiffResponse?.status === "empty"
-      ? "success"
-      : "warning";
+    (gitDiffResponse && gitDiffResponse.status !== "ready" && gitDiffResponse.status !== "empty"
+      ? gitDiffResponse.message
+      : null);
   const environmentSummary = environmentSnapshotState.loading
     ? "収集中"
     : environmentSnapshot
@@ -905,15 +901,11 @@ export const ThreadCreatePage = (): ReactElement => {
         ? "収集済み"
         : "一部収集"
       : "未収集";
-  const environmentStatusMessage =
+  const environmentAlertMessage =
     environmentSnapshotState.error ??
-    environmentSnapshot?.message ??
-    "OS、runtime、package manager、依存関係概要を収集します。";
-  const environmentStatus = environmentSnapshotState.error
-    ? "warning"
-    : environmentSnapshot?.status === "ready"
-      ? "success"
-      : "warning";
+    (environmentSnapshot && environmentSnapshot.status !== "ready"
+      ? environmentSnapshot.message
+      : null);
   const excludedItems = [
     ...blockedRelatedFiles.map((file) => `関連ファイル: ${file} (秘密情報候補)`),
     ...relatedSnippets
@@ -1003,18 +995,13 @@ export const ThreadCreatePage = (): ReactElement => {
       setSubmitting(false);
     }
   };
-  const secretScanSummary = secretScan.blocked
-    ? "送信停止"
-    : secretScan.hasWarnings
-      ? "確認が必要"
-      : "通過";
-  const aiAssistSummary = aiAssistState.loadingTask
-    ? `${getAiTaskLabel(aiAssistState.loadingTask)}中`
-    : sendReview.aiUsed
-      ? "生成済み"
-      : "未使用";
   const canGenerateAiAssist = canReview && aiAssistState.loadingTask === null;
   const secretFindingsForPreview = [...secretScan.activeFindings, ...secretScan.allowedFindings];
+  const hasReviewRelatedFiles = relatedFiles.length > 0;
+  const hasReviewCollectedInfo = Boolean(gitDiffResponse || environmentSnapshot);
+  const hasReviewSecretFindings = secretFindingsForPreview.length > 0;
+  const hasReviewSections =
+    hasReviewRelatedFiles || hasReviewCollectedInfo || hasReviewSecretFindings;
 
   const setSecretFindingAllowed = (findingId: string, allowed: boolean): void => {
     setAllowedSecretFindingIds((current) => {
@@ -1335,41 +1322,7 @@ export const ThreadCreatePage = (): ReactElement => {
           <aside className="detail-panel thread-preview-panel">
             <div>
               <p className="eyebrow">Preview</p>
-              <h2>送信前チェック</h2>
-            </div>
-
-            <div className="project-summary-list">
-              <span>Git差分</span>
-              <strong>{gitDiffSummary}</strong>
-              <span>ブランチ</span>
-              <strong>
-                {gitDiffResponse?.branch ?? selectedProject?.default_branch ?? "未取得"}
-              </strong>
-              <span>最新コミット</span>
-              <strong>{gitDiffResponse?.headShortCommit ?? "未取得"}</strong>
-              <span>環境情報</span>
-              <strong>{environmentSummary}</strong>
-              <span>OS</span>
-              <strong>
-                {environmentSnapshot
-                  ? `${environmentSnapshot.os.name} ${environmentSnapshot.os.version}`
-                  : "未取得"}
-              </strong>
-              <span>Node</span>
-              <strong>{environmentSnapshot?.runtimes.node.version ?? "未取得"}</strong>
-              <span>AI補助</span>
-              <strong>{aiAssistSummary}</strong>
-              <span>秘密情報チェック</span>
-              <strong>{secretScanSummary}</strong>
-              <span>関連ファイル</span>
-              <strong>
-                {includedRelatedFiles.length} 件 / 除外 {excludedRelatedFileSet.size} 件
-              </strong>
-              <span>スニペット</span>
-              <strong>
-                {includedRelatedSnippets.length} 件 / 除外{" "}
-                {relatedSnippets.length - includedRelatedSnippets.length} 件
-              </strong>
+              <h2>補助</h2>
             </div>
 
             <div className="git-diff-controls">
@@ -1381,9 +1334,11 @@ export const ThreadCreatePage = (): ReactElement => {
               >
                 {gitDiffState.loading ? "Git差分を確認中..." : "ローカルフォルダを選択"}
               </button>
-              <p className={`message ${gitDiffStatus}`} role="status">
-                {gitDiffStatusMessage}
-              </p>
+              {gitDiffAlertMessage ? (
+                <p className="message warning" role="status">
+                  {gitDiffAlertMessage}
+                </p>
+              ) : null}
               {gitDiffResponse?.sensitiveFilePaths.length ? (
                 <p className="message warning" role="status">
                   秘密情報候補: {gitDiffResponse.sensitiveFilePaths.join(", ")}
@@ -1400,9 +1355,11 @@ export const ThreadCreatePage = (): ReactElement => {
               >
                 {environmentSnapshotState.loading ? "環境情報を確認中..." : "環境情報を確認"}
               </button>
-              <p className={`message ${environmentStatus}`} role="status">
-                {environmentStatusMessage}
-              </p>
+              {environmentAlertMessage ? (
+                <p className="message warning" role="status">
+                  {environmentAlertMessage}
+                </p>
+              ) : null}
             </div>
 
             <div className="git-diff-controls">
@@ -1438,9 +1395,6 @@ export const ThreadCreatePage = (): ReactElement => {
                     : "AIで原因候補"}
                 </button>
               </div>
-              <p className="message warning" role="status">
-                AI 出力は補助情報です。送信前に編集してください。
-              </p>
             </div>
 
             {editableSecretScan.blocked && (
@@ -1465,10 +1419,6 @@ export const ThreadCreatePage = (): ReactElement => {
                     <Link to={`/projects/${selectedProject.id}`}>ローカルフォルダを再接続</Link>
                   </>
                 ) : null}
-              </p>
-            ) : relatedFileSnippetState.message ? (
-              <p className="message success" role="status">
-                {relatedFileSnippetState.message}
               </p>
             ) : null}
 
@@ -1587,7 +1537,7 @@ export const ThreadCreatePage = (): ReactElement => {
             </header>
 
             <label>
-              質問文（編集可）
+              質問文
               <textarea
                 rows={5}
                 value={sendReview.draftQuestion}
@@ -1602,7 +1552,7 @@ export const ThreadCreatePage = (): ReactElement => {
 
             {sendReview.aiErrorSummary.trim() ? (
               <label>
-                AIエラー要約（編集可）
+                AIエラー要約
                 <textarea
                   rows={4}
                   value={sendReview.aiErrorSummary}
@@ -1618,7 +1568,7 @@ export const ThreadCreatePage = (): ReactElement => {
 
             {sendReview.aiCauseCandidates.trim() ? (
               <label>
-                AI原因候補と次の確認（編集可）
+                AI原因候補
                 <textarea
                   rows={6}
                   value={sendReview.aiCauseCandidates}
@@ -1632,115 +1582,113 @@ export const ThreadCreatePage = (): ReactElement => {
               </label>
             ) : null}
 
-            <div className="review-grid">
-              <section className="review-section">
-                <h3>関連ファイル</h3>
-                {relatedFiles.length === 0 ? (
-                  <p className="muted">未選択</p>
-                ) : (
-                  <div className="review-check-list">
-                    {relatedFiles.map((file) => {
-                      const blocked =
-                        blockedRelatedFiles.includes(file) ||
-                        unavailableRelatedSnippetPaths.includes(file);
-                      const excluded = excludedRelatedFileSet.has(file);
+            {hasReviewSections ? (
+              <div className="review-grid">
+                {hasReviewRelatedFiles ? (
+                  <section className="review-section">
+                    <h3>関連ファイル</h3>
+                    <div className="review-check-list">
+                      {relatedFiles.map((file) => {
+                        const blocked =
+                          blockedRelatedFiles.includes(file) ||
+                          unavailableRelatedSnippetPaths.includes(file);
+                        const excluded = excludedRelatedFileSet.has(file);
 
-                      return (
-                        <label className="review-check-row" key={file}>
-                          <input
-                            checked={!excluded}
-                            disabled={blocked}
-                            type="checkbox"
-                            onChange={() => toggleRelatedFileExclusion(file)}
-                          />
-                          <span>{file}</span>
-                          <strong>{blocked ? "ブロック" : excluded ? "除外" : "送信"}</strong>
-                        </label>
-                      );
-                    })}
-                  </div>
-                )}
-              </section>
+                        return (
+                          <label className="review-check-row" key={file}>
+                            <input
+                              checked={!excluded}
+                              disabled={blocked}
+                              type="checkbox"
+                              onChange={() => toggleRelatedFileExclusion(file)}
+                            />
+                            <span>{file}</span>
+                            <strong>{blocked ? "ブロック" : excluded ? "除外" : "送信"}</strong>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </section>
+                ) : null}
 
-              <section className="review-section">
-                <h3>収集情報</h3>
-                <label className="review-check-row">
-                  <input
-                    checked={sendReview.includeGitDiff}
-                    disabled={!gitDiffResponse}
-                    type="checkbox"
-                    onChange={() =>
-                      setSendReview((current) => ({
-                        ...current,
-                        includeGitDiff: !current.includeGitDiff
-                      }))
-                    }
-                  />
-                  <span>Git diff</span>
-                  <strong>{gitDiffResponse ? gitDiffSummary : "未収集"}</strong>
-                </label>
-                <label className="review-check-row">
-                  <input
-                    checked={sendReview.includeEnvironmentSnapshot}
-                    disabled={!environmentSnapshot}
-                    type="checkbox"
-                    onChange={() =>
-                      setSendReview((current) => ({
-                        ...current,
-                        includeEnvironmentSnapshot: !current.includeEnvironmentSnapshot
-                      }))
-                    }
-                  />
-                  <span>環境情報</span>
-                  <strong>{environmentSummary}</strong>
-                </label>
-              </section>
+                {hasReviewCollectedInfo ? (
+                  <section className="review-section">
+                    <h3>収集情報</h3>
+                    {gitDiffResponse ? (
+                      <label className="review-check-row">
+                        <input
+                          checked={sendReview.includeGitDiff}
+                          type="checkbox"
+                          onChange={() =>
+                            setSendReview((current) => ({
+                              ...current,
+                              includeGitDiff: !current.includeGitDiff
+                            }))
+                          }
+                        />
+                        <span>Git diff</span>
+                        <strong>{gitDiffSummary}</strong>
+                      </label>
+                    ) : null}
+                    {environmentSnapshot ? (
+                      <label className="review-check-row">
+                        <input
+                          checked={sendReview.includeEnvironmentSnapshot}
+                          type="checkbox"
+                          onChange={() =>
+                            setSendReview((current) => ({
+                              ...current,
+                              includeEnvironmentSnapshot: !current.includeEnvironmentSnapshot
+                            }))
+                          }
+                        />
+                        <span>環境情報</span>
+                        <strong>{environmentSummary}</strong>
+                      </label>
+                    ) : null}
+                  </section>
+                ) : null}
 
-              <section className="review-section">
-                <h3>秘密情報チェック</h3>
-                <p
-                  className={`message ${
-                    secretScan.blocked ? "error" : secretScan.hasWarnings ? "warning" : "success"
-                  }`}
-                >
-                  {secretScan.blocked
-                    ? `ブロック: ${secretScan.blockedFindings.map((finding) => finding.message).join(", ")}`
-                    : secretScan.hasWarnings
-                      ? "低リスクの秘密情報候補があります。送信する場合は許可してください。"
-                      : "送信対象に秘密情報候補はありません。"}
-                </p>
-                {secretFindingsForPreview.length > 0 && (
-                  <div
-                    className="secret-finding-list"
-                    role="group"
-                    aria-label="送信前秘密情報チェック結果"
-                  >
-                    {secretFindingsForPreview.map((finding) =>
-                      finding.canAllow ? (
-                        <label className="secret-finding-item warning" key={finding.id}>
-                          <input
-                            checked={allowedSecretFindingIds.includes(finding.id)}
-                            type="checkbox"
-                            onChange={(event) =>
-                              setSecretFindingAllowed(finding.id, event.target.checked)
-                            }
-                          />
-                          <span>
-                            {formatSecretFindingForUi(finding)}
+                {hasReviewSecretFindings ? (
+                  <section className="review-section">
+                    <h3>秘密情報チェック</h3>
+                    <p className={`message ${secretScan.blocked ? "error" : "warning"}`}>
+                      {secretScan.blocked
+                        ? `ブロック: ${secretScan.blockedFindings.map((finding) => finding.message).join(", ")}`
+                        : "秘密情報候補があります。"}
+                    </p>
+                    <div
+                      className="secret-finding-list"
+                      role="group"
+                      aria-label="送信前秘密情報チェック結果"
+                    >
+                      {secretFindingsForPreview.map((finding) =>
+                        finding.canAllow ? (
+                          <label className="secret-finding-item warning" key={finding.id}>
+                            <input
+                              checked={allowedSecretFindingIds.includes(finding.id)}
+                              type="checkbox"
+                              onChange={(event) =>
+                                setSecretFindingAllowed(finding.id, event.target.checked)
+                              }
+                            />
+                            <span>
+                              {formatSecretFindingForUi(finding)}
+                              <small>{finding.preview}</small>
+                            </span>
+                          </label>
+                        ) : (
+                          <div className="secret-finding-item error" key={finding.id}>
+                            <strong>{formatSecretFindingForUi(finding)}</strong>
                             <small>{finding.preview}</small>
-                          </span>
-                        </label>
-                      ) : (
-                        <div className="secret-finding-item error" key={finding.id}>
-                          <strong>{formatSecretFindingForUi(finding)}</strong>
-                          <small>{finding.preview}</small>
-                        </div>
-                      )
-                    )}
-                  </div>
-                )}
-              </section>
-            </div>
+                          </div>
+                        )
+                      )}
+                    </div>
+                  </section>
+                ) : null}
+              </div>
+            ) : null}
 
             {relatedSnippets.length > 0 ? (
               <section className="review-section related-snippet-editor">
@@ -1791,10 +1739,10 @@ export const ThreadCreatePage = (): ReactElement => {
               </section>
             ) : null}
 
-            <section className="review-section">
-              <h3>最終 payload</h3>
+            <details className="review-section review-payload-details">
+              <summary>送信内容</summary>
               <pre className="review-payload-preview">{reviewPayloadPreview}</pre>
-            </section>
+            </details>
 
             <footer>
               <button

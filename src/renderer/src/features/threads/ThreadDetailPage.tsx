@@ -1891,6 +1891,7 @@ export const ThreadDetailPage = (): ReactElement => {
     ...aiEscalationSecretScan.activeFindings,
     ...aiEscalationSecretScan.allowedFindings
   ];
+  const hasAiEscalationSecretFindings = aiEscalationFindingsForPreview.length > 0;
 
   if (state.loading) {
     return <ThreadStatePage title="読み込み中" body="スレッドを確認しています。" />;
@@ -2251,7 +2252,7 @@ export const ThreadDetailPage = (): ReactElement => {
             </header>
 
             <label>
-              先生への確認メモ（編集可）
+              先生への確認メモ
               <textarea
                 rows={4}
                 value={aiEscalationConfirmation}
@@ -2259,24 +2260,14 @@ export const ThreadDetailPage = (): ReactElement => {
               />
             </label>
 
-            <section className="review-section">
-              <h3>秘密情報チェック</h3>
-              <p
-                className={`message ${
-                  aiEscalationSecretScan.blocked
-                    ? "error"
-                    : aiEscalationSecretScan.hasWarnings
-                      ? "warning"
-                      : "success"
-                }`}
-              >
-                {aiEscalationSecretScan.blocked
-                  ? `ブロック: ${aiEscalationSecretScan.blockedFindings.map((finding) => finding.message).join(", ")}`
-                  : aiEscalationSecretScan.hasWarnings
-                    ? "低リスクの秘密情報候補があります。送信する場合は許可してください。"
-                    : "送信対象に秘密情報候補はありません。"}
-              </p>
-              {aiEscalationFindingsForPreview.length > 0 ? (
+            {hasAiEscalationSecretFindings ? (
+              <section className="review-section">
+                <h3>秘密情報チェック</h3>
+                <p className={`message ${aiEscalationSecretScan.blocked ? "error" : "warning"}`}>
+                  {aiEscalationSecretScan.blocked
+                    ? `ブロック: ${aiEscalationSecretScan.blockedFindings.map((finding) => finding.message).join(", ")}`
+                    : "秘密情報候補があります。"}
+                </p>
                 <div
                   className="secret-finding-list"
                   role="group"
@@ -2305,13 +2296,13 @@ export const ThreadDetailPage = (): ReactElement => {
                     )
                   )}
                 </div>
-              ) : null}
-            </section>
+              </section>
+            ) : null}
 
-            <section className="review-section">
-              <h3>先生に共有する内容</h3>
+            <details className="review-section review-payload-details">
+              <summary>先生に共有する内容</summary>
               <pre className="review-payload-preview">{aiEscalationPreviewBody}</pre>
-            </section>
+            </details>
 
             <footer>
               <button

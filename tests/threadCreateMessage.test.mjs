@@ -9,6 +9,7 @@ import {
   buildRelatedSnippetMessage,
   dedupeRelatedFiles,
   findBlockedRelatedFiles,
+  formatSecretScanMessage,
   scanAiAssistContextForSecrets,
   splitRelatedFiles
 } from "../src/renderer/src/features/threads/threadCreateMessage.ts";
@@ -153,6 +154,13 @@ describe("thread creation message helpers", () => {
     assert.doesNotMatch(output, /src\/empty\.ts/);
   });
 
+  it("omits optional empty context sections", () => {
+    assert.equal(buildRelatedSnippetMessage([]), "");
+    assert.equal(buildGitDiffMessage(null), "");
+    assert.equal(buildEnvironmentSnapshotMessage(null), "");
+    assert.equal(formatSecretScanMessage(scanSecrets({})), "");
+  });
+
   it("builds the first chat message with review, context, exclusions, and scan summary", () => {
     const output = buildInitialMessage({
       draftQuestion: "  テストが落ちます。  ",
@@ -173,12 +181,12 @@ describe("thread creation message helpers", () => {
     assert.match(output, /## 質問文\nテストが落ちます。/);
     assert.match(output, /## AIエラー要約\nTypeError が出ています。/);
     assert.match(output, /## AI補助の注意/);
-    assert.match(output, /## エラー文\n未入力/);
+    assert.doesNotMatch(output, /## エラー文/);
     assert.match(output, /## 関連ファイル\nsrc\/App\.tsx/);
-    assert.match(output, /## Git差分\n未収集/);
-    assert.match(output, /## 環境情報\n未収集/);
+    assert.doesNotMatch(output, /## Git差分/);
+    assert.doesNotMatch(output, /## 環境情報/);
     assert.match(output, /## 除外した項目\nGit差分/);
-    assert.match(output, /## 秘密情報チェック\nチェック通過/);
+    assert.doesNotMatch(output, /## 秘密情報チェック/);
   });
 
   it("formats collected git diff and environment context for the first message", () => {
