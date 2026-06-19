@@ -31,6 +31,7 @@ const protectedTables = [
   "users",
   "classes",
   "class_members",
+  "class_student_roster",
   "projects",
   "github_connections",
   "threads",
@@ -43,6 +44,10 @@ const policyExpectations = [
   ["classes", "select", "classes_select_accessible"],
   ["classes", "insert", "classes_insert_teacher_or_admin"],
   ["classes", "update", "classes_update_manager"],
+  ["class_student_roster", "select", "class_student_roster_select_class_access"],
+  ["class_student_roster", "insert", "class_student_roster_insert_class_manager"],
+  ["class_student_roster", "update", "class_student_roster_update_class_manager"],
+  ["class_student_roster", "delete", "class_student_roster_delete_class_manager"],
   ["projects", "select", "projects_select_accessible"],
   ["projects", "insert", "projects_insert_student_own_with_github"],
   ["projects", "update", "projects_update_owner_or_admin"],
@@ -83,6 +88,10 @@ describe("RLS SQL coverage", () => {
     assert.match(
       rlsSql,
       /grant execute on function public\.can_access_project\(uuid\) to authenticated;/
+    );
+    assert.match(
+      rlsSql,
+      /grant execute on function public\.import_class_students\(uuid, jsonb\) to authenticated;/
     );
     assert.match(rlsSql, /grant select, insert, update, delete on\s+public\.users,/);
     assert.doesNotMatch(

@@ -1409,6 +1409,63 @@ textarea:focus,
   min-width: 112px;
 }
 
+.student-add-dialog {
+  width: min(660px, 100%);
+}
+
+.student-add-tabs {
+  display: inline-flex;
+  width: fit-content;
+  border: 1px solid var(--color-line-soft);
+  border-radius: 8px;
+  padding: 4px;
+  background: var(--color-surface-muted);
+}
+
+.student-add-tabs button {
+  min-width: 86px;
+  min-height: 34px;
+  border: 0;
+  border-radius: 6px;
+  padding: 6px 12px;
+  color: var(--color-muted);
+  background: transparent;
+  font: inherit;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.student-add-tabs button.active {
+  color: var(--color-primary-strong);
+  background: var(--color-surface);
+  box-shadow: 0 1px 3px rgb(15 23 42 / 12%);
+}
+
+.student-add-fields {
+  display: grid;
+  gap: 12px;
+}
+
+.student-add-preview {
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--color-line-soft);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--color-muted);
+  background: var(--color-surface-muted);
+  font-size: 0.9rem;
+  font-weight: 750;
+}
+
+.student-add-preview ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 18px;
+  color: #9a3412;
+}
+
 .teacher-class-card,
 .detail-panel {
   display: grid;
@@ -1499,12 +1556,12 @@ textarea:focus,
   gap: 16px;
 }
 
-.invite-panel {
-  align-content: start;
-}
-
-.invite-status {
-  min-height: 1.4em;
+.class-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+  align-items: flex-start;
 }
 
 .class-join-confirmation {
@@ -1667,6 +1724,10 @@ textarea:focus,
   border: 1px solid #e1e7ef;
   border-radius: 8px;
   padding: 12px;
+}
+
+.member-row.pending {
+  background: var(--color-surface-muted);
 }
 
 .member-row strong,
@@ -2523,6 +2584,24 @@ textarea:focus,
 }
 
 @media (max-width: 720px) {
+  .teacher-class-grid,
+  .detail-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .class-detail-actions {
+    justify-content: flex-start;
+  }
+
+  .member-row,
+  .teacher-thread-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .member-setup {
+    justify-items: start;
+  }
+
   .class-join-hero {
     grid-template-columns: minmax(0, 1fr);
   }

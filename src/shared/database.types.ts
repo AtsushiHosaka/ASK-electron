@@ -142,6 +142,40 @@ export interface Database {
         };
         Relationships: [];
       };
+      class_student_roster: {
+        Row: {
+          id: string;
+          class_id: string;
+          email: string;
+          display_name: string;
+          github_username: string | null;
+          linked_user_id: string | null;
+          added_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          class_id: string;
+          email: string;
+          display_name: string;
+          github_username?: string | null;
+          linked_user_id?: string | null;
+          added_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          class_id?: string;
+          email?: string;
+          display_name?: string;
+          github_username?: string | null;
+          linked_user_id?: string | null;
+          added_by?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       class_invites: {
         Row: {
           id: string;
@@ -529,6 +563,21 @@ export interface Database {
       };
     };
     Functions: {
+      import_class_students: {
+        Args: {
+          p_class_id: string;
+          p_students: Json;
+        };
+        Returns: {
+          email: string;
+          display_name: string;
+          github_username: string | null;
+          status: string;
+          user_id: string | null;
+          roster_id: string | null;
+          error: string | null;
+        }[];
+      };
       create_class_invite: {
         Args: {
           p_class_id: string;

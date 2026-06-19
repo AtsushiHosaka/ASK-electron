@@ -12,19 +12,22 @@ import type {
   ClassMemberRole,
   Database,
   GithubSshStatus,
+  Json,
   ThreadStatus
 } from "../../../../shared/database.types";
 import { useAuth } from "../auth/AuthProvider";
-import { getPublicAppBaseUrl } from "../../lib/env";
 import { getSupabaseClient } from "../../lib/supabase";
 import { trackUsageEvent } from "../../lib/telemetry";
 
 type ClassRow = Database["public"]["Tables"]["classes"]["Row"];
 type ClassMemberRow = Database["public"]["Tables"]["class_members"]["Row"];
+type ClassStudentRosterRow = Database["public"]["Tables"]["class_student_roster"]["Row"];
 type GithubConnectionRow = Database["public"]["Tables"]["github_connections"]["Row"];
 type ProjectRow = Database["public"]["Tables"]["projects"]["Row"];
 type ThreadRow = Database["public"]["Tables"]["threads"]["Row"];
 type UserRow = Database["public"]["Tables"]["users"]["Row"];
+type StudentImportRpcRow =
+  Database["public"]["Functions"]["import_class_students"]["Returns"][number];
 
 interface MemberSummary {
   membership: ClassMemberRow;
@@ -39,6 +42,7 @@ interface ManagedClassSummary {
   classRow: ClassRow;
   myRole: ClassMemberRole;
   members: MemberSummary[];
+  studentRoster: ClassStudentRosterRow[];
   projects: ProjectRow[];
   threads: ThreadRow[];
   statusCounts: Record<ThreadStatus, number>;
@@ -65,6 +69,19 @@ interface TeacherDashboardState {
 }
 
 type MessageStatus = "success" | "warning" | "error";
+type StudentImportMode = "single" | "csv";
+
+interface StudentImportDraft {
+  displayName: string;
+  email: string;
+  githubUsername: string;
+  lineNumber?: number;
+}
+
+interface StudentCsvParseResult {
+  rows: StudentImportDraft[];
+  errors: string[];
+}
 
 const threadStatuses: ThreadStatus[] = [
   "open",
@@ -96,15 +113,149 @@ const classMemberRoleLabels: Record<ClassMemberRole, string> = {
   mentor: "メンター"
 };
 
-const inviteExpirySeconds = 60 * 60 * 24 * 14;
-
 const initialStatusCounts = (): Record<ThreadStatus, number> =>
   Object.fromEntries(threadStatuses.map((status) => [status, 0])) as Record<ThreadStatus, number>;
 
 const unique = (values: string[]): string[] => [...new Set(values)];
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-const buildJoinUrl = (token: string): string => {
-  return `${getPublicAppBaseUrl()}#/join/${encodeURIComponent(token)}`;
+const normalizeEmail = (value: string): string => value.trim().toLowerCase();
+const normalizeGithubUsername = (value: string): string => value.trim().replace(/^@+/, "");
+
+const parseCsvLine = (line: string): string[] => {
+  const cells: string[] = [];
+  let current = "";
+  let quoted = false;
+
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index];
+    const nextCharacter = line[index + 1];
+
+    if (character === '"' && quoted && nextCharacter === '"') {
+      current += '"';
+      index += 1;
+      continue;
+    }
+
+    if (character === '"') {
+      quoted = !quoted;
+      continue;
+    }
+
+    if (character === "," && !quoted) {
+      cells.push(current.trim());
+      current = "";
+      continue;
+    }
+
+    current += character;
+  }
+
+  cells.push(current.trim());
+  return cells;
+};
+
+const normalizeCsvHeader = (value: string): string =>
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "");
+
+const headerIndex = (headers: string[], aliases: string[]): number => {
+  const normalizedAliases = aliases.map(normalizeCsvHeader);
+  return headers.findIndex((header) => normalizedAliases.includes(header));
+};
+
+const validateStudentDraft = (draft: StudentImportDraft): string[] => {
+  const errors: string[] = [];
+
+  if (!draft.displayName.trim()) {
+    errors.push("名前を入力してください。");
+  }
+
+  if (!emailPattern.test(normalizeEmail(draft.email))) {
+    errors.push("メールアドレスを確認してください。");
+  }
+
+  return errors;
+};
+
+const buildStudentDraft = (
+  displayName: string,
+  email: string,
+  githubUsername: string,
+  lineNumber?: number
+): StudentImportDraft => ({
+  displayName: displayName.trim(),
+  email: normalizeEmail(email),
+  githubUsername: normalizeGithubUsername(githubUsername),
+  lineNumber
+});
+
+const parseStudentCsv = (source: string): StudentCsvParseResult => {
+  const lines = source
+    .split(/\r?\n/)
+    .map((line, index) => ({ line, lineNumber: index + 1 }))
+    .filter(({ line }) => line.trim().length > 0);
+
+  if (lines.length === 0) {
+    return { rows: [], errors: [] };
+  }
+
+  const firstCells = parseCsvLine(lines[0].line);
+  const normalizedHeaders = firstCells.map(normalizeCsvHeader);
+  const emailColumn = headerIndex(normalizedHeaders, ["email", "mail", "メール"]);
+  const nameColumn = headerIndex(normalizedHeaders, [
+    "name",
+    "displayname",
+    "studentname",
+    "名前",
+    "氏名"
+  ]);
+  const githubColumn = headerIndex(normalizedHeaders, [
+    "github",
+    "githubusername",
+    "githubuser",
+    "githubユーザー名"
+  ]);
+  const hasHeader = emailColumn >= 0 && nameColumn >= 0;
+  const dataLines = hasHeader ? lines.slice(1) : lines;
+  const rows: StudentImportDraft[] = [];
+  const errors: string[] = [];
+  const seenEmails = new Set<string>();
+
+  for (const { line, lineNumber } of dataLines) {
+    const cells = parseCsvLine(line);
+    const fallbackEmailFirst = cells[0]?.includes("@") ?? false;
+    const draft = hasHeader
+      ? buildStudentDraft(
+          cells[nameColumn] ?? "",
+          cells[emailColumn] ?? "",
+          githubColumn >= 0 ? (cells[githubColumn] ?? "") : "",
+          lineNumber
+        )
+      : buildStudentDraft(
+          fallbackEmailFirst ? (cells[1] ?? "") : (cells[0] ?? ""),
+          fallbackEmailFirst ? (cells[0] ?? "") : (cells[1] ?? ""),
+          cells[2] ?? "",
+          lineNumber
+        );
+    const rowErrors = validateStudentDraft(draft);
+
+    if (seenEmails.has(draft.email)) {
+      rowErrors.push("同じメールアドレスが重複しています。");
+    }
+
+    if (rowErrors.length > 0) {
+      errors.push(`${lineNumber}行目: ${rowErrors.join(" ")}`);
+      continue;
+    }
+
+    seenEmails.add(draft.email);
+    rows.push(draft);
+  }
+
+  return { rows, errors };
 };
 
 const classJoinStatusLabel = (status: string): string =>
@@ -172,7 +323,7 @@ const useTeacherDashboard = (reloadVersion = 0): TeacherDashboardState => {
           return;
         }
 
-        const [classesResult, membersResult, projectsResult] = await Promise.all([
+        const [classesResult, membersResult, projectsResult, rosterResult] = await Promise.all([
           supabase
             .from("classes")
             .select("id,organization_id,name,description,created_by,created_at")
@@ -187,15 +338,29 @@ const useTeacherDashboard = (reloadVersion = 0): TeacherDashboardState => {
             .select(
               "id,owner_user_id,class_id,name,local_path_hash,github_repo_url,default_branch,created_at"
             )
+            .in("class_id", classIds),
+          supabase
+            .from("class_student_roster")
+            .select(
+              "id,class_id,email,display_name,github_username,linked_user_id,added_by,created_at,updated_at"
+            )
             .in("class_id", classIds)
         ]);
 
-        if (classesResult.error || membersResult.error || projectsResult.error) {
-          throw classesResult.error ?? membersResult.error ?? projectsResult.error;
+        if (
+          classesResult.error ||
+          membersResult.error ||
+          projectsResult.error ||
+          rosterResult.error
+        ) {
+          throw (
+            classesResult.error ?? membersResult.error ?? projectsResult.error ?? rosterResult.error
+          );
         }
 
         const members = membersResult.data ?? [];
         const projects = projectsResult.data ?? [];
+        const roster = rosterResult.data ?? [];
         const userIds = unique(members.map((member) => member.user_id));
         const projectIds = projects.map((project) => project.id);
 
@@ -233,11 +398,18 @@ const useTeacherDashboard = (reloadVersion = 0): TeacherDashboardState => {
         );
         const projectsByClassId = new Map<string, ProjectRow[]>();
         const threadsByProjectId = new Map<string, ThreadRow[]>();
+        const rosterByClassId = new Map<string, ClassStudentRosterRow[]>();
 
         for (const project of projects) {
           const classProjects = projectsByClassId.get(project.class_id) ?? [];
           classProjects.push(project);
           projectsByClassId.set(project.class_id, classProjects);
+        }
+
+        for (const rosterRow of roster) {
+          const classRoster = rosterByClassId.get(rosterRow.class_id) ?? [];
+          classRoster.push(rosterRow);
+          rosterByClassId.set(rosterRow.class_id, classRoster);
         }
 
         for (const thread of threadsResult.data ?? []) {
@@ -268,6 +440,7 @@ const useTeacherDashboard = (reloadVersion = 0): TeacherDashboardState => {
               user: usersById.get(membership.user_id) ?? null,
               githubConnection: connectionsByUserId.get(membership.user_id) ?? null
             })),
+            studentRoster: rosterByClassId.get(classRow.id) ?? [],
             projects: classProjects,
             threads: classThreads,
             statusCounts
@@ -660,23 +833,374 @@ const TeacherClassCreateModal = ({
   );
 };
 
-export const ClassDetailPage = (): ReactElement => {
-  const { classId } = useParams();
-  const { loading, error, classes } = useTeacherDashboard();
+const StudentAddModal = ({
+  open,
+  classId,
+  onClose,
+  onImported
+}: {
+  open: boolean;
+  classId: string;
+  onClose: () => void;
+  onImported: (message: string) => void;
+}): ReactElement | null => {
   const supabase = useMemo(() => getSupabaseClient(), []);
-  const [inviteState, setInviteState] = useState<{ classId: string; link: string } | null>(null);
-  const [copyMessage, setCopyMessage] = useState<string | null>(null);
-  const [copyingInvite, setCopyingInvite] = useState(false);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const nameInputRef = useRef<HTMLInputElement | null>(null);
+  const csvTextAreaRef = useRef<HTMLTextAreaElement | null>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const importingRef = useRef(false);
+  const [mode, setMode] = useState<StudentImportMode>("single");
+  const [displayName, setDisplayName] = useState("");
+  const [email, setEmail] = useState("");
+  const [githubUsername, setGithubUsername] = useState("");
+  const [csvText, setCsvText] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [messageStatus, setMessageStatus] = useState<MessageStatus>("success");
+  const [rowResults, setRowResults] = useState<StudentImportRpcRow[]>([]);
+  const csvParseResult = useMemo(() => parseStudentCsv(csvText), [csvText]);
 
-  useEffect(() => {
-    if (!copyMessage) {
+  const closeDialog = useCallback((): void => {
+    if (importingRef.current) {
       return;
     }
 
-    const timerId = window.setTimeout(() => setCopyMessage(null), 2000);
+    setMode("single");
+    setDisplayName("");
+    setEmail("");
+    setGithubUsername("");
+    setCsvText("");
+    setMessage(null);
+    setRowResults([]);
+    onClose();
+  }, [onClose]);
+
+  useEffect(() => {
+    importingRef.current = importing;
+  }, [importing]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    previousFocusRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
+    const modal = dialogRef.current;
+    const focusableSelector = [
+      "a[href]",
+      "button:not([disabled])",
+      "input:not([disabled])",
+      "select:not([disabled])",
+      "textarea:not([disabled])",
+      '[tabindex]:not([tabindex="-1"])'
+    ].join(",");
+    const getFocusableElements = (): HTMLElement[] =>
+      Array.from(modal?.querySelectorAll<HTMLElement>(focusableSelector) ?? []).filter(
+        (element) => !element.hasAttribute("disabled") && element.offsetParent !== null
+      );
+
+    window.requestAnimationFrame(() => {
+      const primaryField = mode === "single" ? nameInputRef.current : csvTextAreaRef.current;
+      (primaryField ?? getFocusableElements()[0] ?? modal)?.focus();
+    });
+
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeDialog();
+        return;
+      }
+
+      if (event.key !== "Tab" || !modal) {
+        return;
+      }
+
+      const focusableElements = getFocusableElements();
+
+      if (focusableElements.length === 0) {
+        event.preventDefault();
+        modal.focus();
+        return;
+      }
+
+      const firstFocusable = focusableElements[0];
+      const lastFocusable = focusableElements.at(-1);
+
+      if (!firstFocusable || !lastFocusable) {
+        return;
+      }
+
+      if (!modal.contains(document.activeElement)) {
+        event.preventDefault();
+        firstFocusable.focus();
+        return;
+      }
+
+      if (event.shiftKey && document.activeElement === firstFocusable) {
+        event.preventDefault();
+        lastFocusable.focus();
+      }
+
+      if (!event.shiftKey && document.activeElement === lastFocusable) {
+        event.preventDefault();
+        firstFocusable.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      previousFocusRef.current?.focus();
+    };
+  }, [closeDialog, mode, open]);
+
+  if (!open) {
+    return null;
+  }
+
+  const importStudents = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
+    event.preventDefault();
+
+    if (!supabase) {
+      setMessageStatus("error");
+      setMessage("Supabase 設定を確認できませんでした。");
+      return;
+    }
+
+    const singleDraft = buildStudentDraft(displayName, email, githubUsername);
+    const singleErrors = validateStudentDraft(singleDraft);
+    const drafts = mode === "single" ? [singleDraft] : csvParseResult.rows;
+    const errors = mode === "single" ? singleErrors : csvParseResult.errors;
+
+    if (mode === "csv" && csvText.trim().length === 0) {
+      setMessageStatus("warning");
+      setMessage("CSVを入力してください。");
+      return;
+    }
+
+    if (errors.length > 0 || drafts.length === 0) {
+      setMessageStatus("warning");
+      setMessage(errors.length > 0 ? errors.join(" ") : "追加する生徒を入力してください。");
+      return;
+    }
+
+    setImporting(true);
+    setMessage(null);
+    setRowResults([]);
+
+    try {
+      const payload = drafts.map((draft) => ({
+        display_name: draft.displayName,
+        email: draft.email,
+        github_username: draft.githubUsername || null
+      })) as Json;
+      const { data, error: importError } = await supabase.rpc("import_class_students", {
+        p_class_id: classId,
+        p_students: payload
+      });
+
+      if (importError) {
+        throw importError;
+      }
+
+      const results = data ?? [];
+      const invalidRows = results.filter((result) => result.error);
+      const memberCount = results.filter(
+        (result) => result.status === "added_member" || result.status === "already_member"
+      ).length;
+      const pendingCount = results.filter((result) => result.status === "pending_signup").length;
+      const summary = `追加 ${memberCount} / 未参加 ${pendingCount}`;
+
+      setRowResults(results);
+
+      if (invalidRows.length > 0) {
+        setMessageStatus("warning");
+        setMessage(invalidRows.map((result) => `${result.email}: ${result.error}`).join(" "));
+        return;
+      }
+
+      onImported(summary);
+      closeDialog();
+    } catch (error) {
+      console.error("Failed to import class students", error);
+      setMessageStatus("error");
+      setMessage("生徒を追加できませんでした。入力内容と権限を確認してください。");
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  return (
+    <div
+      className="class-create-modal-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          closeDialog();
+        }
+      }}
+    >
+      <div
+        ref={dialogRef}
+        aria-labelledby="student-add-title"
+        aria-modal="true"
+        className="class-create-dialog student-add-dialog"
+        role="dialog"
+        tabIndex={-1}
+      >
+        <header>
+          <h2 id="student-add-title">生徒を追加</h2>
+          <button
+            className="secondary-button"
+            disabled={importing}
+            type="button"
+            onClick={closeDialog}
+          >
+            閉じる
+          </button>
+        </header>
+
+        <form className="class-create-form" onSubmit={(event) => void importStudents(event)}>
+          <div className="student-add-tabs" role="tablist" aria-label="追加方法">
+            <button
+              aria-selected={mode === "single"}
+              className={mode === "single" ? "active" : ""}
+              role="tab"
+              type="button"
+              onClick={() => setMode("single")}
+            >
+              1人
+            </button>
+            <button
+              aria-selected={mode === "csv"}
+              className={mode === "csv" ? "active" : ""}
+              role="tab"
+              type="button"
+              onClick={() => setMode("csv")}
+            >
+              CSV
+            </button>
+          </div>
+
+          {mode === "single" ? (
+            <div className="student-add-fields">
+              <label>
+                名前
+                <input
+                  ref={nameInputRef}
+                  maxLength={80}
+                  value={displayName}
+                  onChange={(event) => setDisplayName(event.target.value)}
+                />
+              </label>
+              <label>
+                メール
+                <input
+                  inputMode="email"
+                  maxLength={160}
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                />
+              </label>
+              <label>
+                GitHub
+                <input
+                  maxLength={80}
+                  value={githubUsername}
+                  onChange={(event) => setGithubUsername(event.target.value)}
+                />
+              </label>
+            </div>
+          ) : (
+            <div className="student-add-fields">
+              <label>
+                CSV
+                <textarea
+                  ref={csvTextAreaRef}
+                  rows={8}
+                  value={csvText}
+                  placeholder="名前,email,github"
+                  onChange={(event) => setCsvText(event.target.value)}
+                />
+              </label>
+
+              {csvText.trim().length > 0 ? (
+                <div className="student-add-preview" aria-live="polite">
+                  <span>{csvParseResult.rows.length} 行</span>
+                  {csvParseResult.errors.length > 0 ? (
+                    <ul>
+                      {csvParseResult.errors.map((error) => (
+                        <li key={error}>{error}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          )}
+
+          {message && (
+            <p
+              className={`message ${messageStatus}`}
+              role={messageStatus === "error" ? "alert" : "status"}
+            >
+              {message}
+            </p>
+          )}
+
+          {rowResults.some((result) => result.error) ? (
+            <div className="student-add-preview" role="status">
+              <ul>
+                {rowResults
+                  .filter((result) => result.error)
+                  .map((result) => (
+                    <li key={`${result.email}-${result.error}`}>
+                      {result.email}: {result.error}
+                    </li>
+                  ))}
+              </ul>
+            </div>
+          ) : null}
+
+          <footer>
+            <button
+              className="secondary-button"
+              disabled={importing}
+              type="button"
+              onClick={closeDialog}
+            >
+              キャンセル
+            </button>
+            <button className="primary-button" disabled={importing} type="submit">
+              {importing ? "追加中..." : "追加"}
+            </button>
+          </footer>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+export const ClassDetailPage = (): ReactElement => {
+  const { classId } = useParams();
+  const [reloadVersion, setReloadVersion] = useState(0);
+  const { loading, error, classes } = useTeacherDashboard(reloadVersion);
+  const [studentAddOpen, setStudentAddOpen] = useState(false);
+  const [studentAddMessage, setStudentAddMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!studentAddMessage) {
+      return;
+    }
+
+    const timerId = window.setTimeout(() => setStudentAddMessage(null), 2500);
 
     return () => window.clearTimeout(timerId);
-  }, [copyMessage]);
+  }, [studentAddMessage]);
 
   if (loading) {
     return <TeacherPageState title="読み込み中" body="クラス詳細を確認しています。" />;
@@ -697,82 +1221,45 @@ export const ClassDetailPage = (): ReactElement => {
     );
   }
 
-  const inviteLink = inviteState?.classId === classSummary.classRow.id ? inviteState.link : "";
   const projectThreadGroups = classSummary.projects.map((project) => ({
     project,
     threads: classSummary.threads.filter((thread) => thread.project_id === project.id)
   }));
-
-  const copyInviteLink = async (): Promise<void> => {
-    if (!supabase) {
-      setCopyMessage("Supabase 設定を確認できないため、招待リンクを作成できません。");
-      return;
-    }
-
-    setCopyingInvite(true);
-    setCopyMessage(null);
-
-    try {
-      const { data, error: inviteError } = await supabase.rpc("create_class_invite", {
-        p_class_id: classSummary.classRow.id,
-        p_role: "student",
-        p_expires_in_seconds: inviteExpirySeconds
-      });
-
-      if (inviteError) {
-        throw inviteError;
-      }
-
-      const invite = data?.[0];
-
-      if (!invite?.token) {
-        throw new Error("CLASS_INVITE_TOKEN_MISSING");
-      }
-
-      const nextInviteLink = buildJoinUrl(invite.token);
-      setInviteState({ classId: classSummary.classRow.id, link: nextInviteLink });
-      await navigator.clipboard.writeText(nextInviteLink);
-      setCopyMessage("招待リンクをコピーしました。");
-    } catch {
-      setCopyMessage("招待リンクを作成またはコピーできませんでした。");
-    } finally {
-      setCopyingInvite(false);
-    }
+  const openStudentAdd = (): void => setStudentAddOpen(true);
+  const closeStudentAdd = (): void => setStudentAddOpen(false);
+  const handleStudentImported = (message: string): void => {
+    setStudentAddMessage(message);
+    setReloadVersion((current) => current + 1);
   };
 
   return (
     <section className="teacher-dashboard">
       <div className="page-header">
         <div>
-          <p className="eyebrow">Class Detail</p>
+          <nav className="breadcrumb" aria-label="パンくずリスト">
+            <Link to="/classes">クラス</Link>
+            <span>{classSummary.classRow.name}</span>
+          </nav>
           <h1>{classSummary.classRow.name}</h1>
           <p className="muted">{classSummary.classRow.description ?? "説明は未設定です。"}</p>
         </div>
-        <StatusCounters statusCounts={classSummary.statusCounts} compact />
+        <div className="class-detail-actions">
+          <StatusCounters statusCounts={classSummary.statusCounts} compact />
+          <button className="primary-button" type="button" onClick={openStudentAdd}>
+            生徒を追加
+          </button>
+        </div>
       </div>
 
-      <div className="detail-grid">
-        <article className="detail-panel invite-panel">
-          <div>
-            <p className="eyebrow">Invite</p>
-            <h2>招待リンク</h2>
-          </div>
-          <input readOnly aria-label="招待リンク" value={inviteLink} />
-          <button
-            className="primary-button"
-            disabled={copyingInvite}
-            type="button"
-            onClick={() => void copyInviteLink()}
-          >
-            {copyingInvite ? "作成中..." : "コピー"}
-          </button>
-          <p className="muted invite-status" aria-live="polite" role="status">
-            {copyMessage ?? ""}
-          </p>
-        </article>
+      {studentAddMessage ? (
+        <p className="message success" role="status">
+          {studentAddMessage}
+        </p>
+      ) : null}
 
-        <MemberPanel title="生徒" members={studentMembers(classSummary)} />
-        <MemberPanel title="メンター / 先生" members={mentorMembers(classSummary)} />
+      <div className="detail-grid">
+        <StudentMemberPanel classSummary={classSummary} />
+        <MemberPanel title="講師 / メンター" members={mentorMembers(classSummary)} />
 
         <article className="detail-panel class-project-thread-panel">
           <div className="panel-heading">
@@ -822,6 +1309,13 @@ export const ClassDetailPage = (): ReactElement => {
           )}
         </article>
       </div>
+
+      <StudentAddModal
+        open={studentAddOpen}
+        classId={classSummary.classRow.id}
+        onClose={closeStudentAdd}
+        onImported={handleStudentImported}
+      />
     </section>
   );
 };
@@ -1161,6 +1655,81 @@ const studentMembers = (classSummary: ManagedClassSummary): MemberSummary[] =>
 
 const mentorMembers = (classSummary: ManagedClassSummary): MemberSummary[] =>
   classSummary.members.filter((member) => member.membership.role !== "student");
+
+const pendingStudentRoster = (classSummary: ManagedClassSummary): ClassStudentRosterRow[] => {
+  const students = studentMembers(classSummary);
+  const studentUserIds = new Set(students.map((member) => member.membership.user_id));
+  const studentEmails = new Set(
+    students.map((member) => normalizeEmail(member.user?.email ?? "")).filter(Boolean)
+  );
+
+  return classSummary.studentRoster.filter((rosterRow) => {
+    const linkedUserIsMember =
+      rosterRow.linked_user_id !== null && studentUserIds.has(rosterRow.linked_user_id);
+    const emailIsMember = studentEmails.has(normalizeEmail(rosterRow.email));
+
+    return !linkedUserIsMember && !emailIsMember;
+  });
+};
+
+const StudentMemberPanel = ({
+  classSummary
+}: {
+  classSummary: ManagedClassSummary;
+}): ReactElement => {
+  const students = studentMembers(classSummary);
+  const pendingStudents = pendingStudentRoster(classSummary);
+  const totalCount = students.length + pendingStudents.length;
+
+  return (
+    <article className="detail-panel member-panel">
+      <div className="panel-heading">
+        <div>
+          <p className="eyebrow">Members</p>
+          <h2>生徒</h2>
+        </div>
+        <span className="status-pill pending">{totalCount} 人</span>
+      </div>
+
+      {totalCount === 0 ? (
+        <p className="muted">まだ生徒がいません。</p>
+      ) : (
+        <div className="member-list">
+          {students.map((member) => {
+            const githubUsername =
+              member.githubConnection?.github_username ?? member.user?.github_username ?? null;
+
+            return (
+              <div className="member-row" key={member.membership.id}>
+                <div>
+                  <strong>{member.user?.display_name ?? "名前未設定"}</strong>
+                  <span>{member.user?.email ?? "メール未取得"}</span>
+                </div>
+                <div className="member-setup">
+                  {githubUsername ? <span>@{githubUsername}</span> : null}
+                  <span>参加済み</span>
+                </div>
+              </div>
+            );
+          })}
+
+          {pendingStudents.map((rosterRow) => (
+            <div className="member-row pending" key={rosterRow.id}>
+              <div>
+                <strong>{rosterRow.display_name}</strong>
+                <span>{rosterRow.email}</span>
+              </div>
+              <div className="member-setup">
+                {rosterRow.github_username ? <span>@{rosterRow.github_username}</span> : null}
+                <span>未参加</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </article>
+  );
+};
 
 const StatusCounters = ({
   statusCounts,
