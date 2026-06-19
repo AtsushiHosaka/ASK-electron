@@ -306,47 +306,49 @@ export const StudentHomePage = (): ReactElement => {
         <div className="progress-summary learning-summary">
           <strong>{state.threads.length} 件の質問</strong>
           <span>
-            初期設定 {completedSetupCount} / {setupItems.length}
+            {setupComplete
+              ? "最近の質問"
+              : `初期設定 ${completedSetupCount} / ${setupItems.length}`}
           </span>
         </div>
       </div>
 
-      <div className="student-home-grid">
-        <article className="detail-panel setup-panel">
-          <div className="panel-heading">
-            <div>
-              <p className="eyebrow">Setup</p>
-              <h2>初期設定</h2>
-            </div>
-            <span
-              className={`status-pill ${completedSetupCount === setupItems.length ? "success" : "warning"}`}
-            >
-              {completedSetupCount}/{setupItems.length}
-            </span>
-          </div>
-
-          <div className="setup-check-list">
-            {setupItems.map((item) => (
-              <div
-                className={`setup-check-row ${item.complete ? "complete" : "needs-action"}`}
-                key={item.label}
-              >
-                <span className={`status-pill ${item.complete ? "success" : "warning"}`}>
-                  {item.complete ? "完了" : "未完了"}
-                </span>
-                <div>
-                  <strong>{item.label}</strong>
-                  <span>{item.value}</span>
-                </div>
-                {item.actionTo && item.actionLabel ? (
-                  <Link className="setup-action-link" to={item.actionTo}>
-                    {item.actionLabel}
-                  </Link>
-                ) : null}
+      <div className={`student-home-grid ${setupComplete ? "setup-complete" : ""}`}>
+        {!setupComplete ? (
+          <article className="detail-panel setup-panel">
+            <div className="panel-heading">
+              <div>
+                <p className="eyebrow">Setup</p>
+                <h2>初期設定</h2>
               </div>
-            ))}
-          </div>
-        </article>
+              <span className="status-pill warning">
+                {completedSetupCount}/{setupItems.length}
+              </span>
+            </div>
+
+            <div className="setup-check-list">
+              {setupItems.map((item) => (
+                <div
+                  className={`setup-check-row ${item.complete ? "complete" : "needs-action"}`}
+                  key={item.label}
+                >
+                  <span className={`status-pill ${item.complete ? "success" : "warning"}`}>
+                    {item.complete ? "完了" : "未完了"}
+                  </span>
+                  <div>
+                    <strong>{item.label}</strong>
+                    <span>{item.value}</span>
+                  </div>
+                  {item.actionTo && item.actionLabel ? (
+                    <Link className="setup-action-link" to={item.actionTo}>
+                      {item.actionLabel}
+                    </Link>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </article>
+        ) : null}
 
         <article className="detail-panel project-list-panel">
           <div className="panel-heading">

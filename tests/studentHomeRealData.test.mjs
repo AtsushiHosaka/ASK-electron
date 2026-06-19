@@ -57,6 +57,23 @@ describe("student home real data", () => {
     );
   });
 
+  it("hides the setup panel from student home after setup is complete", () => {
+    assert.match(studentHomeSource, /setupComplete\s*\?\s*"最近の質問"/);
+    assert.match(
+      studentHomeSource,
+      /:\s*`初期設定 \$\{completedSetupCount\} \/ \$\{setupItems\.length\}`/
+    );
+    assert.match(
+      studentHomeSource,
+      /className=\{`student-home-grid \$\{setupComplete \? "setup-complete" : ""\}`\}/
+    );
+    assert.match(
+      studentHomeSource,
+      /\{!setupComplete \? \(\s*<article className="detail-panel setup-panel">/
+    );
+    assert.match(styleSource, /\.student-home-grid\.setup-complete \.student-thread-panel/);
+  });
+
   it("offers a direct retry action when student home loading fails", () => {
     assert.match(studentHomeSource, /const loadHomeData = useCallback/);
     assert.match(studentHomeSource, /void loadHomeData\(\(\) => mounted\)/);
