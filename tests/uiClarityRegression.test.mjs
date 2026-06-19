@@ -44,6 +44,18 @@ describe("student-facing UI clarity regressions", () => {
     assert.doesNotMatch(appSource, /<span className="role-badge">\{profile\.role\}<\/span>/);
   });
 
+  it("keeps setup out of the primary sidebar menu after completion", () => {
+    const navMatch = appSource.match(/<nav className="nav-list">([\s\S]*?)<\/nav>/);
+
+    assert.ok(navMatch);
+    assert.doesNotMatch(navMatch[1], /\/onboarding|初期設定/);
+    assert.match(appSource, /type StudentSetupStatus = "unknown" \| "complete" \| "incomplete"/);
+    assert.match(appSource, /studentSetupStatus === "incomplete"/);
+    assert.match(appSource, /className="sidebar-setup-shortcut"/);
+    assert.match(stylesSource, /\.sidebar-nav-stack/);
+    assert.match(stylesSource, /\.sidebar-setup-link/);
+  });
+
   it("keeps obsolete verbose labels out of question and chat screens", () => {
     const screenSources = [threadCreateSource, threadDetailSource].join("\n");
 

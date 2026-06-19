@@ -1,5 +1,5 @@
 import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
-import { useEffect, useRef, type ReactElement } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { LoginPage } from "./features/auth/LoginPage";
 import { useAuth } from "./features/auth/AuthProvider";
 import { StudentOnboardingPage } from "./features/onboarding/StudentOnboardingPage";
@@ -14,6 +14,7 @@ import {
 import { ThreadCreatePage } from "./features/threads/ThreadCreatePage";
 import { ThreadDetailPage } from "./features/threads/ThreadDetailPage";
 import type { AppRole } from "@shared/domain";
+import { getSupabaseClient } from "./lib/supabase";
 import { trackUsageEvent } from "./lib/telemetry";
 
 const roleHome: Record<AppRole, string> = {
@@ -27,6 +28,13 @@ const roleLabels: Record<AppRole, string> = {
   teacher: "講師",
   admin: "管理"
 };
+
+type StudentSetupStatus = "unknown" | "complete" | "incomplete";
+
+interface StudentSetupState {
+  profileId: string | null;
+  status: StudentSetupStatus;
+}
 
 export const App = (): ReactElement => {
   return (
@@ -62,8 +70,13 @@ const RequireAuth = ({ children }: { children: ReactElement }): ReactElement => 
 const AppShell = (): ReactElement => {
   const { profile, signOut } = useAuth();
   const location = useLocation();
+  const supabase = useMemo(() => getSupabaseClient(), []);
   const appOpenedTracked = useRef(false);
   const lastTrackedScreen = useRef<string | null>(null);
+  const [studentSetupState, setStudentSetupState] = useState<StudentSetupState>({
+    profileId: null,
+    status: "unknown"
+  });
 
   useEffect(() => {
     if (!profile) {
@@ -95,6 +108,55 @@ const AppShell = (): ReactElement => {
     });
   }, [location.pathname, profile]);
 
+  useEffect(() => {
+    if (profile?.role !== "student" || !supabase) {
+      return;
+    }
+
+    let mounted = true;
+
+    const loadStudentSetupStatus = async (): Promise<void> => {
+      try {
+        const [connectionResult, membershipsResult, projectsResult] = await Promise.all([
+          supabase.from("github_connections").select("id").eq("user_id", profile.id).maybeSingle(),
+          supabase.from("class_members").select("id").eq("user_id", profile.id).limit(1),
+          supabase.from("projects").select("id").eq("owner_user_id", profile.id).limit(1)
+        ]);
+
+        if (connectionResult.error || membershipsResult.error || projectsResult.error) {
+          throw connectionResult.error ?? membershipsResult.error ?? projectsResult.error;
+        }
+
+        if (!mounted) {
+          return;
+        }
+
+        const setupComplete = Boolean(
+          connectionResult.data && membershipsResult.data?.length && projectsResult.data?.length
+        );
+        setStudentSetupState({
+          profileId: profile.id,
+          status: setupComplete ? "complete" : "incomplete"
+        });
+      } catch (error) {
+        console.error("Failed to load student setup status", error);
+
+        if (mounted) {
+          setStudentSetupState({
+            profileId: profile.id,
+            status: "unknown"
+          });
+        }
+      }
+    };
+
+    void loadStudentSetupStatus();
+
+    return () => {
+      mounted = false;
+    };
+  }, [location.pathname, profile?.id, profile?.role, supabase]);
+
   if (!profile) {
     return (
       <FullPageState
@@ -104,6 +166,10 @@ const AppShell = (): ReactElement => {
     );
   }
 
+  const studentSetupStatus =
+    studentSetupState.profileId === profile.id ? studentSetupState.status : "unknown";
+  const showOnboardingShortcut = profile.role === "student" && studentSetupStatus === "incomplete";
+
   return (
     <div className={`app-shell role-${profile.role}`}>
       <aside className="sidebar" aria-label="メインナビゲーション">
@@ -111,15 +177,27 @@ const AppShell = (): ReactElement => {
           <span className="brand-mark">ASK</span>
         </div>
 
-        <nav className="nav-list">
-          <NavLink to={profile.role === "student" ? "/student" : "/teacher"}>ホーム</NavLink>
-          {profile.role === "student" && <NavLink to="/onboarding">初期設定</NavLink>}
-          <NavLink to="/classes">クラス</NavLink>
-          {profile.role !== "student" && <NavLink to="/teacher/queue">質問キュー</NavLink>}
-          <NavLink to="/projects">プロジェクト</NavLink>
-          {profile.role === "student" && <NavLink to="/threads/new">質問を作成</NavLink>}
-          {profile.role === "student" && <NavLink to="/threads">質問一覧</NavLink>}
-        </nav>
+        <div className="sidebar-nav-stack">
+          <nav className="nav-list">
+            <NavLink to={profile.role === "student" ? "/student" : "/teacher"}>ホーム</NavLink>
+            <NavLink to="/classes">クラス</NavLink>
+            {profile.role !== "student" && <NavLink to="/teacher/queue">質問キュー</NavLink>}
+            <NavLink to="/projects">プロジェクト</NavLink>
+            {profile.role === "student" && <NavLink to="/threads/new">質問を作成</NavLink>}
+            {profile.role === "student" && <NavLink to="/threads">質問一覧</NavLink>}
+          </nav>
+
+          {showOnboardingShortcut ? (
+            <div className="sidebar-setup-shortcut">
+              <NavLink
+                className={({ isActive }) => `sidebar-setup-link${isActive ? " active" : ""}`}
+                to="/onboarding"
+              >
+                初期設定
+              </NavLink>
+            </div>
+          ) : null}
+        </div>
 
         <div className="sidebar-footer">
           <span className="role-badge">{roleLabels[profile.role]}</span>
