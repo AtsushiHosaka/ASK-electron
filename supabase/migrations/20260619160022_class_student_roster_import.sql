@@ -26,6 +26,9 @@ create index if not exists class_student_roster_class_id_idx
 create index if not exists class_student_roster_linked_user_id_idx
   on public.class_student_roster (linked_user_id);
 
+create index if not exists class_student_roster_email_idx
+  on public.class_student_roster (email);
+
 drop trigger if exists set_class_student_roster_updated_at on public.class_student_roster;
 create trigger set_class_student_roster_updated_at
 before update on public.class_student_roster

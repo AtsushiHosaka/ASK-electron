@@ -53,6 +53,7 @@ describe("class student roster persistence", () => {
     assert.match(migrationSource, /create table if not exists public\.class_student_roster/);
     assert.match(migrationSource, /class_student_roster_email_normalized/);
     assert.match(migrationSource, /class_student_roster_github_username_normalized/);
+    assert.match(migrationSource, /class_student_roster_email_idx/);
     assert.match(migrationSource, /create or replace function public\.import_class_students/);
     assert.match(
       migrationSource,
