@@ -224,6 +224,8 @@ export const ThreadCreatePage = (): ReactElement => {
 
   const selectedProject = state.projects.find((project) => project.id === selectedProjectId);
   const projectLocked = Boolean(routeProjectId);
+  const errorPreview = errorText.trim();
+  const commandPreview = commandText.trim();
   const manualRelatedFiles = splitRelatedFiles(relatedFilesText);
   const relatedSnippets = relatedFileSnippetState.snippets;
   const relatedFiles = dedupeRelatedFiles([
@@ -1280,6 +1282,16 @@ export const ThreadCreatePage = (): ReactElement => {
                 onChange={(event) => setErrorText(event.target.value)}
               />
             </label>
+            {errorPreview ? (
+              <div className="syntax-preview" aria-label="エラー文プレビュー">
+                <CodeContextViewer
+                  content={errorPreview}
+                  kind="code"
+                  language="Log"
+                  maxVisibleLines={80}
+                />
+              </div>
+            ) : null}
 
             <label>
               実行コマンド
@@ -1289,6 +1301,16 @@ export const ThreadCreatePage = (): ReactElement => {
                 onChange={(event) => setCommandText(event.target.value)}
               />
             </label>
+            {commandPreview ? (
+              <div className="syntax-preview" aria-label="実行コマンドプレビュー">
+                <CodeContextViewer
+                  content={commandPreview}
+                  kind="code"
+                  language="Shell"
+                  maxVisibleLines={40}
+                />
+              </div>
+            ) : null}
 
             <label>
               関連ファイル
