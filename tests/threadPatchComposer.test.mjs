@@ -7,20 +7,17 @@ const threadDetailSource = readFileSync(
   "utf8"
 );
 
-describe("teacher patch composer wiring", () => {
-  it("keeps the composer behind the teacher role guard", () => {
-    assert.match(threadDetailSource, /profile\?\.role === "teacher" \? \(/);
-    assert.match(threadDetailSource, /<h2>先生パッチ提案<\/h2>/);
+describe("patch authoring UI", () => {
+  it("keeps patch authoring controls out of the conversation surface", () => {
+    assert.doesNotMatch(threadDetailSource, /teacher-patch-composer/);
+    assert.doesNotMatch(threadDetailSource, /先生パッチ提案/);
+    assert.doesNotMatch(threadDetailSource, /AIでパッチ案を追加/);
+    assert.doesNotMatch(threadDetailSource, /パッチ案を会話に追加/);
   });
 
-  it("validates drafts before persisting teacher proposals", () => {
-    assert.match(threadDetailSource, /const parsed = validatePatchProposalDraft\(/);
-    assert.match(threadDetailSource, /送信前に diff を確認してください/);
-  });
-
-  it("stores teacher proposals as proposed patch messages without local apply", () => {
-    assert.match(threadDetailSource, /created_by_type: "teacher"[\s\S]*status: "proposed"/);
-    assert.match(threadDetailSource, /message_type: "patch"/);
-    assert.match(threadDetailSource, /生徒のローカル環境には直接適用されません/);
+  it("keeps existing patch review behind message detail only", () => {
+    assert.match(threadDetailSource, /const PatchReviewPanel/);
+    assert.match(threadDetailSource, /message\.message_type === "patch"/);
+    assert.match(threadDetailSource, /aria-label="変更適用確認"/);
   });
 });

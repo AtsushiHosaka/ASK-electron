@@ -124,6 +124,6 @@ describe("student-facing UI clarity regressions", () => {
     assert.match(screenSources, />GitHubリポジトリ</);
     assert.match(screenSources, />既定ブランチ</);
     assert.match(screenSources, />ローカル識別子</);
-    assert.match(threadDetailSource, /aria-label="パッチ適用確認"/);
+    assert.match(threadDetailSource, /aria-label="変更適用確認"/);
   });
 });

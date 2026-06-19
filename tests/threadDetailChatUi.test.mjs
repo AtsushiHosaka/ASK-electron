@@ -23,14 +23,20 @@ describe("thread detail chat UI", () => {
     assert.match(stylesSource, /\.chat-message\.own/);
   });
 
-  it("keeps navigation and AI-only labels out of the manual chat UI", () => {
+  it("keeps navigation and manual type labels out of the chat UI", () => {
     assert.match(threadDetailSource, /aria-label="パンくずリスト"/);
-    assert.match(
-      threadDetailSource,
-      /const manualMessageTypes = \["text", "code", "environment", "patch"\]/
-    );
+    assert.doesNotMatch(threadDetailSource, /manualMessageTypes|メッセージ形式/);
+    assert.doesNotMatch(threadDetailSource, /setMessageType|messageTypeLabels/);
+    assert.match(threadDetailSource, /messageType: "text"/);
     assert.doesNotMatch(threadDetailSource, /"AI Summary"/);
     assert.match(threadDetailSource, /message\.message_type !== "ai_summary"/);
+  });
+
+  it("previews manual replies as markdown while typing", () => {
+    assert.match(threadDetailSource, /className="chat-composer-preview"/);
+    assert.match(threadDetailSource, /aria-label="返信プレビュー"/);
+    assert.match(threadDetailSource, /<MarkdownMessage>\{body\}<\/MarkdownMessage>/);
+    assert.match(stylesSource, /\.chat-composer-preview/);
   });
 
   it("keeps chat rows compact and opens full content in a modal", () => {

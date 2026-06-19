@@ -4,7 +4,6 @@ import type { AiAssistRequest, AiContextEntry } from "../../../../shared/aiPipel
 import type {
   Database,
   MessageSenderType,
-  MessageType,
   PatchStatus,
   ThreadStatus
 } from "../../../../shared/database.types";
@@ -16,12 +15,6 @@ import type {
   PatchValidateResponse,
   PatchValidationStatus
 } from "../../../../shared/ipc";
-import {
-  normalizePatchTargetPath,
-  parseAiPatchProposalOutput,
-  validatePatchProposalDraft,
-  type PatchProposalDraft
-} from "../../../../shared/patchProposal";
 import { scanSecrets, type SecretScanFinding } from "../../../../shared/secretScanner";
 import { CodeContextViewer } from "../../components/CodeContextViewer";
 import { MarkdownMessage } from "../../components/MarkdownMessage";
@@ -76,17 +69,6 @@ const initialState: ThreadDetailState = {
   usersById: new Map()
 };
 
-const messageTypeLabels: Record<MessageType, string> = {
-  text: "文章",
-  code: "コード",
-  environment: "環境",
-  ai_summary: "AI補助",
-  patch: "パッチ"
-};
-
-const manualMessageTypes = ["text", "code", "environment", "patch"] as const;
-type ManualMessageType = (typeof manualMessageTypes)[number];
-
 const senderLabels: Record<MessageSenderType, string> = {
   student: "生徒",
   teacher: "先生",
@@ -98,7 +80,7 @@ const statusLabels: Record<ThreadStatus, string> = {
   open: "未対応",
   in_progress: "対応中",
   waiting_student: "生徒確認待ち",
-  patch_proposed: "パッチ提案中",
+  patch_proposed: "変更提案中",
   resolved: "解決済み",
   reopened: "再オープン"
 };
@@ -117,7 +99,7 @@ const studentLifecycleStatuses: ThreadStatus[] = ["resolved", "reopened"];
 const patchValidationLabels: Record<PatchValidationStatus, string> = {
   ready: "適用可能",
   root_missing: "ローカル未設定",
-  invalid_patch: "パッチ不正",
+  invalid_patch: "差分不正",
   denied_path: "保護対象",
   git_missing: "Git未検出",
   git_timeout: "Gitタイムアウト",
@@ -256,7 +238,7 @@ const buildMessageSummary = (
         patchProposal?.explanation ??
           patchProposal?.target_file_path ??
           firstContentLine(message.body) ??
-          "パッチ提案"
+          "変更提案"
       ),
       meta: patchProposal?.target_file_path ?? `${lineCount}行`
     };
@@ -378,7 +360,6 @@ export const ThreadDetailPage = (): ReactElement => {
   const { profile } = useAuth();
   const supabase = useMemo(() => getSupabaseClient(), []);
   const [state, setState] = useState<ThreadDetailState>(initialState);
-  const [messageType, setMessageType] = useState<ManualMessageType>("text");
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -386,15 +367,6 @@ export const ThreadDetailPage = (): ReactElement => {
   const [patchReviews, setPatchReviews] = useState<Record<string, PatchReviewState>>({});
   const [aiGenerating, setAiGenerating] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
-  const [aiPatchGenerating, setAiPatchGenerating] = useState(false);
-  const [aiPatchError, setAiPatchError] = useState<string | null>(null);
-  const [teacherPatchTargetFilePath, setTeacherPatchTargetFilePath] = useState("");
-  const [teacherPatchBaseCommitSha, setTeacherPatchBaseCommitSha] = useState("");
-  const [teacherPatchExplanation, setTeacherPatchExplanation] = useState("");
-  const [teacherPatchText, setTeacherPatchText] = useState("");
-  const [teacherPatchSaving, setTeacherPatchSaving] = useState(false);
-  const [teacherPatchError, setTeacherPatchError] = useState<string | null>(null);
-  const [teacherPatchNotice, setTeacherPatchNotice] = useState<string | null>(null);
   const [lifecycleUpdating, setLifecycleUpdating] = useState(false);
   const [lifecycleMessage, setLifecycleMessage] = useState<string | null>(null);
   const [lifecycleMessageStatus, setLifecycleMessageStatus] =
@@ -797,7 +769,7 @@ export const ThreadDetailPage = (): ReactElement => {
       updatePatchReview(message.id, (current) => ({
         ...current,
         validating: false,
-        error: "パッチを確認できませんでした。"
+        error: "変更内容を確認できませんでした。"
       }));
     }
   };
@@ -816,7 +788,7 @@ export const ThreadDetailPage = (): ReactElement => {
     if (!validation?.patchId || !validation.confirmationToken || !validation.canApply) {
       updatePatchReview(message.id, (current) => ({
         ...current,
-        error: "先にパッチの安全確認を完了してください。"
+        error: "先に変更内容の安全確認を完了してください。"
       }));
       return;
     }
@@ -844,7 +816,7 @@ export const ThreadDetailPage = (): ReactElement => {
         await updatePatchProposalStatus(message.id, result.data.applied ? "applied" : "failed");
       } catch (error) {
         console.error("Failed to update patch proposal status", error);
-        statusError = "パッチ状態を保存できませんでした。";
+        statusError = "変更提案の状態を保存できませんでした。";
       }
 
       updatePatchReview(message.id, (current) => ({
@@ -869,7 +841,7 @@ export const ThreadDetailPage = (): ReactElement => {
       updatePatchReview(message.id, (current) => ({
         ...current,
         applying: false,
-        error: "パッチを適用できませんでした。"
+        error: "変更を適用できませんでした。"
       }));
       void trackUsageEvent({
         eventName: "patch_failed",
@@ -895,7 +867,7 @@ export const ThreadDetailPage = (): ReactElement => {
     if (!patchId) {
       updatePatchReview(message.id, (current) => ({
         ...current,
-        error: "パッチ提案の状態を確認できませんでした。"
+        error: "変更提案の状態を確認できませんでした。"
       }));
       return;
     }
@@ -953,7 +925,7 @@ export const ThreadDetailPage = (): ReactElement => {
       updatePatchReview(message.id, (current) => ({
         ...current,
         reverting: false,
-        error: "パッチを取り消せませんでした。"
+        error: "変更を取り消せませんでした。"
       }));
     }
   };
@@ -988,7 +960,7 @@ export const ThreadDetailPage = (): ReactElement => {
       updatePatchReview(message.id, (current) => ({
         ...current,
         dismissing: false,
-        error: "パッチを却下済みにできませんでした。"
+        error: "変更提案を却下済みにできませんでした。"
       }));
     }
   };
@@ -1004,7 +976,7 @@ export const ThreadDetailPage = (): ReactElement => {
       senderUserId: profile.id,
       senderRole: profile.role,
       body,
-      messageType
+      messageType: "text"
     });
 
     if (!messageInsert.ok) {
@@ -1028,12 +1000,11 @@ export const ThreadDetailPage = (): ReactElement => {
         threadId: state.thread.id,
         success: true,
         properties: {
-          message_type: messageType,
+          message_type: "text",
           sender_type: messageInsert.senderType
         }
       });
       setBody("");
-      setMessageType("text");
     } catch (error) {
       console.error("Failed to send message", error);
       setSendError("メッセージを送信できませんでした。内容は保持しています。");
@@ -1156,7 +1127,7 @@ export const ThreadDetailPage = (): ReactElement => {
               senderLabels[message.sender_type])
             : senderLabels[message.sender_type];
 
-        return `[${sender} / ${messageTypeLabels[message.message_type]}]\n${clipThreadAiText(message.body)}`;
+        return `[${sender}]\n${clipThreadAiText(message.body)}`;
       })
       .join("\n\n---\n\n");
 
@@ -1175,18 +1146,7 @@ export const ThreadDetailPage = (): ReactElement => {
         ? (state.usersById.get(message.sender_user_id)?.display_name ??
           senderLabels[message.sender_type])
         : senderLabels[message.sender_type];
-    const patchProposal = state.patchProposalsByMessageId.get(message.id);
-    const proposalLabel =
-      patchProposal?.created_by_type === "ai"
-        ? " / AIパッチ提案"
-        : patchProposal
-          ? " / 先生パッチ提案"
-          : "";
-
-    return [
-      `### ${sender} / ${messageTypeLabels[message.message_type]}${proposalLabel}`,
-      clipThreadAiText(message.body)
-    ].join("\n");
+    return [`### ${sender}`, clipThreadAiText(message.body)].join("\n");
   };
 
   const buildAiEscalationMessageBody = (): string => {
@@ -1210,10 +1170,7 @@ export const ThreadDetailPage = (): ReactElement => {
       .slice(-AI_ESCALATION_MESSAGE_LIMIT)
       .map(formatEscalationTranscriptMessage)
       .join("\n\n---\n\n");
-    const aiFailureContext = [
-      aiError ? `- 原因候補: ${aiError}` : null,
-      aiPatchError ? `- パッチ案: ${aiPatchError}` : null
-    ]
+    const aiFailureContext = [aiError ? `- 原因候補: ${aiError}` : null]
       .filter((entry): entry is string => Boolean(entry))
       .join("\n");
 
@@ -1519,369 +1476,6 @@ export const ThreadDetailPage = (): ReactElement => {
     }
   };
 
-  const createTeacherPatchTemplate = (): void => {
-    const normalizedTargetPath = normalizePatchTargetPath(teacherPatchTargetFilePath);
-
-    if (!normalizedTargetPath) {
-      setTeacherPatchError("安全な対象ファイルを入力してください。");
-      setTeacherPatchNotice(null);
-      return;
-    }
-
-    setTeacherPatchTargetFilePath(normalizedTargetPath);
-    setTeacherPatchText(
-      [
-        `diff --git a/${normalizedTargetPath} b/${normalizedTargetPath}`,
-        `--- a/${normalizedTargetPath}`,
-        `+++ b/${normalizedTargetPath}`,
-        "@@ -1 +1 @@",
-        "-変更前の1行",
-        "+変更後の1行"
-      ].join("\n")
-    );
-    setTeacherPatchError(null);
-    setTeacherPatchNotice("対象ファイルに合わせた diff ひな形を作成しました。");
-  };
-
-  const saveTeacherPatchProposal = async (): Promise<void> => {
-    if (!supabase || !profile || !state.thread) {
-      setTeacherPatchError("パッチ提案の保存に必要な情報を確認できませんでした。");
-      setTeacherPatchNotice(null);
-      return;
-    }
-
-    if (profile.role !== "teacher") {
-      setTeacherPatchError("先生アカウントのみパッチ提案を作成できます。");
-      setTeacherPatchNotice(null);
-      return;
-    }
-
-    const parsed = validatePatchProposalDraft({
-      targetFilePath: teacherPatchTargetFilePath,
-      baseCommitSha: teacherPatchBaseCommitSha || null,
-      explanation: teacherPatchExplanation,
-      patchText: teacherPatchText
-    });
-
-    if (!parsed.ok) {
-      setTeacherPatchError(`送信前に diff を確認してください。${parsed.error.message}`);
-      setTeacherPatchNotice(null);
-      return;
-    }
-
-    const proposal = parsed.proposal;
-    const outputScan = scanSecrets({
-      textEntries: [
-        { label: "先生パッチ本文", value: proposal.patchText },
-        { label: "先生パッチ理由", value: proposal.explanation }
-      ],
-      filePaths: [proposal.targetFilePath]
-    });
-
-    if (outputScan.blocked) {
-      setTeacherPatchError(
-        "パッチ提案に秘密情報候補または保護対象パスが含まれるため保存しません。"
-      );
-      setTeacherPatchNotice(null);
-      return;
-    }
-
-    setTeacherPatchSaving(true);
-    setTeacherPatchError(null);
-    setTeacherPatchNotice(null);
-
-    try {
-      const { data: message, error: messageError } = await supabase
-        .from("messages")
-        .insert({
-          thread_id: state.thread.id,
-          sender_user_id: profile.id,
-          sender_type: "teacher",
-          body: proposal.patchText,
-          message_type: "patch"
-        })
-        .select(
-          "id,thread_id,sender_user_id,sender_type,body,message_type,reply_to_message_id,created_at"
-        )
-        .single();
-
-      if (messageError) {
-        throw messageError;
-      }
-
-      if (!message) {
-        throw new Error("Teacher patch message insert returned no row.");
-      }
-
-      const { data: patchProposal, error: patchProposalError } = await supabase
-        .from("patch_proposals")
-        .insert({
-          thread_id: state.thread.id,
-          message_id: message.id,
-          created_by: profile.id,
-          created_by_type: "teacher",
-          target_file_path: proposal.targetFilePath,
-          base_commit_sha: proposal.baseCommitSha,
-          patch_text: proposal.patchText,
-          explanation: proposal.explanation,
-          status: "proposed"
-        })
-        .select("id,message_id,target_file_path,base_commit_sha,explanation,status,created_by_type")
-        .single();
-
-      if (patchProposalError) {
-        const { error: rollbackError } = await supabase
-          .from("messages")
-          .delete()
-          .eq("id", message.id);
-
-        if (rollbackError) {
-          console.error("Failed to rollback orphaned teacher patch message", rollbackError);
-        }
-
-        throw patchProposalError;
-      }
-
-      if (!patchProposal) {
-        throw new Error("Teacher patch proposal insert returned no row.");
-      }
-
-      const { error: threadUpdateError } = await supabase
-        .from("threads")
-        .update({ status: "patch_proposed" })
-        .eq("id", state.thread.id);
-
-      if (threadUpdateError) {
-        console.error("Failed to mark thread teacher patch proposal status", threadUpdateError);
-      }
-
-      setState((current) => {
-        const patchProposalsByMessageId = new Map(current.patchProposalsByMessageId);
-        patchProposalsByMessageId.set(patchProposal.message_id, patchProposal);
-
-        return {
-          ...current,
-          thread: current.thread ? { ...current.thread, status: "patch_proposed" } : current.thread,
-          messages: current.messages.some((currentMessage) => currentMessage.id === message.id)
-            ? current.messages
-            : sortMessages([...current.messages, message]),
-          patchProposalsByMessageId
-        };
-      });
-
-      setTeacherPatchTargetFilePath("");
-      setTeacherPatchBaseCommitSha("");
-      setTeacherPatchExplanation("");
-      setTeacherPatchText("");
-      setTeacherPatchNotice("パッチ提案をチャットへ追加しました。");
-    } catch (error) {
-      console.error("Failed to save teacher patch proposal", error);
-      setTeacherPatchError("パッチ提案を保存できませんでした。内容は保持しています。");
-    } finally {
-      setTeacherPatchSaving(false);
-    }
-  };
-
-  const saveAiPatchProposal = async (proposal: PatchProposalDraft): Promise<void> => {
-    if (!supabase || !profile || !state.thread) {
-      setAiPatchError("AI パッチ保存に必要な情報を確認できませんでした。");
-      return;
-    }
-
-    if (profile.role !== "student") {
-      setAiPatchError("AI パッチ案の作成は生徒スレッドから実行してください。");
-      return;
-    }
-
-    const outputScan = scanSecrets({
-      textEntries: [
-        { label: "AIパッチ本文", value: proposal.patchText },
-        { label: "AIパッチ理由", value: proposal.explanation }
-      ],
-      filePaths: [proposal.targetFilePath]
-    });
-
-    if (outputScan.blocked) {
-      setAiPatchError("AI パッチ案に秘密情報候補または保護対象パスが含まれるため保存しません。");
-      return;
-    }
-
-    const { data: message, error: messageError } = await supabase
-      .from("messages")
-      .insert({
-        thread_id: state.thread.id,
-        sender_user_id: profile.id,
-        sender_type: "student",
-        body: proposal.patchText,
-        message_type: "patch"
-      })
-      .select(
-        "id,thread_id,sender_user_id,sender_type,body,message_type,reply_to_message_id,created_at"
-      )
-      .single();
-
-    if (messageError) {
-      throw messageError;
-    }
-
-    const { data: patchProposal, error: patchProposalError } = await supabase
-      .from("patch_proposals")
-      .insert({
-        thread_id: state.thread.id,
-        message_id: message.id,
-        created_by: profile.id,
-        created_by_type: "ai",
-        target_file_path: proposal.targetFilePath,
-        base_commit_sha: proposal.baseCommitSha,
-        patch_text: proposal.patchText,
-        explanation: proposal.explanation,
-        status: "proposed"
-      })
-      .select("id,message_id,target_file_path,base_commit_sha,explanation,status,created_by_type")
-      .single();
-
-    if (patchProposalError) {
-      const { error: rollbackError } = await supabase
-        .from("messages")
-        .delete()
-        .eq("id", message.id);
-
-      if (rollbackError) {
-        console.error("Failed to rollback orphaned AI patch message", rollbackError);
-      }
-
-      throw patchProposalError;
-    }
-
-    const { error: threadUpdateError } = await supabase
-      .from("threads")
-      .update({ status: "patch_proposed", ai_used: true })
-      .eq("id", state.thread.id);
-
-    if (threadUpdateError) {
-      console.error("Failed to mark thread patch proposal status", threadUpdateError);
-    }
-
-    setState((current) => {
-      const patchProposalsByMessageId = new Map(current.patchProposalsByMessageId);
-      patchProposalsByMessageId.set(patchProposal.message_id, patchProposal);
-
-      return {
-        ...current,
-        thread: current.thread
-          ? { ...current.thread, status: "patch_proposed", ai_used: true }
-          : current.thread,
-        messages: current.messages.some((currentMessage) => currentMessage.id === message.id)
-          ? current.messages
-          : sortMessages([...current.messages, message]),
-        patchProposalsByMessageId
-      };
-    });
-    void trackUsageEvent({
-      eventName: "ai_patch_proposed",
-      projectId: state.thread.project_id,
-      threadId: state.thread.id,
-      patchProposalId: patchProposal.id,
-      success: true,
-      properties: {
-        target_file_path_present: Boolean(proposal.targetFilePath),
-        base_commit_present: Boolean(proposal.baseCommitSha)
-      }
-    });
-  };
-
-  const generateAiPatchProposal = async (): Promise<void> => {
-    if (!supabase || !profile || !state.thread) {
-      setAiPatchError("AI パッチ生成に必要な情報を確認できませんでした。");
-      return;
-    }
-
-    if (profile.role !== "student") {
-      setAiPatchError("AI パッチ案の作成は生徒スレッドから実行してください。");
-      return;
-    }
-
-    const context = buildThreadAiContext();
-    const inputScan = scanSecrets({
-      textEntries: context.map((entry) => ({ label: entry.label, value: entry.value }))
-    });
-
-    if (inputScan.blocked) {
-      setAiPatchError("秘密情報の可能性がある内容を検出したため、AI には送信しません。");
-      return;
-    }
-
-    void trackUsageEvent({
-      eventName: "ai_patch_requested",
-      projectId: state.thread.project_id,
-      threadId: state.thread.id
-    });
-
-    setAiPatchGenerating(true);
-    setAiPatchError(null);
-
-    try {
-      const request: AiAssistRequest = {
-        task: "patch_proposal",
-        threadId: state.thread.id,
-        projectId: state.thread.project_id,
-        context: [
-          ...context,
-          {
-            label: "パッチ生成制約",
-            kind: "patch",
-            value:
-              "JSON object only. target_file_path, base_commit_sha, explanation, patch_text を返す。patch_text は単一ファイルの unified diff。ローカル適用はしない。"
-          }
-        ],
-        options: {
-          locale: "ja",
-          maxOutputChars: 4_000,
-          streaming: false
-        }
-      };
-      const result = await window.ask.ai.generate(request);
-
-      if (!result.ok) {
-        setAiPatchError(result.error.message);
-        return;
-      }
-
-      if (result.data.status !== "completed") {
-        setAiPatchError(result.data.fallback?.message ?? "AI 応答を取得できませんでした。");
-        return;
-      }
-
-      const outputText = result.data.output?.text.trim();
-
-      if (!outputText) {
-        setAiPatchError("AI 応答が空でした。");
-        return;
-      }
-
-      const parsed = parseAiPatchProposalOutput(outputText);
-
-      if (!parsed.ok) {
-        setAiPatchError(`AI パッチ案が保存できる形式ではありません。${parsed.error.message}`);
-        return;
-      }
-
-      await saveAiPatchProposal(parsed.proposal);
-    } catch (error) {
-      console.error("Failed to generate AI patch proposal", error);
-      setAiPatchError("AI パッチ案を生成または保存できませんでした。");
-      void trackUsageEvent({
-        eventName: "ai_patch_proposed",
-        projectId: state.thread.project_id,
-        threadId: state.thread.id,
-        success: false,
-        errorCode: "ai_patch_failed"
-      });
-    } finally {
-      setAiPatchGenerating(false);
-    }
-  };
-
   const aiEscalationPreviewBody = state.thread ? buildAiEscalationMessageBody() : "";
   const aiEscalationSecretScan = scanSecrets({
     textEntries: [{ label: "AIエスカレーション本文", value: aiEscalationPreviewBody }],
@@ -2009,27 +1603,22 @@ export const ThreadDetailPage = (): ReactElement => {
               <textarea
                 aria-label="返信内容"
                 placeholder="返信を入力"
-                rows={messageType === "code" || messageType === "patch" ? 8 : 4}
+                rows={5}
                 value={body}
                 onChange={(event) => setBody(event.target.value)}
               />
               <div className="chat-composer-controls">
-                <select
-                  aria-label="メッセージ形式"
-                  value={messageType}
-                  onChange={(event) => setMessageType(event.target.value as ManualMessageType)}
-                >
-                  {manualMessageTypes.map((type) => (
-                    <option key={type} value={type}>
-                      {messageTypeLabels[type]}
-                    </option>
-                  ))}
-                </select>
                 <button className="primary-button" disabled={sending || !body.trim()} type="submit">
                   {sending ? "送信中..." : "送信"}
                 </button>
               </div>
             </div>
+
+            {body.trim() ? (
+              <section className="chat-composer-preview" aria-label="返信プレビュー">
+                <MarkdownMessage>{body}</MarkdownMessage>
+              </section>
+            ) : null}
 
             {sendError && (
               <p className="message error" role="alert">
@@ -2040,103 +1629,14 @@ export const ThreadDetailPage = (): ReactElement => {
         </article>
 
         <div className="thread-support-tools">
-          {profile?.role === "teacher" ? (
-            <details className="thread-tool-panel">
-              <summary>
-                <span>先生パッチ提案</span>
-                <small>diffを提案として送信</small>
-              </summary>
-              <div className="teacher-patch-composer">
-                <div>
-                  <p className="eyebrow">Patch Composer</p>
-                  <h2>先生パッチ提案</h2>
-                </div>
-
-                <label>
-                  対象ファイル
-                  <input
-                    value={teacherPatchTargetFilePath}
-                    onChange={(event) => setTeacherPatchTargetFilePath(event.target.value)}
-                  />
-                </label>
-
-                <label>
-                  基準コミット
-                  <input
-                    value={teacherPatchBaseCommitSha}
-                    onChange={(event) => setTeacherPatchBaseCommitSha(event.target.value)}
-                  />
-                </label>
-
-                <label>
-                  変更理由
-                  <textarea
-                    rows={4}
-                    value={teacherPatchExplanation}
-                    onChange={(event) => setTeacherPatchExplanation(event.target.value)}
-                  />
-                </label>
-
-                <label>
-                  Unified diff
-                  <textarea
-                    className="diff-textarea"
-                    rows={14}
-                    value={teacherPatchText}
-                    onChange={(event) => setTeacherPatchText(event.target.value)}
-                  />
-                </label>
-
-                <div className="teacher-patch-actions">
-                  <button
-                    className="secondary-button"
-                    disabled={teacherPatchSaving || !teacherPatchTargetFilePath.trim()}
-                    type="button"
-                    onClick={createTeacherPatchTemplate}
-                  >
-                    diffひな形
-                  </button>
-                  <button
-                    className="primary-button"
-                    disabled={
-                      teacherPatchSaving ||
-                      !teacherPatchTargetFilePath.trim() ||
-                      !teacherPatchExplanation.trim() ||
-                      !teacherPatchText.trim()
-                    }
-                    type="button"
-                    onClick={() => void saveTeacherPatchProposal()}
-                  >
-                    {teacherPatchSaving ? "保存中..." : "パッチ提案を送信"}
-                  </button>
-                </div>
-
-                <p className="message warning" role="status">
-                  先生の提案は proposed として保存され、生徒のローカル環境には直接適用されません。
-                </p>
-                {teacherPatchNotice ? (
-                  <p className="message success" role="status">
-                    {teacherPatchNotice}
-                  </p>
-                ) : null}
-                {teacherPatchError ? (
-                  <p className="message error" role="alert">
-                    {teacherPatchError}
-                  </p>
-                ) : null}
-              </div>
-            </details>
-          ) : null}
-
           <details className="thread-tool-panel">
             <summary>
               <span>AI補助</span>
-              <small>原因候補やパッチ案を会話に追加</small>
             </summary>
             <div className="ai-thread-assist">
               <div>
                 <p className="eyebrow">AI Assist</p>
-                <h2>調査とパッチ案</h2>
+                <h2>原因候補</h2>
               </div>
               <div className="ai-assist-actions">
                 <button
@@ -2147,20 +1647,7 @@ export const ThreadDetailPage = (): ReactElement => {
                 >
                   {aiGenerating ? "原因候補を生成中..." : "AIで原因候補を追加"}
                 </button>
-                {profile?.role === "student" ? (
-                  <button
-                    className="secondary-button"
-                    disabled={aiPatchGenerating || state.messages.length === 0}
-                    type="button"
-                    onClick={() => void generateAiPatchProposal()}
-                  >
-                    {aiPatchGenerating ? "パッチ案を生成中..." : "AIでパッチ案を追加"}
-                  </button>
-                ) : null}
               </div>
-              <p className="message warning" role="status">
-                AI 出力は提案です。パッチ案は proposed として保存し、承認なしに適用しません。
-              </p>
               {canEscalateAiToTeacher ? (
                 <div className="ai-escalation-panel">
                   <label>
@@ -2192,11 +1679,6 @@ export const ThreadDetailPage = (): ReactElement => {
               {aiError ? (
                 <p className="message error" role="alert">
                   {aiError}
-                </p>
-              ) : null}
-              {aiPatchError ? (
-                <p className="message error" role="alert">
-                  {aiPatchError}
                 </p>
               ) : null}
             </div>
@@ -2347,7 +1829,6 @@ const MessageBubble = ({
   isOwnMessage: boolean;
   onOpenDetails: () => void;
 }): ReactElement => {
-  const showMessageKind = message.message_type !== "text" && message.message_type !== "ai_summary";
   const displayName = getMessageDisplayName(message, senderName, isOwnMessage);
   const summary = buildMessageSummary(message, patchProposal);
 
@@ -2361,7 +1842,6 @@ const MessageBubble = ({
       >
         <span className="chat-summary-header">
           {displayName ? <strong>{displayName}</strong> : null}
-          {showMessageKind ? <span>{messageTypeLabels[message.message_type]}</span> : null}
           <time dateTime={message.created_at}>{formatMessageTime(message.created_at)}</time>
         </span>
         <span className="chat-summary-preview">{summary.preview}</span>
@@ -2408,7 +1888,6 @@ const MessageDetailModal = ({
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const isCodeLike = message.message_type === "code" || message.message_type === "patch";
   const viewerKind = message.message_type === "patch" ? "diff" : "code";
-  const showMessageKind = message.message_type !== "text" && message.message_type !== "ai_summary";
   const displayName = getMessageDisplayName(message, senderName, isOwnMessage) ?? "自分";
 
   useEffect(() => {
@@ -2448,7 +1927,6 @@ const MessageDetailModal = ({
             <h2 id="message-detail-title">メッセージ詳細</h2>
             <div className="message-detail-meta">
               <strong>{displayName}</strong>
-              {showMessageKind ? <span>{messageTypeLabels[message.message_type]}</span> : null}
               <time dateTime={message.created_at}>{formatMessageTime(message.created_at)}</time>
             </div>
           </div>
@@ -2539,7 +2017,7 @@ const PatchReviewPanel = ({
   );
 
   return (
-    <section className="patch-review-panel" aria-label="パッチ適用確認">
+    <section className="patch-review-panel" aria-label="変更適用確認">
       <div>
         <p className="eyebrow">Patch Review</p>
         <h3>ローカル適用確認</h3>
@@ -2563,7 +2041,7 @@ const PatchReviewPanel = ({
       ) : null}
 
       {!canReviewPatch ? (
-        <p className="message warning">パッチ適用は生徒のローカル環境でのみ承認できます。</p>
+        <p className="message warning">変更の適用は生徒のローカル環境でのみ承認できます。</p>
       ) : null}
 
       {canReviewPatch && !projectHasLocalRoot ? (
