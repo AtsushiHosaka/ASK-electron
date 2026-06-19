@@ -57,6 +57,35 @@ describe("student home real data", () => {
     );
   });
 
+  it("hides the setup panel from student home after setup is complete", () => {
+    assert.match(studentHomeSource, /setupComplete\s*\?\s*"最近の質問"/);
+    assert.match(
+      studentHomeSource,
+      /:\s*`初期設定 \$\{completedSetupCount\} \/ \$\{setupItems\.length\}`/
+    );
+    assert.match(
+      studentHomeSource,
+      /className=\{`student-home-grid \$\{setupComplete \? "setup-complete" : ""\}`\}/
+    );
+    assert.match(
+      studentHomeSource,
+      /\{!setupComplete \? \(\s*<article className="detail-panel setup-panel">/
+    );
+    assert.match(styleSource, /\.student-home-grid\.setup-complete \.student-thread-panel/);
+  });
+
+  it("guards student home reload commits after unmount", () => {
+    assert.match(studentHomeSource, /const mountedRef = useRef\(false\)/);
+    assert.match(studentHomeSource, /shouldCommit: \(\) => boolean = \(\) => mountedRef\.current/);
+    assert.match(studentHomeSource, /mountedRef\.current = false/);
+  });
+
+  it("offers a direct retry action when student home loading fails", () => {
+    assert.match(studentHomeSource, /actionLabel="再試行"/);
+    assert.match(studentHomeSource, /onAction=\{retryHomeLoad\}/);
+    assert.match(studentHomeSource, /aria-label="ホームを再読み込み"/);
+  });
+
   it("keeps product code free of obsolete demo and placeholder implementation markers", () => {
     const productSources = [appSource, studentHomeSource, styleSource].join("\n");
 

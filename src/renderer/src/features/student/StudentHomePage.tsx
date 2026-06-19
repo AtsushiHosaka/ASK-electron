@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { Link } from "react-router-dom";
 import type { Database, ThreadStatus } from "../../../../shared/database.types";
 import { useAuth } from "../auth/AuthProvider";
@@ -100,15 +100,20 @@ const writeFirstRunOnboardingState = (
 export const StudentHomePage = (): ReactElement => {
   const { profile } = useAuth();
   const supabase = useMemo(() => getSupabaseClient(), []);
+  const mountedRef = useRef(false);
   const [state, setState] = useState<StudentHomeState>(initialState);
   const [firstRunOnboardingDismissed, setFirstRunOnboardingDismissed] = useState(() =>
     readFirstRunOnboardingDismissed(profile?.id)
   );
 
-  useEffect(() => {
-    let mounted = true;
+  const loadHomeData = useCallback(
+    async (shouldCommit: () => boolean = () => mountedRef.current): Promise<void> => {
+      await Promise.resolve();
 
-    const load = async (): Promise<void> => {
+      if (!shouldCommit()) {
+        return;
+      }
+
       if (!supabase || !profile) {
         setState({
           ...initialState,
@@ -163,7 +168,7 @@ export const StudentHomePage = (): ReactElement => {
           throw threadsResult.error;
         }
 
-        if (mounted) {
+        if (shouldCommit()) {
           setState({
             loading: false,
             error: null,
@@ -176,7 +181,7 @@ export const StudentHomePage = (): ReactElement => {
       } catch (error) {
         console.error("Failed to load student home", error);
 
-        if (mounted) {
+        if (shouldCommit()) {
           setState({
             ...initialState,
             loading: false,
@@ -184,14 +189,25 @@ export const StudentHomePage = (): ReactElement => {
           });
         }
       }
-    };
+    },
+    [profile, supabase]
+  );
 
-    void load();
+  useEffect(() => {
+    mountedRef.current = true;
+    const loadTimer = window.setTimeout(() => {
+      void loadHomeData();
+    }, 0);
 
     return () => {
-      mounted = false;
+      mountedRef.current = false;
+      window.clearTimeout(loadTimer);
     };
-  }, [profile, supabase]);
+  }, [loadHomeData]);
+
+  const retryHomeLoad = (): void => {
+    void loadHomeData();
+  };
 
   const projectsById = new Map(state.projects.map((project) => [project.id, project]));
   const setupItems: SetupItem[] = [
@@ -251,7 +267,14 @@ export const StudentHomePage = (): ReactElement => {
   }
 
   if (state.error) {
-    return <StudentHomeStatePage title="読み込みに失敗しました" body={state.error} />;
+    return (
+      <StudentHomeStatePage
+        title="読み込みに失敗しました"
+        body={state.error}
+        actionLabel="再試行"
+        onAction={retryHomeLoad}
+      />
+    );
   }
 
   if (profile?.role === "student" && !setupComplete && !firstRunOnboardingDismissed) {
@@ -284,47 +307,49 @@ export const StudentHomePage = (): ReactElement => {
         <div className="progress-summary learning-summary">
           <strong>{state.threads.length} 件の質問</strong>
           <span>
-            初期設定 {completedSetupCount} / {setupItems.length}
+            {setupComplete
+              ? "最近の質問"
+              : `初期設定 ${completedSetupCount} / ${setupItems.length}`}
           </span>
         </div>
       </div>
 
-      <div className="student-home-grid">
-        <article className="detail-panel setup-panel">
-          <div className="panel-heading">
-            <div>
-              <p className="eyebrow">Setup</p>
-              <h2>初期設定</h2>
-            </div>
-            <span
-              className={`status-pill ${completedSetupCount === setupItems.length ? "success" : "warning"}`}
-            >
-              {completedSetupCount}/{setupItems.length}
-            </span>
-          </div>
-
-          <div className="setup-check-list">
-            {setupItems.map((item) => (
-              <div
-                className={`setup-check-row ${item.complete ? "complete" : "needs-action"}`}
-                key={item.label}
-              >
-                <span className={`status-pill ${item.complete ? "success" : "warning"}`}>
-                  {item.complete ? "完了" : "未完了"}
-                </span>
-                <div>
-                  <strong>{item.label}</strong>
-                  <span>{item.value}</span>
-                </div>
-                {item.actionTo && item.actionLabel ? (
-                  <Link className="setup-action-link" to={item.actionTo}>
-                    {item.actionLabel}
-                  </Link>
-                ) : null}
+      <div className={`student-home-grid ${setupComplete ? "setup-complete" : ""}`}>
+        {!setupComplete ? (
+          <article className="detail-panel setup-panel">
+            <div className="panel-heading">
+              <div>
+                <p className="eyebrow">Setup</p>
+                <h2>初期設定</h2>
               </div>
-            ))}
-          </div>
-        </article>
+              <span className="status-pill warning">
+                {completedSetupCount}/{setupItems.length}
+              </span>
+            </div>
+
+            <div className="setup-check-list">
+              {setupItems.map((item) => (
+                <div
+                  className={`setup-check-row ${item.complete ? "complete" : "needs-action"}`}
+                  key={item.label}
+                >
+                  <span className={`status-pill ${item.complete ? "success" : "warning"}`}>
+                    {item.complete ? "完了" : "未完了"}
+                  </span>
+                  <div>
+                    <strong>{item.label}</strong>
+                    <span>{item.value}</span>
+                  </div>
+                  {item.actionTo && item.actionLabel ? (
+                    <Link className="setup-action-link" to={item.actionTo}>
+                      {item.actionLabel}
+                    </Link>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </article>
+        ) : null}
 
         <article className="detail-panel project-list-panel">
           <div className="panel-heading">
@@ -457,9 +482,29 @@ const FirstRunOnboardingPage = ({
   );
 };
 
-const StudentHomeStatePage = ({ title, body }: { title: string; body: string }): ReactElement => (
+const StudentHomeStatePage = ({
+  title,
+  body,
+  actionLabel,
+  onAction
+}: {
+  title: string;
+  body: string;
+  actionLabel?: string;
+  onAction?: () => void;
+}): ReactElement => (
   <section className="empty-state">
     <h1>{title}</h1>
     <p>{body}</p>
+    {actionLabel && onAction ? (
+      <button
+        aria-label="ホームを再読み込み"
+        className="primary-button"
+        type="button"
+        onClick={onAction}
+      >
+        {actionLabel}
+      </button>
+    ) : null}
   </section>
 );

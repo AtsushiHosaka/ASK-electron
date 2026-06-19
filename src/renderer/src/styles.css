@@ -1192,6 +1192,10 @@ textarea:focus,
   grid-column: 1 / -1;
 }
 
+.student-home-grid.setup-complete .student-thread-panel {
+  grid-column: auto;
+}
+
 .setup-check-list,
 .student-project-list,
 .student-thread-list,
