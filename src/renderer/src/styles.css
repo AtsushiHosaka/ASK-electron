@@ -310,6 +310,12 @@ textarea:focus,
   background: var(--color-green-muted);
 }
 
+.workspace-page {
+  display: grid;
+  gap: 18px;
+  max-width: 1180px;
+}
+
 .app-shell {
   display: grid;
   grid-template-columns: 252px minmax(0, 1fr);
@@ -1113,6 +1119,13 @@ textarea:focus,
   min-width: 0;
   color: #172033;
   overflow-wrap: anywhere;
+}
+
+.project-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
 }
 
 .learning-summary {
