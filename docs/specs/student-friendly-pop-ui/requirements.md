@@ -24,7 +24,7 @@ ASK の既存 Electron UI を、中高生が怖がらずに使える学習支援
 ## Users
 
 - 生徒: エラーや詰まりを、安心して先生へ送れる質問にしたい。
-- 先生: クラスと質問キューを、状態ごとにすばやく確認したい。
+- 先生: クラス内のプロジェクトごとに質問状態をすばやく確認したい。
 - 管理者/メンター: 先生画面と同じ情報構造で、運用状態を見たい。
 
 ## User Stories
@@ -32,7 +32,7 @@ ASK の既存 Electron UI を、中高生が怖がらずに使える学習支援
 - As a student, I want the home screen to show the next action clearly, so that I can ask for help without searching the navigation.
 - As a first-time student, I want a short setup entry screen, so that I can move to the next required setup action without reading a long guide.
 - As a student, I want warnings and blocked states to look different from success states, so that I know what needs attention.
-- As a teacher, I want queue rows and chat messages to remain readable while feeling approachable, so that I can respond quickly.
+- As a teacher, I want project-scoped question rows and chat messages to remain readable while feeling approachable, so that I can respond quickly.
 - As a new user, I want the login screen to feel like a learning support app, so that I understand ASK is for guided coding help.
 
 ## Functional Requirements
@@ -57,7 +57,7 @@ ASK の既存 Electron UI を、中高生が怖がらずに使える学習支援
 ### REQ-002
 
 - When a student opens the home screen, the system shall show a primary "質問を作成" action in the page header.
-- When the student activates the action, the system shall navigate to `/threads/new`.
+- When the student activates the action, the system shall navigate through the project flow before opening thread creation.
 
 ### REQ-003
 
@@ -119,7 +119,7 @@ Visual exploration was requested through `product-design`. The direct Product De
 
 - Direction A: Friendly Learning Dashboard. Selected as the primary direction.
 - Direction B: Study Studio Chat. Borrowed for chat and code-context readability.
-- Direction C: Teacher Command Center. Borrowed for queue density and status readability.
+- Direction C: Teacher Command Center. Borrowed for project-scoped question density and status readability.
 - Selected direction: Friendly Learning Dashboard with Study Studio Chat details.
 
 These artifacts are supporting references. The normative behavior is defined by the requirements and acceptance criteria above.

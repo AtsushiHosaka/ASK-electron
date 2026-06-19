@@ -6,22 +6,22 @@ ASK adopts a restrained "Friendly Learning Dashboard" visual direction: bright b
 
 ## Requirements Traceability
 
-| Requirement | Design Coverage                                                                                              |
-| ----------- | ------------------------------------------------------------------------------------------------------------ |
-| REQ-001     | Route and data behavior remain unchanged; edits are presentational React copy/classes and shared CSS.        |
-| REQ-002     | Student home page header gains a primary `/threads/new` action.                                              |
-| REQ-003     | Sidebar footer shows only role and display name, without motivational or explanatory copy.                   |
-| REQ-004     | CSS status tokens define blue primary, green success, amber attention, rose error, lavender AI/system.       |
-| REQ-005     | Existing semantic elements, ARIA roles, and form controls are preserved.                                     |
-| REQ-006     | Decorative chips and explanatory taglines are removed; UI text is limited to task-critical labels/actions.   |
-| REQ-007     | Student home derives first-run setup state from real setup data and local dismissal state.                   |
-| UI-REQ-001  | Root CSS variables define a soft-pop palette across buttons, cards, messages, status pills, chat, and queue. |
-| UI-REQ-002  | Cards and repeated rows keep 8px radius and add subtle shadows/hover feedback.                               |
-| UI-REQ-003  | Sidebar gets an active-state marker and role context without extra copy.                                     |
-| UI-REQ-004  | Login renders only ASK, the current auth action, required fields, errors, and auth actions.                  |
-| UI-REQ-005  | Background stays plain and light, without decorative bars, grids, blobs, or mascot art.                      |
-| UI-REQ-006  | Standalone explanatory chips such as "状況 / コード / 先生" are explicitly excluded.                         |
-| UI-REQ-007  | First-run setup uses a compact screen with status rows and a single next-action CTA.                         |
+| Requirement | Design Coverage                                                                                                                      |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| REQ-001     | Route and data behavior remain unchanged; edits are presentational React copy/classes and shared CSS.                                |
+| REQ-002     | Student home page primary action keeps students in the project flow before thread creation.                                          |
+| REQ-003     | Sidebar footer shows only role and display name, without motivational or explanatory copy.                                           |
+| REQ-004     | CSS status tokens define blue primary, green success, amber attention, rose error, lavender AI/system.                               |
+| REQ-005     | Existing semantic elements, ARIA roles, and form controls are preserved.                                                             |
+| REQ-006     | Decorative chips and explanatory taglines are removed; UI text is limited to task-critical labels/actions.                           |
+| REQ-007     | Student home derives first-run setup state from real setup data and local dismissal state.                                           |
+| UI-REQ-001  | Root CSS variables define a soft-pop palette across buttons, cards, messages, status pills, chat, and project-scoped question lists. |
+| UI-REQ-002  | Cards and repeated rows keep 8px radius and add subtle shadows/hover feedback.                                                       |
+| UI-REQ-003  | Sidebar gets an active-state marker and role context without extra copy.                                                             |
+| UI-REQ-004  | Login renders only ASK, the current auth action, required fields, errors, and auth actions.                                          |
+| UI-REQ-005  | Background stays plain and light, without decorative bars, grids, blobs, or mascot art.                                              |
+| UI-REQ-006  | Standalone explanatory chips such as "状況 / コード / 先生" are explicitly excluded.                                                 |
+| UI-REQ-007  | First-run setup uses a compact screen with status rows and a single next-action CTA.                                                 |
 
 ## Product Design Direction
 
@@ -29,14 +29,14 @@ ASK adopts a restrained "Friendly Learning Dashboard" visual direction: bright b
 
 - Direction A: Friendly Learning Dashboard. Friendly sidebar, clear student home CTA, soft cards, color-coded setup and question states.
 - Direction B: Study Studio Chat. Calm chat workspace, code remains readable, AI/teacher/student messages have distinct treatments.
-- Direction C: Teacher Command Center. Dense queue remains readable with status tabs and ledger rows.
-- Selected direction: Direction A synthesized with Direction B chat treatment and Direction C queue density.
+- Direction C: Teacher Command Center. Dense class/project question lists remain readable with compact rows.
+- Selected direction: Direction A synthesized with Direction B chat treatment and Direction C question-list density.
 
 The direct `product-design` plugin was unavailable; Creative Production style-intake was used as the visual direction artifact. The text in this document is the normative design.
 
 ### Selected Direction Rationale
 
-Friendly Learning Dashboard best matches middle/high school users because it reduces intimidation without weakening the productivity focus. The selected version uses color, spacing, and status treatment for friendliness rather than additional UI copy. Study Studio Chat contributes better role separation in messages. Teacher Command Center contributes compact queue readability for mentors.
+Friendly Learning Dashboard best matches middle/high school users because it reduces intimidation without weakening the productivity focus. The selected version uses color, spacing, and status treatment for friendliness rather than additional UI copy. Study Studio Chat contributes better role separation in messages. Teacher Command Center contributes compact project-scoped question readability for mentors.
 
 ### Rejected Alternatives
 
@@ -49,15 +49,15 @@ Friendly Learning Dashboard best matches middle/high school users because it red
 
 ## Screen Structure
 
-| Screen / Region      | Purpose                                                                   | Primary Actions                                      | States                                                   |
-| -------------------- | ------------------------------------------------------------------------- | ---------------------------------------------------- | -------------------------------------------------------- |
-| Login                | Authenticate.                                                             | Login, create account.                               | Default, error, disabled, loading.                       |
-| Sidebar              | Persistent navigation and user context.                                   | Navigate, logout.                                    | Active route, role context.                              |
-| First-run Setup      | Orient first-time students to the next setup action.                      | Initial setup, project registration, dismiss.        | Incomplete setup, dismissed, complete.                   |
-| Student Home         | Show setup progress, projects, recent questions, and primary next action. | 質問を作成, project/thread navigation.               | Empty, setup incomplete, setup complete, loading, error. |
-| Teacher Home / Queue | Show class and question workload.                                         | Create class, open class, filter queue, open thread. | Empty, filtered empty, loading, error.                   |
-| Thread Create        | Build a structured question.                                              | Collect context, run AI assist, review/send.         | Default, blocked, warning, review modal.                 |
-| Thread Detail        | Chat, inspect code context, review/compose patches.                       | Send message, update status, propose/apply patch.    | Own/teacher/AI/system messages, sending, error.          |
+| Screen / Region             | Purpose                                                                   | Primary Actions                                      | States                                                   |
+| --------------------------- | ------------------------------------------------------------------------- | ---------------------------------------------------- | -------------------------------------------------------- |
+| Login                       | Authenticate.                                                             | Login, create account.                               | Default, error, disabled, loading.                       |
+| Sidebar                     | Persistent navigation and user context.                                   | Navigate, logout.                                    | Active route, role context.                              |
+| First-run Setup             | Orient first-time students to the next setup action.                      | Initial setup, project registration, dismiss.        | Incomplete setup, dismissed, complete.                   |
+| Student Home                | Show setup progress, projects, recent questions, and primary next action. | 質問を作成, project/thread navigation.               | Empty, setup incomplete, setup complete, loading, error. |
+| Teacher Home / Class Detail | Show class, project, and question workload.                               | Create class, open class, open project, open thread. | Empty, loading, error.                                   |
+| Thread Create               | Build a structured question.                                              | Collect context, run AI assist, review/send.         | Default, blocked, warning, review modal.                 |
+| Thread Detail               | Chat, inspect code context, review/compose patches.                       | Send message, update status, propose/apply patch.    | Own/teacher/AI/system messages, sending, error.          |
 
 ## Visual System
 
@@ -98,7 +98,7 @@ Friendly Learning Dashboard best matches middle/high school users because it red
   - messages
   - status pills
   - cards/panels
-  - queue ledger
+  - project-scoped question lists
   - chat messages
   - markdown/code/diff viewers
 

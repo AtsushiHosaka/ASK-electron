@@ -37,7 +37,7 @@ macOS environment and what still needs a seeded QA environment or Windows runner
 | Login screen              | Pass    | Window title was `ASK`; renderer loaded `localhost:5173/#/login`; no blank window.                                                         |
 | Supabase fixture login    | Blocked | Hosted `.env` target does not accept the documented fixture account. See #101 and `docs/qa/product-smoke-check-2026-05-31.md`.             |
 | Authenticated student E2E | Blocked | Cannot verify onboarding, project registration, question creation, AI fallback, thread chat, or patch review without seeded fixture login. |
-| Authenticated teacher E2E | Blocked | Cannot verify teacher home, queue, class flows, status changes, or patch proposal without seeded fixture login.                            |
+| Authenticated teacher E2E | Blocked | Cannot verify teacher home, class/project question lists, class flows, status changes, or patch proposal without seeded fixture login.     |
 | DB-backed RLS             | Blocked | Local RLS runner needs `psql`; local Supabase fixture stack is also unavailable because Docker daemon is unavailable.                      |
 
 ## Windows Checks
@@ -55,7 +55,7 @@ macOS environment and what still needs a seeded QA environment or Windows runner
 | --------------------------------------------------------------------------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Student can register GitHub-linked project                                  | Blocked               | Requires authenticated fixture student and seeded QA Supabase (#101).                                                                                     |
 | Student can send a question with code, diff, environment, and secret checks | Blocked               | Requires authenticated fixture student and fixture repository (#101).                                                                                     |
-| Teacher can see unanswered questions in the queue                           | Blocked               | Requires authenticated fixture teacher and seeded class/thread data (#101).                                                                               |
+| Teacher can see unanswered questions by class and project                   | Blocked               | Requires authenticated fixture teacher and seeded class/thread data (#101).                                                                               |
 | Student and teacher can exchange chat messages                              | Blocked               | Requires fixture login and seeded thread (#101).                                                                                                          |
 | AI can assist with question text, cause candidates, and patch proposal      | Partially covered     | Automated tests cover AI provider fallback, secret blocking, patch proposal parsing, and thread AI escalation. Manual authenticated flow blocked by #101. |
 | Teacher and AI cannot directly write to student files                       | Covered by automation | Patch workflow tests cover explicit local apply/revert paths and protected/dirty/conflict cases.                                                          |
