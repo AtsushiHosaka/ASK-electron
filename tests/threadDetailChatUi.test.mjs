@@ -35,7 +35,8 @@ describe("thread detail chat UI", () => {
   it("previews manual replies as markdown while typing", () => {
     assert.match(threadDetailSource, /className="chat-composer-preview"/);
     assert.match(threadDetailSource, /aria-label="返信プレビュー"/);
-    assert.match(threadDetailSource, /<MarkdownMessage>\{body\}<\/MarkdownMessage>/);
+    assert.match(threadDetailSource, /body\.trim\(\)/);
+    assert.match(threadDetailSource, /<MarkdownMessage>\s*\{body\}\s*<\/MarkdownMessage>/);
     assert.match(stylesSource, /\.chat-composer-preview/);
   });
 

@@ -16,8 +16,18 @@ describe("patch authoring UI", () => {
   });
 
   it("keeps existing patch review behind message detail only", () => {
-    assert.match(threadDetailSource, /const PatchReviewPanel/);
-    assert.match(threadDetailSource, /message\.message_type === "patch"/);
-    assert.match(threadDetailSource, /aria-label="変更適用確認"/);
+    const messageDetailStart = threadDetailSource.indexOf("const MessageDetailModal =");
+    const patchReviewStart = threadDetailSource.indexOf("const PatchReviewPanel =");
+
+    assert.ok(messageDetailStart >= 0);
+    assert.ok(patchReviewStart > messageDetailStart);
+
+    const messageDetailBlock = threadDetailSource.slice(messageDetailStart, patchReviewStart);
+    const patchReviewUsages = threadDetailSource.match(/<PatchReviewPanel/g) ?? [];
+
+    assert.equal(patchReviewUsages.length, 1);
+    assert.match(messageDetailBlock, /message\.message_type === "patch"/);
+    assert.match(messageDetailBlock, /<PatchReviewPanel/);
+    assert.match(threadDetailSource.slice(patchReviewStart), /aria-label="変更適用確認"/);
   });
 });
