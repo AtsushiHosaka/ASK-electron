@@ -74,10 +74,13 @@ describe("student home real data", () => {
     assert.match(styleSource, /\.student-home-grid\.setup-complete \.student-thread-panel/);
   });
 
+  it("guards student home reload commits after unmount", () => {
+    assert.match(studentHomeSource, /const mountedRef = useRef\(false\)/);
+    assert.match(studentHomeSource, /shouldCommit: \(\) => boolean = \(\) => mountedRef\.current/);
+    assert.match(studentHomeSource, /mountedRef\.current = false/);
+  });
+
   it("offers a direct retry action when student home loading fails", () => {
-    assert.match(studentHomeSource, /const loadHomeData = useCallback/);
-    assert.match(studentHomeSource, /void loadHomeData\(\(\) => mounted\)/);
-    assert.match(studentHomeSource, /const retryHomeLoad = \(\): void =>/);
     assert.match(studentHomeSource, /actionLabel="再試行"/);
     assert.match(studentHomeSource, /onAction=\{retryHomeLoad\}/);
     assert.match(studentHomeSource, /aria-label="ホームを再読み込み"/);

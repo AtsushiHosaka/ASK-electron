@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { Link } from "react-router-dom";
 import type { Database, ThreadStatus } from "../../../../shared/database.types";
 import { useAuth } from "../auth/AuthProvider";
@@ -100,13 +100,14 @@ const writeFirstRunOnboardingState = (
 export const StudentHomePage = (): ReactElement => {
   const { profile } = useAuth();
   const supabase = useMemo(() => getSupabaseClient(), []);
+  const mountedRef = useRef(false);
   const [state, setState] = useState<StudentHomeState>(initialState);
   const [firstRunOnboardingDismissed, setFirstRunOnboardingDismissed] = useState(() =>
     readFirstRunOnboardingDismissed(profile?.id)
   );
 
   const loadHomeData = useCallback(
-    async (shouldCommit: () => boolean = () => true): Promise<void> => {
+    async (shouldCommit: () => boolean = () => mountedRef.current): Promise<void> => {
       await Promise.resolve();
 
       if (!shouldCommit()) {
@@ -193,13 +194,13 @@ export const StudentHomePage = (): ReactElement => {
   );
 
   useEffect(() => {
-    let mounted = true;
+    mountedRef.current = true;
     const loadTimer = window.setTimeout(() => {
-      void loadHomeData(() => mounted);
+      void loadHomeData();
     }, 0);
 
     return () => {
-      mounted = false;
+      mountedRef.current = false;
       window.clearTimeout(loadTimer);
     };
   }, [loadHomeData]);
