@@ -11,7 +11,6 @@ import { Link, useParams } from "react-router-dom";
 import type {
   ClassMemberRole,
   Database,
-  GithubSshStatus,
   Json,
   ThreadStatus
 } from "../../../../shared/database.types";
@@ -99,12 +98,6 @@ const statusLabels: Record<ThreadStatus, string> = {
   patch_proposed: "パッチ提案中",
   resolved: "解決済み",
   reopened: "再オープン"
-};
-
-const sshStatusLabels: Record<GithubSshStatus, string> = {
-  unknown: "未確認",
-  ok: "SSH OK",
-  failed: "SSH要確認"
 };
 
 const classMemberRoleLabels: Record<ClassMemberRole, string> = {
@@ -1258,8 +1251,7 @@ export const ClassDetailPage = (): ReactElement => {
       ) : null}
 
       <div className="detail-grid">
-        <StudentMemberPanel classSummary={classSummary} />
-        <MemberPanel title="講師 / メンター" members={mentorMembers(classSummary)} />
+        <ClassMemberRosterPanel classSummary={classSummary} />
 
         <article className="detail-panel class-project-thread-panel">
           <div className="panel-heading">
@@ -1672,29 +1664,48 @@ const pendingStudentRoster = (classSummary: ManagedClassSummary): ClassStudentRo
   });
 };
 
-const StudentMemberPanel = ({
+const ClassMemberRosterPanel = ({
   classSummary
 }: {
   classSummary: ManagedClassSummary;
 }): ReactElement => {
   const students = studentMembers(classSummary);
+  const staff = mentorMembers(classSummary);
   const pendingStudents = pendingStudentRoster(classSummary);
-  const totalCount = students.length + pendingStudents.length;
+  const totalCount = staff.length + students.length + pendingStudents.length;
 
   return (
-    <article className="detail-panel member-panel">
+    <article className="detail-panel member-panel class-member-roster-panel">
       <div className="panel-heading">
         <div>
           <p className="eyebrow">Members</p>
-          <h2>生徒</h2>
+          <h2>メンバー</h2>
         </div>
         <span className="status-pill pending">{totalCount} 人</span>
       </div>
 
       {totalCount === 0 ? (
-        <p className="muted">まだ生徒がいません。</p>
+        <p className="muted">まだメンバーがいません。</p>
       ) : (
         <div className="member-list">
+          {staff.map((member) => {
+            const githubUsername =
+              member.githubConnection?.github_username ?? member.user?.github_username ?? null;
+
+            return (
+              <div className="member-row" key={member.membership.id}>
+                <div>
+                  <strong>{member.user?.display_name ?? "名前未設定"}</strong>
+                  <span>{member.user?.email ?? "メール未取得"}</span>
+                </div>
+                <div className="member-setup">
+                  {githubUsername ? <span>@{githubUsername}</span> : null}
+                  <span>{classMemberRoleLabels[member.membership.role]}</span>
+                </div>
+              </div>
+            );
+          })}
+
           {students.map((member) => {
             const githubUsername =
               member.githubConnection?.github_username ?? member.user?.github_username ?? null;
@@ -1707,7 +1718,7 @@ const StudentMemberPanel = ({
                 </div>
                 <div className="member-setup">
                   {githubUsername ? <span>@{githubUsername}</span> : null}
-                  <span>参加済み</span>
+                  <span>{classMemberRoleLabels[member.membership.role]}</span>
                 </div>
               </div>
             );
@@ -1746,47 +1757,6 @@ const StatusCounters = ({
       </div>
     ))}
   </div>
-);
-
-const MemberPanel = ({
-  title,
-  members
-}: {
-  title: string;
-  members: MemberSummary[];
-}): ReactElement => (
-  <article className="detail-panel member-panel">
-    <div className="panel-heading">
-      <div>
-        <p className="eyebrow">Members</p>
-        <h2>{title}</h2>
-      </div>
-      <span className="status-pill pending">{members.length} 人</span>
-    </div>
-
-    {members.length === 0 ? (
-      <p className="muted">まだメンバーがいません。</p>
-    ) : (
-      <div className="member-list">
-        {members.map((member) => (
-          <div className="member-row" key={member.membership.id}>
-            <div>
-              <strong>{member.user?.display_name ?? "Unknown user"}</strong>
-              <span>{member.user?.email ?? "メール未取得"}</span>
-            </div>
-            <div className="member-setup">
-              <span>
-                {member.githubConnection?.github_username ??
-                  member.user?.github_username ??
-                  "GitHub未設定"}
-              </span>
-              <span>{sshStatusLabels[member.githubConnection?.ssh_status ?? "unknown"]}</span>
-            </div>
-          </div>
-        ))}
-      </div>
-    )}
-  </article>
 );
 
 const TeacherPageState = ({ title, body }: { title: string; body: string }): ReactElement => (
