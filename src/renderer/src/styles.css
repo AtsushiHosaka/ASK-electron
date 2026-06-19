@@ -1507,6 +1507,110 @@ textarea:focus,
   min-height: 1.4em;
 }
 
+.class-join-confirmation {
+  display: grid;
+  gap: 16px;
+  max-width: 960px;
+}
+
+.class-join-hero {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.class-join-hero h1 {
+  margin-top: 12px;
+}
+
+.class-join-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.class-join-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.class-join-summary-panel,
+.class-join-member-panel {
+  align-content: start;
+}
+
+.class-join-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+.class-join-metrics div,
+.class-join-detail-list div {
+  border: 1px solid var(--color-line-soft);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--color-surface-muted);
+}
+
+.class-join-metrics span,
+.class-join-detail-list dt {
+  color: var(--color-muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.class-join-metrics strong,
+.class-join-detail-list dd {
+  margin: 4px 0 0;
+  color: var(--color-heading);
+  font-size: 1rem;
+  font-weight: 850;
+}
+
+.class-join-detail-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.class-join-member-list {
+  display: grid;
+  gap: 8px;
+}
+
+.class-join-member-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid #e1e7ef;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.class-join-member-row > div {
+  display: grid;
+  min-width: 0;
+}
+
+.class-join-member-row strong,
+.class-join-member-row span {
+  overflow-wrap: anywhere;
+}
+
+.class-join-member-row strong {
+  color: #172033;
+  font-weight: 850;
+}
+
+.class-join-member-row span {
+  color: var(--color-muted);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
 .thread-list-panel {
   grid-column: 1 / -1;
 }
@@ -2527,4 +2631,14 @@ textarea:focus,
   padding: 28px;
   background: #ffffff;
   box-shadow: var(--shadow-panel);
+}
+
+@media (max-width: 720px) {
+  .class-join-hero {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .class-join-actions {
+    justify-content: flex-start;
+  }
 }

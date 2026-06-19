@@ -45,6 +45,20 @@ interface ManagedClassSummary {
   statusCounts: Record<ThreadStatus, number>;
 }
 
+interface ClassJoinMemberSummary {
+  membership: ClassMemberRow;
+  user: Pick<UserRow, "id" | "display_name" | "github_username" | "role"> | null;
+  isCurrentUser: boolean;
+}
+
+interface ClassJoinContext {
+  classRow: Pick<ClassRow, "id" | "name" | "description" | "created_at">;
+  joinedRole: ClassMemberRole;
+  joinedStatus: string;
+  members: ClassJoinMemberSummary[];
+  projectCount: number;
+}
+
 interface TeacherDashboardState {
   loading: boolean;
   error: string | null;
@@ -93,6 +107,12 @@ const sshStatusLabels: Record<GithubSshStatus, string> = {
   failed: "SSH要確認"
 };
 
+const classMemberRoleLabels: Record<ClassMemberRole, string> = {
+  student: "生徒",
+  teacher: "講師",
+  mentor: "メンター"
+};
+
 const inviteExpirySeconds = 60 * 60 * 24 * 14;
 
 const initialStatusCounts = (): Record<ThreadStatus, number> =>
@@ -125,6 +145,27 @@ const sortThreadsForQueue = (threads: QueueThread[]): QueueThread[] => {
 };
 
 const formatDateTime = (value: string): string => new Date(value).toLocaleString();
+
+const classJoinStatusLabel = (status: string): string =>
+  status === "already_member" ? "参加済み" : "参加完了";
+
+const classJoinMemberDisplayName = (member: ClassJoinMemberSummary): string => {
+  if (member.isCurrentUser) {
+    return member.user?.display_name ?? member.user?.github_username ?? "あなた";
+  }
+
+  return member.user?.display_name ?? member.user?.github_username ?? "名前未設定";
+};
+
+const classJoinMemberMeta = (member: ClassJoinMemberSummary): string => {
+  const roleLabel = classMemberRoleLabels[member.membership.role];
+
+  if (member.user?.github_username) {
+    return `${roleLabel} / @${member.user.github_username}`;
+  }
+
+  return roleLabel;
+};
 
 interface QueueThread {
   thread: ThreadRow;
@@ -977,15 +1018,20 @@ export const ClassDetailPage = (): ReactElement => {
 
 export const ClassJoinPage = (): ReactElement => {
   const { token } = useParams();
+  const { profile } = useAuth();
   const supabase = useMemo(() => getSupabaseClient(), []);
   const [joinState, setJoinState] = useState<{
     loading: boolean;
     message: string;
     error: string | null;
+    classContext: ClassJoinContext | null;
+    contextWarning: string | null;
   }>({
     loading: true,
     message: "招待を確認しています。",
-    error: null
+    error: null,
+    classContext: null,
+    contextWarning: null
   });
 
   useEffect(() => {
@@ -996,7 +1042,9 @@ export const ClassJoinPage = (): ReactElement => {
         setJoinState({
           loading: false,
           message: "",
-          error: "招待トークンが見つかりません。"
+          error: "招待トークンが見つかりません。",
+          classContext: null,
+          contextWarning: null
         });
         return;
       }
@@ -1005,7 +1053,9 @@ export const ClassJoinPage = (): ReactElement => {
         setJoinState({
           loading: false,
           message: "",
-          error: "Supabase 設定を確認できませんでした。"
+          error: "Supabase 設定を確認できませんでした。",
+          classContext: null,
+          contextWarning: null
         });
         return;
       }
@@ -1025,6 +1075,80 @@ export const ClassJoinPage = (): ReactElement => {
           throw new Error("CLASS_INVITE_REDEEM_RESULT_MISSING");
         }
 
+        let classContext: ClassJoinContext | null = null;
+        let contextWarning: string | null = null;
+
+        try {
+          const { data: classRow, error: classError } = await supabase
+            .from("classes")
+            .select("id,name,description,created_at")
+            .eq("id", result.class_id)
+            .maybeSingle();
+
+          if (classError || !classRow) {
+            throw classError ?? new Error("JOINED_CLASS_CONTEXT_MISSING");
+          }
+
+          const { data: memberships, error: membershipsError } = await supabase
+            .from("class_members")
+            .select("id,class_id,user_id,role,joined_at")
+            .eq("class_id", result.class_id)
+            .order("joined_at", { ascending: true });
+
+          if (membershipsError) {
+            throw membershipsError;
+          }
+
+          const userIds = unique((memberships ?? []).map((membership) => membership.user_id));
+          let users: Pick<UserRow, "id" | "display_name" | "github_username" | "role">[] = [];
+
+          if (userIds.length > 0) {
+            const { data: usersData, error: usersError } = await supabase
+              .from("users")
+              .select("id,display_name,github_username,role")
+              .in("id", userIds);
+
+            if (usersError) {
+              throw usersError;
+            }
+
+            users = usersData ?? [];
+          }
+
+          let projectCount = 0;
+
+          if (profile?.id) {
+            const { data: projects, error: projectsError } = await supabase
+              .from("projects")
+              .select("id")
+              .eq("class_id", result.class_id)
+              .eq("owner_user_id", profile.id);
+
+            if (projectsError) {
+              throw projectsError;
+            }
+
+            projectCount = projects?.length ?? 0;
+          }
+
+          const usersById = new Map(users.map((user) => [user.id, user]));
+
+          classContext = {
+            classRow,
+            joinedRole: result.role,
+            joinedStatus: result.status,
+            members: (memberships ?? []).map((membership) => ({
+              membership,
+              user: usersById.get(membership.user_id) ?? null,
+              isCurrentUser: membership.user_id === profile?.id
+            })),
+            projectCount
+          };
+        } catch (contextError) {
+          console.error("Failed to load joined class context", contextError);
+          contextWarning = "クラス情報を読み込めませんでした。ホームから確認してください。";
+        }
+
         if (mounted) {
           setJoinState({
             loading: false,
@@ -1032,7 +1156,9 @@ export const ClassJoinPage = (): ReactElement => {
               result.status === "already_member"
                 ? "すでにこのクラスに参加しています。"
                 : "クラスに参加しました。",
-            error: null
+            error: null,
+            classContext,
+            contextWarning
           });
         }
         void trackUsageEvent({
@@ -1051,7 +1177,9 @@ export const ClassJoinPage = (): ReactElement => {
           setJoinState({
             loading: false,
             message: "",
-            error: "招待を受け付けできませんでした。期限切れまたは権限不足の可能性があります。"
+            error: "招待を受け付けできませんでした。期限切れまたは権限不足の可能性があります。",
+            classContext: null,
+            contextWarning: null
           });
         }
       }
@@ -1062,7 +1190,7 @@ export const ClassJoinPage = (): ReactElement => {
     return () => {
       mounted = false;
     };
-  }, [supabase, token]);
+  }, [profile?.id, supabase, token]);
 
   if (joinState.loading) {
     return <TeacherPageState title="招待を確認中" body={joinState.message} />;
@@ -1072,16 +1200,151 @@ export const ClassJoinPage = (): ReactElement => {
     return <TeacherPageState title="クラスに参加できません" body={joinState.error} />;
   }
 
+  if (!joinState.classContext) {
+    return (
+      <section className="empty-state">
+        <h1>クラス参加が完了しました</h1>
+        <p>{joinState.message}</p>
+        {joinState.contextWarning ? (
+          <p className="message warning" role="status">
+            {joinState.contextWarning}
+          </p>
+        ) : null}
+        <Link className="secondary-link" to="/student">
+          ホームへ戻る
+        </Link>
+      </section>
+    );
+  }
+
+  const classContext = joinState.classContext;
+  const studentMembers = classContext.members.filter(
+    (member) => member.membership.role === "student"
+  );
+  const staffMembers = classContext.members.filter(
+    (member) => member.membership.role !== "student"
+  );
+  const classmates = studentMembers.filter((member) => !member.isCurrentUser);
+  const visibleClassmates = classmates.slice(0, 6);
+  const hiddenClassmateCount = Math.max(0, classmates.length - visibleClassmates.length);
+  const primaryProjectAction =
+    classContext.projectCount > 0 ? "プロジェクトを見る" : "プロジェクトを登録";
+
   return (
-    <section className="empty-state">
-      <h1>クラス参加が完了しました</h1>
-      <p>{joinState.message}</p>
-      <Link className="secondary-link" to="/student">
-        ホームへ戻る
-      </Link>
+    <section className="class-join-confirmation">
+      <article className="detail-panel class-join-hero">
+        <div>
+          <span className="status-pill success">
+            {classJoinStatusLabel(classContext.joinedStatus)}
+          </span>
+          <h1>{classContext.classRow.name}</h1>
+          <p>{classContext.classRow.description ?? joinState.message}</p>
+        </div>
+        <div className="class-join-actions">
+          <Link className="primary-button" to="/projects">
+            {primaryProjectAction}
+          </Link>
+          <Link className="secondary-link" to="/student">
+            ホーム
+          </Link>
+        </div>
+      </article>
+
+      <div className="class-join-grid">
+        <article className="detail-panel class-join-summary-panel">
+          <div className="panel-heading">
+            <div>
+              <p className="eyebrow">Class</p>
+              <h2>クラス概要</h2>
+            </div>
+          </div>
+          <div className="class-join-metrics" aria-label="クラス概要">
+            <div>
+              <span>生徒</span>
+              <strong>{studentMembers.length}</strong>
+            </div>
+            <div>
+              <span>先生</span>
+              <strong>{staffMembers.length}</strong>
+            </div>
+            <div>
+              <span>自分のプロジェクト</span>
+              <strong>{classContext.projectCount}</strong>
+            </div>
+          </div>
+          <dl className="class-join-detail-list">
+            <div>
+              <dt>あなたの役割</dt>
+              <dd>{classMemberRoleLabels[classContext.joinedRole]}</dd>
+            </div>
+            <div>
+              <dt>作成日</dt>
+              <dd>{new Date(classContext.classRow.created_at).toLocaleDateString()}</dd>
+            </div>
+          </dl>
+        </article>
+
+        <ClassJoinMembersPanel
+          title="先生 / メンター"
+          emptyText="担当者はまだ表示できません。"
+          members={staffMembers}
+        />
+
+        <ClassJoinMembersPanel
+          title="ほかの生徒"
+          emptyText="ほかの生徒はまだ表示できません。"
+          extraCount={hiddenClassmateCount}
+          members={visibleClassmates}
+        />
+      </div>
+
+      {joinState.contextWarning ? (
+        <p className="message warning" role="status">
+          {joinState.contextWarning}
+        </p>
+      ) : null}
     </section>
   );
 };
+
+const ClassJoinMembersPanel = ({
+  title,
+  members,
+  emptyText,
+  extraCount = 0
+}: {
+  title: string;
+  members: ClassJoinMemberSummary[];
+  emptyText: string;
+  extraCount?: number;
+}): ReactElement => (
+  <article className="detail-panel class-join-member-panel">
+    <div className="panel-heading">
+      <div>
+        <p className="eyebrow">Members</p>
+        <h2>{title}</h2>
+      </div>
+      <span className="status-pill pending">{members.length + extraCount} 人</span>
+    </div>
+
+    {members.length === 0 ? (
+      <p className="muted">{emptyText}</p>
+    ) : (
+      <div className="class-join-member-list">
+        {members.map((member) => (
+          <div className="class-join-member-row" key={member.membership.id}>
+            <div>
+              <strong>{classJoinMemberDisplayName(member)}</strong>
+              <span>{classJoinMemberMeta(member)}</span>
+            </div>
+            {member.isCurrentUser ? <span className="status-pill success">自分</span> : null}
+          </div>
+        ))}
+        {extraCount > 0 ? <p className="muted compact">ほか {extraCount} 人</p> : null}
+      </div>
+    )}
+  </article>
+);
 
 const studentMembers = (classSummary: ManagedClassSummary): MemberSummary[] =>
   classSummary.members.filter((member) => member.membership.role === "student");
