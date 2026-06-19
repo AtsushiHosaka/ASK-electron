@@ -8,8 +8,7 @@ import { StudentHomePage } from "./features/student/StudentHomePage";
 import {
   ClassDetailPage,
   ClassJoinPage,
-  TeacherHomePage,
-  TeacherQueuePage
+  TeacherHomePage
 } from "./features/teacher/TeacherDashboard";
 import { ThreadCreatePage } from "./features/threads/ThreadCreatePage";
 import { ThreadDetailPage } from "./features/threads/ThreadDetailPage";
@@ -181,8 +180,7 @@ const AppShell = (): ReactElement => {
           <nav className="nav-list">
             <NavLink to={profile.role === "student" ? "/student" : "/teacher"}>ホーム</NavLink>
             <NavLink to="/classes">クラス</NavLink>
-            {profile.role !== "student" && <NavLink to="/teacher/queue">質問キュー</NavLink>}
-            <NavLink to="/projects">プロジェクト</NavLink>
+            {profile.role === "student" ? <NavLink to="/projects">プロジェクト</NavLink> : null}
           </nav>
 
           {showOnboardingShortcut ? (
@@ -213,7 +211,6 @@ const AppShell = (): ReactElement => {
           <Route path="/" element={<Navigate to={roleHome[profile.role]} replace />} />
           <Route path="/student" element={<StudentHomePage />} />
           <Route path="/teacher" element={<TeacherHomePage />} />
-          <Route path="/teacher/queue" element={<TeacherQueuePage />} />
           <Route path="/onboarding" element={<StudentOnboardingPage />} />
           <Route path="/classes" element={<TeacherHomePage />} />
           <Route path="/classes/:classId" element={<ClassDetailPage />} />
@@ -227,7 +224,7 @@ const AppShell = (): ReactElement => {
               profile.role === "student" ? (
                 <Navigate to="/projects" replace />
               ) : (
-                <Navigate to="/teacher/queue" replace />
+                <Navigate to="/classes" replace />
               )
             }
           />
@@ -237,10 +234,11 @@ const AppShell = (): ReactElement => {
               profile.role === "student" ? (
                 <Navigate to="/projects" replace />
               ) : (
-                <ThreadCreatePage />
+                <Navigate to="/classes" replace />
               )
             }
           />
+          <Route path="/projects/:projectId/threads/:threadId" element={<ThreadDetailPage />} />
           <Route path="/threads/:threadId" element={<ThreadDetailPage />} />
           <Route
             path="*"

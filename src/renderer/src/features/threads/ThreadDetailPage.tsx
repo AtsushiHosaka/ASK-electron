@@ -34,15 +34,18 @@ import {
 } from "./threadMessageState";
 
 type ProjectRow = Database["public"]["Tables"]["projects"]["Row"];
+type ClassRow = Database["public"]["Tables"]["classes"]["Row"];
 type ThreadRow = Database["public"]["Tables"]["threads"]["Row"];
 type UserRow = Database["public"]["Tables"]["users"]["Row"];
-type ProjectSummary = Pick<ProjectRow, "id" | "local_path_hash" | "name">;
+type ProjectSummary = Pick<ProjectRow, "id" | "class_id" | "local_path_hash" | "name">;
+type ClassSummary = Pick<ClassRow, "id" | "name">;
 
 interface ThreadDetailState {
   loading: boolean;
   error: string | null;
   thread: ThreadRow | null;
   project: ProjectSummary | null;
+  classRow: ClassSummary | null;
   messages: MessageRow[];
   patchProposalsByMessageId: Map<string, PatchProposalSummary>;
   usersById: Map<string, Pick<UserRow, "id" | "display_name" | "email" | "role">>;
@@ -64,6 +67,7 @@ const initialState: ThreadDetailState = {
   error: null,
   thread: null,
   project: null,
+  classRow: null,
   messages: [],
   patchProposalsByMessageId: new Map(),
   usersById: new Map()
@@ -427,7 +431,7 @@ export const ThreadDetailPage = (): ReactElement => {
             : Promise.resolve({ data: [], error: null }),
           supabase
             .from("projects")
-            .select("id,name,local_path_hash")
+            .select("id,class_id,name,local_path_hash")
             .eq("id", threadResult.data.project_id)
             .single(),
           messageIds.length > 0
@@ -452,12 +456,29 @@ export const ThreadDetailPage = (): ReactElement => {
           console.warn("Failed to load thread patch proposals", patchProposalsResult.error);
         }
 
+        let classRow: ClassSummary | null = null;
+
+        if (!projectResult.error && projectResult.data) {
+          const { data: classData, error: classError } = await supabase
+            .from("classes")
+            .select("id,name")
+            .eq("id", projectResult.data.class_id)
+            .maybeSingle();
+
+          if (classError) {
+            console.warn("Failed to load thread class summary", classError);
+          }
+
+          classRow = classError ? null : (classData ?? null);
+        }
+
         if (mounted) {
           setState({
             loading: false,
             error: null,
             thread: threadResult.data,
             project: projectResult.error ? null : projectResult.data,
+            classRow,
             messages,
             patchProposalsByMessageId: new Map(
               (patchProposalsResult.error ? [] : (patchProposalsResult.data ?? [])).map(
@@ -1495,8 +1516,8 @@ export const ThreadDetailPage = (): ReactElement => {
     return <ThreadStatePage title="スレッドが見つかりません" body={state.error ?? ""} />;
   }
 
-  const backTarget = profile?.role === "student" ? "/student" : "/teacher/queue";
-  const breadcrumbParentLabel = profile?.role === "student" ? "ホーム" : "質問キュー";
+  const canLinkClassBreadcrumb = profile?.role !== "student" && Boolean(state.classRow);
+  const projectBreadcrumbTarget = state.project ? `/projects/${state.project.id}` : "/projects";
   const detailMessage =
     detailMessageId === null
       ? null
@@ -1507,8 +1528,13 @@ export const ThreadDetailPage = (): ReactElement => {
       <div className="page-header thread-page-header">
         <div>
           <nav className="breadcrumb" aria-label="パンくずリスト">
-            <Link to={backTarget}>{breadcrumbParentLabel}</Link>
-            <span>{state.project?.name ?? "プロジェクト"}</span>
+            {canLinkClassBreadcrumb && state.classRow ? (
+              <Link to={`/classes/${state.classRow.id}`}>{state.classRow.name}</Link>
+            ) : (
+              <span>{state.classRow?.name ?? "クラス"}</span>
+            )}
+            <Link to={projectBreadcrumbTarget}>{state.project?.name ?? "プロジェクト"}</Link>
+            <span>{state.thread.title}</span>
           </nav>
           <h1>{state.thread.title}</h1>
           <div className="thread-meta">

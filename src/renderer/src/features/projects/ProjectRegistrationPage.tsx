@@ -737,6 +737,7 @@ export const ProjectsPage = (): ReactElement => {
 
 export const ProjectDetailPage = (): ReactElement => {
   const { projectId } = useParams();
+  const { profile } = useAuth();
   const supabase = useMemo(() => getSupabaseClient(), []);
   const [project, setProject] = useState<ProjectRow | null>(null);
   const [threads, setThreads] = useState<ThreadRow[]>([]);
@@ -857,6 +858,10 @@ export const ProjectDetailPage = (): ReactElement => {
     return <ProjectPageState title="プロジェクトが見つかりません" body={error ?? ""} />;
   }
 
+  const canCreateQuestion = profile?.role === "student" && project.owner_user_id === profile.id;
+  const backTarget = profile?.role === "student" ? "/projects" : `/classes/${project.class_id}`;
+  const backLabel = profile?.role === "student" ? "プロジェクト一覧へ" : "クラスへ戻る";
+
   return (
     <section className="workspace-page">
       <div className="page-header">
@@ -865,11 +870,13 @@ export const ProjectDetailPage = (): ReactElement => {
           <h1>{project.name}</h1>
           <p className="muted">GitHubリポジトリとローカルフォルダの登録情報です。</p>
         </div>
-        <div className="page-actions">
-          <Link className="primary-button" to={`/projects/${project.id}/threads/new`}>
-            質問を作成
-          </Link>
-        </div>
+        {canCreateQuestion ? (
+          <div className="page-actions">
+            <Link className="primary-button" to={`/projects/${project.id}/threads/new`}>
+              質問を作成
+            </Link>
+          </div>
+        ) : null}
       </div>
 
       <article className="detail-panel thread-list-panel">
@@ -888,7 +895,11 @@ export const ProjectDetailPage = (): ReactElement => {
         ) : (
           <div className="student-thread-list">
             {threads.map((thread) => (
-              <Link className="student-thread-row" key={thread.id} to={`/threads/${thread.id}`}>
+              <Link
+                className="student-thread-row"
+                key={thread.id}
+                to={`/projects/${project.id}/threads/${thread.id}`}
+              >
                 <div>
                   <strong>{thread.title}</strong>
                   <span>{new Date(thread.created_at).toLocaleDateString()}</span>
@@ -920,8 +931,8 @@ export const ProjectDetailPage = (): ReactElement => {
         >
           {reconnectBusy ? "再接続中..." : "ローカルフォルダを再接続"}
         </button>
-        <Link className="secondary-button" to="/projects">
-          プロジェクト一覧へ
+        <Link className="secondary-button" to={backTarget}>
+          {backLabel}
         </Link>
       </div>
       {reconnectResult ? (
