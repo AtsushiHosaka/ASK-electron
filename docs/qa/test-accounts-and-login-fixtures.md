@@ -29,14 +29,14 @@ npm run dev
 
 Local-only fixture password: `ask-password`
 
-| Email                    | App role  | Membership fixture                                            | QA use                                                     |
-| ------------------------ | --------- | ------------------------------------------------------------- | ---------------------------------------------------------- |
-| `admin@example.test`     | `admin`   | No class membership                                           | Admin login smoke test and class creation visibility       |
-| `teacher@example.test`   | `teacher` | Teacher in `Intro Programming`                                | Teacher dashboard, class detail, and queue checks          |
-| `mentor@example.test`    | `teacher` | Mentor in `Intro Programming`, teacher in `Other Programming` | Staff boundary checks across multiple classes              |
-| `student-a@example.test` | `student` | Student in `Intro Programming`                                | Student project, question, thread, and patch review checks |
-| `student-b@example.test` | `student` | Student in `Other Programming`                                | Cross-class isolation checks                               |
-| `outsider@example.test`  | `student` | No class membership                                           | Empty-state and RLS negative checks                        |
+| Email                    | App role  | Membership fixture                                            | QA use                                                       |
+| ------------------------ | --------- | ------------------------------------------------------------- | ------------------------------------------------------------ |
+| `admin@example.test`     | `admin`   | No class membership                                           | Admin login smoke test and class creation visibility         |
+| `teacher@example.test`   | `teacher` | Teacher in `Intro Programming`                                | Teacher dashboard, class detail, and project question checks |
+| `mentor@example.test`    | `teacher` | Mentor in `Intro Programming`, teacher in `Other Programming` | Staff boundary checks across multiple classes                |
+| `student-a@example.test` | `student` | Student in `Intro Programming`                                | Student project, question, thread, and patch review checks   |
+| `student-b@example.test` | `student` | Student in `Other Programming`                                | Cross-class isolation checks                                 |
+| `outsider@example.test`  | `student` | No class membership                                           | Empty-state and RLS negative checks                          |
 
 The `.example.test` domain is reserved for fixtures. Do not replace it with personal, school, or
 production email addresses in committed seed data.
@@ -67,11 +67,11 @@ membership role `mentor`.
 1. Log in as `student-a@example.test`.
 2. Confirm the sidebar shows role `student`.
 3. Open `Projects` and confirm `Student A Calculator` is visible.
-4. Open the seeded thread `Calculator returns NaN` from the project or teacher queue link.
+4. Open the seeded thread `Calculator returns NaN` from the project detail page.
 5. Log out.
 6. Log in as `teacher@example.test`.
 7. Confirm `Intro Programming` is visible on the teacher home page.
-8. Open `Questions Queue` and confirm `Calculator returns NaN` is visible.
+8. Open `Intro Programming`, then `Student A Calculator`, and confirm `Calculator returns NaN` is visible.
 9. Log out.
 10. Log in as `admin@example.test`.
 11. Confirm login succeeds and the class creation form is visible.

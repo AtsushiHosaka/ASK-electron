@@ -21,11 +21,11 @@
 
 - [x] T5. Add first-viewport student home actions.
   - Covers: REQ-002
-  - Verify that the "質問を作成" action links to `/threads/new`.
+  - Verify that the "質問を作成" action keeps students inside the project flow before creating a thread.
 
-- [x] T6. Refresh queue and chat visual states.
+- [x] T6. Refresh project-scoped question lists and chat visual states.
   - Covers: REQ-004
-  - Verify that own, teacher, AI/system messages remain distinguishable and queue filters remain scannable.
+  - Verify that own, teacher, AI/system messages remain distinguishable and project-scoped question rows remain scannable.
 
 - [x] T7. Add a student first-run setup screen.
   - Covers: REQ-007, UI-REQ-007

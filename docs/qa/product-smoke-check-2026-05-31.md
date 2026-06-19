@@ -26,7 +26,7 @@ checklist tracked by #78.
 | Account creation screen     | Pass    | The login form toggled to account creation mode without a renderer crash. No account was submitted.                |
 | Fixture login               | Blocked | `student-a@example.test` sign-in returned `メールアドレスまたはパスワードを確認してください。`                     |
 | Authenticated student flows | Blocked | Could not reach student home, onboarding, project registration, question creation, thread detail, or patch review. |
-| Authenticated teacher flows | Blocked | Could not verify teacher home, class management, teacher queue, chat, or status updates.                           |
+| Authenticated teacher flows | Blocked | Could not verify teacher home, class management, project-scoped question lists, chat, or status updates.           |
 | Local fixture fallback      | Blocked | `supabase status` cannot inspect local Supabase because Docker daemon is unavailable on this machine.              |
 
 ## Commands Run
@@ -75,7 +75,7 @@ git diff --check
 - Class creation, invite creation, and invite acceptance.
 - Project registration folder picker, Git repository validation, and GitHub remote display.
 - Question creation preview, related files, Git diff, environment snapshot, secret blocking, and AI fallback.
-- Thread detail chat, code/diff rendering, lifecycle controls, teacher queue realtime reflection, and patch review/apply/revert.
+- Thread detail chat, code/diff rendering, lifecycle controls, class/project question list reflection, and patch review/apply/revert.
 
 These remain blocked by #101 rather than #78. #78 should continue to cover cross-platform release
 sign-off once a seeded QA environment is available.

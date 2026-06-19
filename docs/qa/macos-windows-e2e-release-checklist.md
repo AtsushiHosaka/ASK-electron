@@ -12,21 +12,21 @@ without knowing the implementation details.
 
 ## Test Matrix
 
-| Area                      | macOS  | Windows | Automation target                                            |
-| ------------------------- | ------ | ------- | ------------------------------------------------------------ |
-| App launch                | Manual | Manual  | Playwright or Spectron-style smoke test after harness exists |
-| Supabase login            | Manual | Manual  | Renderer integration test                                    |
-| Class invite acceptance   | Manual | Manual  | Supabase integration test                                    |
-| Git detection             | Manual | Manual  | Main-process IPC test                                        |
-| GitHub CLI auth detection | Manual | Manual  | Main-process IPC test with command fixtures                  |
-| SSH connectivity check    | Manual | Manual  | Main-process IPC test with mocked process output             |
-| Project registration      | Manual | Manual  | Renderer + Supabase integration test                         |
-| Question creation         | Manual | Manual  | E2E test with seeded project                                 |
-| Teacher queue             | Manual | Manual  | Supabase RLS + renderer integration test                     |
-| Chat realtime             | Manual | Manual  | Supabase Realtime integration test                           |
-| AI fallback               | Manual | Manual  | Provider mock integration test                               |
-| Patch proposal and apply  | Manual | Manual  | Main-process patch fixture test                              |
-| Secret blocking           | Manual | Manual  | Unit and integration tests                                   |
+| Area                            | macOS  | Windows | Automation target                                            |
+| ------------------------------- | ------ | ------- | ------------------------------------------------------------ |
+| App launch                      | Manual | Manual  | Playwright or Spectron-style smoke test after harness exists |
+| Supabase login                  | Manual | Manual  | Renderer integration test                                    |
+| Class invite acceptance         | Manual | Manual  | Supabase integration test                                    |
+| Git detection                   | Manual | Manual  | Main-process IPC test                                        |
+| GitHub CLI auth detection       | Manual | Manual  | Main-process IPC test with command fixtures                  |
+| SSH connectivity check          | Manual | Manual  | Main-process IPC test with mocked process output             |
+| Project registration            | Manual | Manual  | Renderer + Supabase integration test                         |
+| Question creation               | Manual | Manual  | E2E test with seeded project                                 |
+| Teacher class/project questions | Manual | Manual  | Supabase RLS + renderer integration test                     |
+| Chat realtime                   | Manual | Manual  | Supabase Realtime integration test                           |
+| AI fallback                     | Manual | Manual  | Provider mock integration test                               |
+| Patch proposal and apply        | Manual | Manual  | Main-process patch fixture test                              |
+| Secret blocking                 | Manual | Manual  | Unit and integration tests                                   |
 
 ## Prerequisites
 
@@ -152,7 +152,7 @@ Abnormal-path coverage:
 - [ ] Student can remove an item from the preview.
 - [ ] Secret detection blocks `.env` contents, token-like strings, and private keys.
 - [ ] Question sends successfully after the preview is confirmed.
-- [ ] Teacher queue shows the new question.
+- [ ] Teacher class detail shows the new question under the selected project.
 
 Automation target:
 
@@ -161,7 +161,7 @@ Automation target:
 
 ## 6. Teacher Response and Chat
 
-- [ ] Teacher sees unanswered questions in the queue.
+- [ ] Teacher sees unanswered questions by opening class detail, then the related project.
 - [ ] Teacher can open a question.
 - [ ] Teacher sees question body, error text, related files, diff, and environment snapshot.
 - [ ] Student and teacher can exchange chat messages.
