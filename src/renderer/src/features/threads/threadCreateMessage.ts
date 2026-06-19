@@ -51,7 +51,7 @@ export const buildRelatedSnippetMessage = (snippets: RelatedFileSnippet[]): stri
   );
 
   if (includedSnippets.length === 0) {
-    return "## 関連ファイルスニペット\n未選択";
+    return "";
   }
 
   return [
@@ -150,6 +150,8 @@ export const buildInitialMessage = ({
   environmentSnapshot: EnvironmentSnapshotResponse | null;
   excludedItems: string[];
 }): string => {
+  const relatedSnippetMessage = buildRelatedSnippetMessage(relatedSnippets);
+  const secretScanMessage = formatSecretScanMessage(secretScan);
   const sections = [
     `## 質問文\n${draftQuestion.trim() || "未入力"}`,
     aiErrorSummary.trim() ? `## AIエラー要約\n${aiErrorSummary.trim()}` : null,
@@ -157,15 +159,15 @@ export const buildInitialMessage = ({
     aiUsed
       ? "## AI補助の注意\nAI 出力は補助情報です。確定回答ではなく、送信前に内容を確認・編集しています。"
       : null,
-    `## 質問内容\n${situation.trim()}`,
-    `## エラー文\n${errorText.trim() || "未入力"}`,
-    `## 実行コマンド\n${commandText.trim() || "未入力"}`,
-    `## 関連ファイル\n${relatedFiles.length > 0 ? relatedFiles.join("\n") : "未選択"}`,
-    buildRelatedSnippetMessage(relatedSnippets),
-    buildGitDiffMessage(gitDiff),
-    buildEnvironmentSnapshotMessage(environmentSnapshot),
-    `## 除外した項目\n${excludedItems.length > 0 ? excludedItems.join("\n") : "なし"}`,
-    `## 秘密情報チェック\n${formatSecretScanMessage(secretScan)}`
+    situation.trim() ? `## 質問内容\n${situation.trim()}` : null,
+    errorText.trim() ? `## エラー文\n${errorText.trim()}` : null,
+    commandText.trim() ? `## 実行コマンド\n${commandText.trim()}` : null,
+    relatedFiles.length > 0 ? `## 関連ファイル\n${relatedFiles.join("\n")}` : null,
+    relatedSnippetMessage ? relatedSnippetMessage : null,
+    gitDiff ? buildGitDiffMessage(gitDiff) : null,
+    environmentSnapshot ? buildEnvironmentSnapshotMessage(environmentSnapshot) : null,
+    excludedItems.length > 0 ? `## 除外した項目\n${excludedItems.join("\n")}` : null,
+    secretScanMessage ? `## 秘密情報チェック\n${secretScanMessage}` : null
   ].filter((section): section is string => Boolean(section));
 
   return sections.join("\n\n");
@@ -178,7 +180,7 @@ export const formatSecretFinding = (finding: SecretScanResult["findings"][number
 
 export const formatSecretScanMessage = (secretScan: SecretScanResult): string => {
   if (secretScan.activeFindings.length === 0 && secretScan.allowedFindings.length === 0) {
-    return "チェック通過";
+    return "";
   }
 
   const activeLines = secretScan.activeFindings.map(formatSecretFinding);
@@ -232,7 +234,7 @@ export const formatDiffSection = (
 
 export const buildGitDiffMessage = (gitDiff: GitDiffCollectionResponse | null): string => {
   if (!gitDiff) {
-    return "## Git差分\n未収集。ローカルフォルダ未選択または収集中に失敗した場合も質問作成は継続できます。";
+    return "";
   }
 
   const omittedFiles =
@@ -293,7 +295,7 @@ export const buildEnvironmentSnapshotMessage = (
   snapshot: EnvironmentSnapshotResponse | null
 ): string => {
   if (!snapshot) {
-    return "## 環境情報\n未収集。収集できない場合も質問作成は継続できます。";
+    return "";
   }
 
   return [

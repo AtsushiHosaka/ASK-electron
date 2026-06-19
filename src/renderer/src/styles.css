@@ -1029,6 +1029,25 @@ textarea:focus,
   font-size: 1rem;
 }
 
+.review-payload-details {
+  border: 1px solid #e1e7ef;
+  border-radius: 8px;
+  padding: 0;
+  background: #ffffff;
+}
+
+.review-payload-details summary {
+  cursor: pointer;
+  padding: 12px 14px;
+  color: #101828;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.review-payload-details .review-payload-preview {
+  margin: 0 12px 12px;
+}
+
 .review-check-list {
   display: grid;
   gap: 8px;

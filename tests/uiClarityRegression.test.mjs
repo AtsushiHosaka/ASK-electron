@@ -91,6 +91,17 @@ describe("student-facing UI clarity regressions", () => {
     assert.match(threadDetailSource, /aria-label="パンくずリスト"/);
   });
 
+  it("shows send-preview review details only when they need attention", () => {
+    const screenSources = [threadCreateSource, threadDetailSource].join("\n");
+
+    assert.doesNotMatch(screenSources, /送信対象に秘密情報候補はありません/);
+    assert.doesNotMatch(screenSources, /最終 payload/);
+    assert.doesNotMatch(threadCreateSource, /className="project-summary-list"/);
+    assert.match(threadCreateSource, /hasReviewSecretFindings/);
+    assert.match(threadDetailSource, /hasAiEscalationSecretFindings/);
+    assert.match(screenSources, /className="review-section review-payload-details"/);
+  });
+
   it("uses clear labels instead of raw internal repository names", () => {
     const screenSources = [
       onboardingSource,
@@ -113,7 +124,6 @@ describe("student-facing UI clarity regressions", () => {
     assert.match(screenSources, />GitHubリポジトリ</);
     assert.match(screenSources, />既定ブランチ</);
     assert.match(screenSources, />ローカル識別子</);
-    assert.match(screenSources, />最新コミット</);
     assert.match(threadDetailSource, /aria-label="パッチ適用確認"/);
   });
 });
