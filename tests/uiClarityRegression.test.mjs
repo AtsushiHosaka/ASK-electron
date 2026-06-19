@@ -69,6 +69,19 @@ describe("student-facing UI clarity regressions", () => {
     assert.match(threadCreateSource, /projectLocked/);
   });
 
+  it("keeps project detail free of internal local identifiers", () => {
+    const detailMatch = projectSource.match(
+      /export const ProjectDetailPage = \(\): ReactElement => \{([\s\S]*)const ProjectPageState/
+    );
+
+    assert.ok(detailMatch);
+    assert.doesNotMatch(detailMatch[1], />ローカル識別子</);
+    assert.doesNotMatch(detailMatch[1], /localPathHash\?\.slice|local_path_hash\?\.slice/);
+    assert.match(detailMatch[1], /className="project-detail-actions"/);
+    assert.match(stylesSource, /\.workspace-page/);
+    assert.match(stylesSource, /\.project-detail-actions/);
+  });
+
   it("keeps obsolete verbose labels out of question and chat screens", () => {
     const screenSources = [threadCreateSource, threadDetailSource].join("\n");
 

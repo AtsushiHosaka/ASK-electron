@@ -799,7 +799,9 @@ export const ProjectDetailPage = (): ReactElement => {
   const reconnectLocalFolder = async (): Promise<void> => {
     if (!project?.local_path_hash) {
       setReconnectStatus("warning");
-      setReconnectMessage("ローカル識別子が未設定のため、プロジェクトを再登録してください。");
+      setReconnectMessage(
+        "ローカルフォルダの登録情報が未設定です。プロジェクトを再登録してください。"
+      );
       return;
     }
 
@@ -906,12 +908,10 @@ export const ProjectDetailPage = (): ReactElement => {
         <strong>{project.github_repo_url}</strong>
         <span>既定ブランチ</span>
         <strong>{project.default_branch ?? "未設定"}</strong>
-        <span>ローカル識別子</span>
-        <strong>{project.local_path_hash?.slice(0, 12) ?? "未設定"}</strong>
         <span>登録日</span>
         <strong>{new Date(project.created_at).toLocaleString()}</strong>
       </div>
-      <div className="control-row">
+      <div className="project-detail-actions">
         <button
           className="primary-button"
           disabled={reconnectBusy || !project.local_path_hash}
@@ -920,6 +920,9 @@ export const ProjectDetailPage = (): ReactElement => {
         >
           {reconnectBusy ? "再接続中..." : "ローカルフォルダを再接続"}
         </button>
+        <Link className="secondary-button" to="/projects">
+          プロジェクト一覧へ
+        </Link>
       </div>
       {reconnectResult ? (
         <div className="project-summary-list detail-panel">
@@ -927,8 +930,6 @@ export const ProjectDetailPage = (): ReactElement => {
           <strong>{reconnectResult.persisted ? "保存済み" : reconnectResult.status}</strong>
           <span>GitHubリポジトリ</span>
           <strong>{reconnectResult.normalizedGithubRepoUrl ?? "未検出"}</strong>
-          <span>ローカル識別子</span>
-          <strong>{reconnectResult.localPathHash?.slice(0, 12) ?? "未検出"}</strong>
         </div>
       ) : null}
       {reconnectMessage ? (
@@ -939,9 +940,6 @@ export const ProjectDetailPage = (): ReactElement => {
           {reconnectMessage}
         </p>
       ) : null}
-      <Link className="secondary-link" to="/projects">
-        プロジェクト一覧へ
-      </Link>
     </section>
   );
 };
